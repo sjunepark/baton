@@ -47,6 +47,9 @@ type PRPolicy struct {
 	RejectAllTrivialMultiIssuePRs   bool     `json:"rejectAllTrivialMultiIssuePRs" yaml:"reject_all_trivial_multi_issue_prs"`
 	NoisyCommitSubjects             []string `json:"noisyCommitSubjects" yaml:"noisy_commit_subjects"`
 	FailWhenCommitListingReachesCap bool     `json:"failWhenCommitListingReachesCap" yaml:"fail_when_commit_listing_reaches_cap"`
+
+	rejectAllTrivialMultiIssuePRsSet   bool
+	failWhenCommitListingReachesCapSet bool
 }
 
 type LabelsConfig struct {
@@ -126,6 +129,27 @@ func Load(path string) (Config, error) {
 	return cfg, nil
 }
 
+func (policy *PRPolicy) UnmarshalYAML(value *yaml.Node) error {
+	type prPolicy PRPolicy
+	var decoded prPolicy
+	if err := value.Decode(&decoded); err != nil {
+		return err
+	}
+	*policy = PRPolicy(decoded)
+	if value.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(value.Content); i += 2 {
+		switch value.Content[i].Value {
+		case "reject_all_trivial_multi_issue_prs":
+			policy.rejectAllTrivialMultiIssuePRsSet = true
+		case "fail_when_commit_listing_reaches_cap":
+			policy.failWhenCommitListingReachesCapSet = true
+		}
+	}
+	return nil
+}
+
 func MarshalYAML(cfg Config) ([]byte, error) {
 	cfg.applyDefaults()
 	cfg.SchemaVersion = 0
@@ -176,10 +200,10 @@ func (cfg *Config) applyDefaults() {
 	if len(cfg.PRPolicy.NoisyCommitSubjects) == 0 {
 		cfg.PRPolicy.NoisyCommitSubjects = defaultNoisyCommitSubjects()
 	}
-	if !cfg.PRPolicy.FailWhenCommitListingReachesCap {
+	if !cfg.PRPolicy.FailWhenCommitListingReachesCap && !cfg.PRPolicy.failWhenCommitListingReachesCapSet {
 		cfg.PRPolicy.FailWhenCommitListingReachesCap = true
 	}
-	if !cfg.PRPolicy.RejectAllTrivialMultiIssuePRs {
+	if !cfg.PRPolicy.RejectAllTrivialMultiIssuePRs && !cfg.PRPolicy.rejectAllTrivialMultiIssuePRsSet {
 		cfg.PRPolicy.RejectAllTrivialMultiIssuePRs = true
 	}
 	if cfg.Labels.Manifest == "" {

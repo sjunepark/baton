@@ -1092,7 +1092,7 @@ func loadConfig(path string) (config.Config, error) {
 		return cfg, nil
 	}
 	if errors.Is(err, config.ErrConfigNotFound) {
-		return config.DefaultCreoCompat(), nil
+		return config.Config{}, err
 	}
 	return config.Config{}, err
 }

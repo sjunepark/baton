@@ -45,8 +45,6 @@ type PRPolicyDecision struct {
 }
 
 var (
-	referencePattern   = regexp.MustCompile(`(?i)\b(?:refs?|references?)[ \t]+((?:#\d+)(?:(?:[ \t]*,[ \t]*|[ \t]+and[ \t]+|[ \t]+)#\d+)*)`)
-	closingPattern     = regexp.MustCompile(`(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)[ \t]+((?:#\d+)(?:(?:[ \t]*,[ \t]*|[ \t]+and[ \t]+|[ \t]+)#\d+)*)`)
 	issueNumberPattern = regexp.MustCompile(`#(\d+)`)
 )
 
@@ -55,13 +53,15 @@ func ComputePullRequestPolicy(input PRPolicyInput) PRPolicyDecision {
 	if cfg.Version == 0 {
 		cfg = config.DefaultCreoCompat()
 	}
+	referenceKeywords := referenceKeywordsForPolicy(cfg.PRPolicy.RequiredReferenceKeyword)
+	closingKeywords := closingKeywordsForPolicy(cfg.PRPolicy.ForbiddenClosingKeywords)
 	referenced := uniqueSortedInts(append(
-		ExtractReferenceIssueNumbers(input.PullRequest.Title),
-		ExtractReferenceIssueNumbers(input.PullRequest.Body)...,
+		extractIssueNumbersAfterKeywords(input.PullRequest.Title, referenceKeywords),
+		extractIssueNumbersAfterKeywords(input.PullRequest.Body, referenceKeywords)...,
 	))
 	closing := uniqueSortedInts(append(
-		ExtractClosingIssueNumbers(input.PullRequest.Title),
-		ExtractClosingIssueNumbers(input.PullRequest.Body)...,
+		extractIssueNumbersAfterKeywords(input.PullRequest.Title, closingKeywords),
+		extractIssueNumbersAfterKeywords(input.PullRequest.Body, closingKeywords)...,
 	))
 	errors := []string{}
 	targetBranch := firstNonEmpty(cfg.Repository.StagingBranch, "agent")
@@ -89,10 +89,10 @@ func ComputePullRequestPolicy(input PRPolicyInput) PRPolicyDecision {
 
 func validateWorkPullRequest(errors *[]string, input PRPolicyInput, cfg config.Config, referenced, closing []int, targetBranch string) {
 	if len(referenced) == 0 {
-		*errors = append(*errors, fmt.Sprintf("Work PRs into %s must reference at least one issue with Refs #123.", targetBranch))
+		*errors = append(*errors, fmt.Sprintf("Work PRs into %s must reference at least one issue with %s #123.", targetBranch, cfg.PRPolicy.RequiredReferenceKeyword))
 	}
 	if len(closing) > 0 {
-		*errors = append(*errors, fmt.Sprintf("Work PRs into %s must use Refs #123, not closing keywords.", targetBranch))
+		*errors = append(*errors, fmt.Sprintf("Work PRs into %s must use %s #123, not closing keywords.", targetBranch, cfg.PRPolicy.RequiredReferenceKeyword))
 	}
 	if cfg.Repository.WorkBranchPrefix != "" && !strings.HasPrefix(input.PullRequest.HeadRef, cfg.Repository.WorkBranchPrefix) {
 		*errors = append(*errors, fmt.Sprintf("Work PR branches into %s must start with %s; %s/... is reserved by the shared staging branch.", targetBranch, cfg.Repository.WorkBranchPrefix, targetBranch))
@@ -154,7 +154,7 @@ func validatePromotionPullRequest(errors *[]string, input PRPolicyInput, cfg con
 		*errors = append(*errors, fmt.Sprintf("Promotion PRs into %s must come from the same repository.", baseBranch))
 	}
 	if len(closing) == 0 {
-		*errors = append(*errors, fmt.Sprintf("Promotion PRs into %s must close promoted issues with Closes #123.", baseBranch))
+		*errors = append(*errors, fmt.Sprintf("Promotion PRs into %s must close promoted issues with %s #123.", baseBranch, firstNonEmpty(firstString(cfg.PRPolicy.ForbiddenClosingKeywords), "a closing keyword")))
 	}
 	validateCommitMessages(errors, input, cfg)
 }
@@ -172,11 +172,11 @@ func validateCommitMessages(errors *[]string, input PRPolicyInput, cfg config.Co
 }
 
 func ExtractReferenceIssueNumbers(text string) []int {
-	return extractIssueNumbersAfterKeyword(text, referencePattern)
+	return extractIssueNumbersAfterKeywords(text, referenceKeywordsForPolicy("Refs"))
 }
 
 func ExtractClosingIssueNumbers(text string) []int {
-	return extractIssueNumbersAfterKeyword(text, closingPattern)
+	return extractIssueNumbersAfterKeywords(text, closingKeywordsForPolicy([]string{"Closes", "Fixes", "Resolves"}))
 }
 
 func IsNoisyCommitSubject(subject string, noisySubjects []string) bool {
@@ -191,7 +191,11 @@ func IsNoisyCommitSubject(subject string, noisySubjects []string) bool {
 	return false
 }
 
-func extractIssueNumbersAfterKeyword(text string, pattern *regexp.Regexp) []int {
+func extractIssueNumbersAfterKeywords(text string, keywords []string) []int {
+	pattern := issueKeywordPattern(keywords)
+	if pattern == nil {
+		return nil
+	}
 	numbers := []int{}
 	for _, match := range pattern.FindAllStringSubmatch(text, -1) {
 		if len(match) < 2 {
@@ -205,6 +209,67 @@ func extractIssueNumbersAfterKeyword(text string, pattern *regexp.Regexp) []int 
 		}
 	}
 	return numbers
+}
+
+func issueKeywordPattern(keywords []string) *regexp.Regexp {
+	alternatives := make([]string, 0, len(keywords))
+	seen := map[string]struct{}{}
+	for _, keyword := range keywords {
+		keyword = strings.TrimSpace(keyword)
+		if keyword == "" {
+			continue
+		}
+		key := strings.ToLower(keyword)
+		if _, has := seen[key]; has {
+			continue
+		}
+		seen[key] = struct{}{}
+		alternatives = append(alternatives, regexp.QuoteMeta(keyword))
+	}
+	if len(alternatives) == 0 {
+		return nil
+	}
+	return regexp.MustCompile(`(?i)(?:^|[^\pL\pN_])(?:` + strings.Join(alternatives, "|") + `)[ \t]+((?:#\d+)(?:(?:[ \t]*,[ \t]*|[ \t]+and[ \t]+|[ \t]+)#\d+)*)`)
+}
+
+func referenceKeywordsForPolicy(keyword string) []string {
+	if strings.EqualFold(strings.TrimSpace(keyword), "Refs") {
+		return []string{"Ref", "Refs", "Reference", "References"}
+	}
+	return []string{keyword}
+}
+
+func closingKeywordsForPolicy(keywords []string) []string {
+	defaults := []string{"Closes", "Fixes", "Resolves"}
+	if sameStringsFold(keywords, defaults) {
+		return []string{"Close", "Closes", "Closed", "Fix", "Fixes", "Fixed", "Resolve", "Resolves", "Resolved"}
+	}
+	return keywords
+}
+
+func firstString(values []string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func sameStringsFold(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	set := map[string]struct{}{}
+	for _, value := range got {
+		set[strings.ToLower(strings.TrimSpace(value))] = struct{}{}
+	}
+	for _, value := range want {
+		if _, has := set[strings.ToLower(strings.TrimSpace(value))]; !has {
+			return false
+		}
+	}
+	return true
 }
 
 func uniqueSortedInts(values []int) []int {

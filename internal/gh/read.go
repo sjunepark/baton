@@ -223,39 +223,121 @@ func (c *Client) GetReviewThreads(repo string, prNumber int) (ReviewThreadResult
 	if err != nil {
 		return ReviewThreadResult{}, err
 	}
-	var payload struct {
-		Query     string         `json:"query"`
-		Variables map[string]any `json:"variables"`
-	}
-	payload.Query = `query($owner: String!, $name: String!, $number: Int!) {
+	threads := []ReviewThread{}
+	var threadsCursor *string
+	for {
+		var result reviewThreadsGraphQLResponse
+		if err := c.postGraphQL(graphQLPayload{
+			Query: `query($owner: String!, $name: String!, $number: Int!, $threadsCursor: String) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
-      reviewThreads(first: 100) {
+      reviewThreads(first: 100, after: $threadsCursor) {
         nodes {
+          id
           isResolved
           isOutdated
           path
           line
-          comments(first: 20) {
+          comments(first: 100) {
             nodes {
               body
               url
               author { login }
             }
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
           }
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
         }
       }
     }
   }
-}`
-	payload.Variables = map[string]any{"owner": owner, "name": name, "number": prNumber}
+}`,
+			Variables: map[string]any{"owner": owner, "name": name, "number": prNumber, "threadsCursor": threadsCursor},
+		}, &result); err != nil {
+			return ReviewThreadResult{}, err
+		}
+		if len(result.Errors) > 0 {
+			return ReviewThreadResult{}, fmt.Errorf("GitHub GraphQL reviewThreads failed: %s", result.Errors[0].Message)
+		}
+		connection := result.Data.Repository.PullRequest.ReviewThreads
+		for _, node := range connection.Nodes {
+			comments := reviewCommentsFromNodes(node.Comments.Nodes)
+			if node.Comments.PageInfo.HasNextPage {
+				more, err := c.getRemainingReviewThreadComments(node.ID, node.Comments.PageInfo.EndCursor)
+				if err != nil {
+					return ReviewThreadResult{}, err
+				}
+				comments = append(comments, more...)
+			}
+			threads = append(threads, ReviewThread{IsResolved: node.IsResolved, IsOutdated: node.IsOutdated, Path: node.Path, Line: node.Line, Comments: comments})
+		}
+		if !connection.PageInfo.HasNextPage {
+			break
+		}
+		threadsCursor = &connection.PageInfo.EndCursor
+	}
+	return ReviewThreadResult{SchemaVersion: 1, Kind: "reviewThreads", Repo: repo, PRNumber: prNumber, Threads: threads}, nil
+}
+
+func (c *Client) getRemainingReviewThreadComments(threadID, cursor string) ([]ReviewComment, error) {
+	comments := []ReviewComment{}
+	commentsCursor := &cursor
+	for {
+		var result reviewThreadCommentsGraphQLResponse
+		if err := c.postGraphQL(graphQLPayload{
+			Query: `query($id: ID!, $commentsCursor: String) {
+  node(id: $id) {
+    ... on PullRequestReviewThread {
+      comments(first: 100, after: $commentsCursor) {
+        nodes {
+          body
+          url
+          author { login }
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+      }
+    }
+  }
+}`,
+			Variables: map[string]any{"id": threadID, "commentsCursor": commentsCursor},
+		}, &result); err != nil {
+			return nil, err
+		}
+		if len(result.Errors) > 0 {
+			return nil, fmt.Errorf("GitHub GraphQL reviewThreads failed: %s", result.Errors[0].Message)
+		}
+		connection := result.Data.Node.Comments
+		comments = append(comments, reviewCommentsFromNodes(connection.Nodes)...)
+		if !connection.PageInfo.HasNextPage {
+			break
+		}
+		commentsCursor = &connection.PageInfo.EndCursor
+	}
+	return comments, nil
+}
+
+type graphQLPayload struct {
+	Query     string         `json:"query"`
+	Variables map[string]any `json:"variables"`
+}
+
+func (c *Client) postGraphQL(payload graphQLPayload, out any) error {
 	content, err := json.Marshal(payload)
 	if err != nil {
-		return ReviewThreadResult{}, err
+		return err
 	}
 	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/graphql", bytes.NewReader(content))
 	if err != nil {
-		return ReviewThreadResult{}, err
+		return err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("Content-Type", "application/json")
@@ -264,55 +346,77 @@ func (c *Client) GetReviewThreads(repo string, prNumber int) (ReviewThreadResult
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return ReviewThreadResult{}, err
+		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return ReviewThreadResult{}, fmt.Errorf("GitHub GraphQL reviewThreads failed: %s", resp.Status)
+		return fmt.Errorf("GitHub GraphQL reviewThreads failed: %s", resp.Status)
 	}
-	var result struct {
-		Data struct {
-			Repository struct {
-				PullRequest struct {
-					ReviewThreads struct {
-						Nodes []struct {
-							IsResolved bool   `json:"isResolved"`
-							IsOutdated bool   `json:"isOutdated"`
-							Path       string `json:"path"`
-							Line       int    `json:"line"`
-							Comments   struct {
-								Nodes []struct {
-									Body   string `json:"body"`
-									URL    string `json:"url"`
-									Author struct {
-										Login string `json:"login"`
-									} `json:"author"`
-								} `json:"nodes"`
-							} `json:"comments"`
-						} `json:"nodes"`
-					} `json:"reviewThreads"`
-				} `json:"pullRequest"`
-			} `json:"repository"`
-		} `json:"data"`
-		Errors []struct {
-			Message string `json:"message"`
-		} `json:"errors"`
+	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+type reviewThreadsGraphQLResponse struct {
+	Data struct {
+		Repository struct {
+			PullRequest struct {
+				ReviewThreads reviewThreadConnection `json:"reviewThreads"`
+			} `json:"pullRequest"`
+		} `json:"repository"`
+	} `json:"data"`
+	Errors []graphQLError `json:"errors"`
+}
+
+type reviewThreadCommentsGraphQLResponse struct {
+	Data struct {
+		Node struct {
+			Comments reviewCommentConnection `json:"comments"`
+		} `json:"node"`
+	} `json:"data"`
+	Errors []graphQLError `json:"errors"`
+}
+
+type graphQLError struct {
+	Message string `json:"message"`
+}
+
+type reviewThreadConnection struct {
+	Nodes    []reviewThreadNode `json:"nodes"`
+	PageInfo pageInfo           `json:"pageInfo"`
+}
+
+type reviewThreadNode struct {
+	ID         string                  `json:"id"`
+	IsResolved bool                    `json:"isResolved"`
+	IsOutdated bool                    `json:"isOutdated"`
+	Path       string                  `json:"path"`
+	Line       int                     `json:"line"`
+	Comments   reviewCommentConnection `json:"comments"`
+}
+
+type reviewCommentConnection struct {
+	Nodes    []reviewCommentNode `json:"nodes"`
+	PageInfo pageInfo            `json:"pageInfo"`
+}
+
+type reviewCommentNode struct {
+	Body   string `json:"body"`
+	URL    string `json:"url"`
+	Author struct {
+		Login string `json:"login"`
+	} `json:"author"`
+}
+
+type pageInfo struct {
+	HasNextPage bool   `json:"hasNextPage"`
+	EndCursor   string `json:"endCursor"`
+}
+
+func reviewCommentsFromNodes(nodes []reviewCommentNode) []ReviewComment {
+	comments := make([]ReviewComment, 0, len(nodes))
+	for _, comment := range nodes {
+		comments = append(comments, ReviewComment{Author: comment.Author.Login, AuthorKind: classifyAuthor(comment.Author.Login), Body: comment.Body, URL: comment.URL})
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return ReviewThreadResult{}, err
-	}
-	if len(result.Errors) > 0 {
-		return ReviewThreadResult{}, fmt.Errorf("GitHub GraphQL reviewThreads failed: %s", result.Errors[0].Message)
-	}
-	threads := []ReviewThread{}
-	for _, node := range result.Data.Repository.PullRequest.ReviewThreads.Nodes {
-		comments := []ReviewComment{}
-		for _, comment := range node.Comments.Nodes {
-			comments = append(comments, ReviewComment{Author: comment.Author.Login, AuthorKind: classifyAuthor(comment.Author.Login), Body: comment.Body, URL: comment.URL})
-		}
-		threads = append(threads, ReviewThread{IsResolved: node.IsResolved, IsOutdated: node.IsOutdated, Path: node.Path, Line: node.Line, Comments: comments})
-	}
-	return ReviewThreadResult{SchemaVersion: 1, Kind: "reviewThreads", Repo: repo, PRNumber: prNumber, Threads: threads}, nil
+	return comments
 }
 
 func classifyChecks(checks []CheckState) string {

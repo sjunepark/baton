@@ -144,6 +144,44 @@ func TestIssueReferenceExtraction(t *testing.T) {
 	assertInts(t, ExtractClosingIssueNumbers("Closes #5, #6\nFixes #7\nResolves #8 and #9"), []int{5, 6, 7, 8, 9})
 }
 
+func TestComputePullRequestPolicyUsesConfiguredKeywords(t *testing.T) {
+	cfg := config.DefaultCreoCompat()
+	cfg.PRPolicy.RequiredReferenceKeyword = "Relates"
+	cfg.PRPolicy.ForbiddenClosingKeywords = []string{"Finishes"}
+
+	work := ComputePullRequestPolicy(PRPolicyInput{
+		PullRequest:      workPullRequest("Relates #123\n\nCloses #123"),
+		ReferencedIssues: []ReferencedIssue{issue(123, "agent:ready-trivial")},
+		CommitMessages:   []string{"Document issue policy"},
+		Policy:           cfg,
+	})
+	assertStringSlices(t, work.Errors, []string{})
+
+	promotion := ComputePullRequestPolicy(PRPolicyInput{
+		PullRequest:    promotionPullRequest("Closes #123", "agent"),
+		CommitMessages: []string{"Document issue policy"},
+		Policy:         cfg,
+	})
+	if !containsString(promotion.Errors, "Promotion PRs into main must close promoted issues with Finishes #123.") {
+		t.Fatalf("errors = %#v, want configured closing keyword error", promotion.Errors)
+	}
+}
+
+func TestComputePullRequestPolicyHonorsFalsePRPolicyOptions(t *testing.T) {
+	cfg := config.DefaultCreoCompat()
+	cfg.PRPolicy.FailWhenCommitListingReachesCap = false
+	cfg.PRPolicy.RejectAllTrivialMultiIssuePRs = false
+
+	decision := ComputePullRequestPolicy(PRPolicyInput{
+		PullRequest:             workPullRequest("Refs #123\nRefs #124"),
+		ReferencedIssues:        []ReferencedIssue{issue(123, "agent:ready-trivial"), issue(124, "agent:ready-trivial")},
+		CommitMessages:          meaningfulCommits(250),
+		CommitListingReachedCap: true,
+		Policy:                  cfg,
+	})
+	assertStringSlices(t, decision.Errors, []string{})
+}
+
 func TestIsNoisyCommitSubject(t *testing.T) {
 	cfg := config.DefaultCreoCompat()
 	assertEqual(t, IsNoisyCommitSubject("fix lint", cfg.PRPolicy.NoisyCommitSubjects), true)

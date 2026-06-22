@@ -2,8 +2,10 @@ package gh
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/sjunepark/baton/internal/config"
@@ -122,4 +124,126 @@ func TestGetBranchHealth(t *testing.T) {
 	if health.Ref != "agent" || health.SHA != "abc123" || health.CheckState != "failure" {
 		t.Fatalf("health = %#v", health)
 	}
+}
+
+func TestGetReviewThreadsPaginatesThreadsAndComments(t *testing.T) {
+	var sawSecondThreadPage, sawSecondCommentPage bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/graphql" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+		}
+		var payload struct {
+			Query     string         `json:"query"`
+			Variables map[string]any `json:"variables"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		switch {
+		case strings.Contains(payload.Query, "pullRequest(number: $number)"):
+			cursor, _ := payload.Variables["threadsCursor"].(string)
+			if cursor == "" {
+				writeReviewThreadsResponse(w, []map[string]any{
+					reviewThreadPayload("thread-1", "main.go", reviewCommentPayloads(100), true, "comment-page-2"),
+				}, true, "thread-page-2")
+				return
+			}
+			if cursor != "thread-page-2" {
+				t.Fatalf("threadsCursor = %v, want thread-page-2", payload.Variables["threadsCursor"])
+			}
+			sawSecondThreadPage = true
+			writeReviewThreadsResponse(w, []map[string]any{
+				reviewThreadPayload("thread-2", "other.go", reviewCommentPayloads(1), false, ""),
+			}, false, "")
+		case strings.Contains(payload.Query, "node(id: $id)"):
+			if payload.Variables["id"] != "thread-1" || payload.Variables["commentsCursor"] != "comment-page-2" {
+				t.Fatalf("comment variables = %#v", payload.Variables)
+			}
+			sawSecondCommentPage = true
+			writeReviewThreadCommentsResponse(w, reviewCommentPayloads(1), false, "")
+		default:
+			t.Fatalf("unexpected GraphQL query %s", payload.Query)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "token", server.Client())
+	result, err := client.GetReviewThreads("open-creo/creo", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sawSecondThreadPage || !sawSecondCommentPage {
+		t.Fatalf("sawSecondThreadPage=%v sawSecondCommentPage=%v", sawSecondThreadPage, sawSecondCommentPage)
+	}
+	if len(result.Threads) != 2 {
+		t.Fatalf("threads = %d, want 2", len(result.Threads))
+	}
+	if len(result.Threads[0].Comments) != 101 {
+		t.Fatalf("first thread comments = %d, want 101", len(result.Threads[0].Comments))
+	}
+}
+
+func writeReviewThreadsResponse(w http.ResponseWriter, nodes []map[string]any, hasNext bool, endCursor string) {
+	json.NewEncoder(w).Encode(map[string]any{
+		"data": map[string]any{
+			"repository": map[string]any{
+				"pullRequest": map[string]any{
+					"reviewThreads": map[string]any{
+						"nodes": nodes,
+						"pageInfo": map[string]any{
+							"hasNextPage": hasNext,
+							"endCursor":   endCursor,
+						},
+					},
+				},
+			},
+		},
+	})
+}
+
+func writeReviewThreadCommentsResponse(w http.ResponseWriter, nodes []map[string]any, hasNext bool, endCursor string) {
+	json.NewEncoder(w).Encode(map[string]any{
+		"data": map[string]any{
+			"node": map[string]any{
+				"comments": map[string]any{
+					"nodes": nodes,
+					"pageInfo": map[string]any{
+						"hasNextPage": hasNext,
+						"endCursor":   endCursor,
+					},
+				},
+			},
+		},
+	})
+}
+
+func reviewThreadPayload(id, path string, comments []map[string]any, commentsHasNext bool, commentsEndCursor string) map[string]any {
+	return map[string]any{
+		"id":         id,
+		"isResolved": false,
+		"isOutdated": false,
+		"path":       path,
+		"line":       12,
+		"comments": map[string]any{
+			"nodes": comments,
+			"pageInfo": map[string]any{
+				"hasNextPage": commentsHasNext,
+				"endCursor":   commentsEndCursor,
+			},
+		},
+	}
+}
+
+func reviewCommentPayloads(count int) []map[string]any {
+	comments := make([]map[string]any, count)
+	for i := range comments {
+		comments[i] = map[string]any{
+			"body": fmt.Sprintf("comment %d", i+1),
+			"url":  fmt.Sprintf("https://example.test/comment/%d", i+1),
+			"author": map[string]any{
+				"login": "reviewer",
+			},
+		}
+	}
+	return comments
 }
