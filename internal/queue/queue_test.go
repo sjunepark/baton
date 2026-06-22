@@ -13,6 +13,7 @@ func TestBuildSnapshotEligibility(t *testing.T) {
 			{Number: 1, URL: "https://example/1", Labels: []string{"agent:ready-trivial"}},
 			{Number: 2, URL: "https://example/2", Labels: []string{"agent:ready-bounded", "needs:discussion"}},
 			{Number: 3, URL: "https://example/3", Labels: []string{"bug"}},
+			{Number: 4, URL: "https://example/4", Labels: []string{"agent:investigate-only"}},
 		},
 		[]PullRequest{{Number: 10, Body: "Refs #1", BaseRef: "agent", HeadRef: "agent-work/1"}},
 	)
@@ -24,6 +25,9 @@ func TestBuildSnapshotEligibility(t *testing.T) {
 	}
 	if snapshot.Issues[2].Eligible {
 		t.Fatalf("missing implementation label should not be eligible: %#v", snapshot.Issues[2])
+	}
+	if !snapshot.Issues[3].Eligible || snapshot.Issues[3].Action != "issue-investigation" {
+		t.Fatalf("investigation issue should be eligible: %#v", snapshot.Issues[3])
 	}
 }
 
@@ -52,6 +56,19 @@ func TestRecommendNextIssueImplementation(t *testing.T) {
 	}
 	next := RecommendNext(snapshot)
 	if next.Action != "issue-implementation" || next.Issue == nil || next.Issue.Number != 1 {
+		t.Fatalf("next = %#v", next)
+	}
+}
+
+func TestRecommendNextIssueInvestigation(t *testing.T) {
+	snapshot := Snapshot{
+		SchemaVersion: 1,
+		Kind:          "queueSnapshot",
+		Repo:          "open-creo/creo",
+		Issues:        []IssueState{{Issue: Issue{Number: 1, URL: "https://example/1"}, Eligible: true, Action: "issue-investigation"}},
+	}
+	next := RecommendNext(snapshot)
+	if next.Action != "issue-investigation" || next.Issue == nil || next.Issue.Number != 1 {
 		t.Fatalf("next = %#v", next)
 	}
 }

@@ -37,6 +37,7 @@ type Snapshot struct {
 type IssueState struct {
 	Issue     Issue    `json:"issue"`
 	Eligible  bool     `json:"eligible"`
+	Action    string   `json:"action,omitempty"`
 	Reasons   []string `json:"reasons"`
 	LinkedPRs []int    `json:"linkedPrs"`
 }
@@ -85,9 +86,13 @@ func BuildSnapshot(repo string, cfg config.Config, issues []Issue, prs []PullReq
 	for _, issue := range issues {
 		state := IssueState{Issue: issue, Eligible: true, Reasons: []string{}, LinkedPRs: prsByIssue[issue.Number]}
 		labels := stringSet(issue.Labels)
-		if !hasAny(labels, cfg.IssuePolicy.ImplementationLabels) {
+		if hasAny(labels, cfg.IssuePolicy.ImplementationLabels) {
+			state.Action = "issue-implementation"
+		} else if hasAny(labels, cfg.IssuePolicy.CommentOnlyLabels) {
+			state.Action = "issue-investigation"
+		} else {
 			state.Eligible = false
-			state.Reasons = append(state.Reasons, "missing implementation label")
+			state.Reasons = append(state.Reasons, "missing implementation or investigation label")
 		}
 		for _, skip := range cfg.IssuePolicy.SkipLabels {
 			if _, ok := labels[skip]; ok {
@@ -95,7 +100,7 @@ func BuildSnapshot(repo string, cfg config.Config, issues []Issue, prs []PullReq
 				state.Reasons = append(state.Reasons, "skip label "+skip)
 			}
 		}
-		if len(state.LinkedPRs) > 0 {
+		if len(state.LinkedPRs) > 0 && state.Action == "issue-implementation" {
 			state.Eligible = false
 			state.Reasons = append(state.Reasons, "active linked PR")
 		}
@@ -130,6 +135,18 @@ func RecommendNext(snapshot Snapshot) NextAction {
 	}
 	for _, issue := range snapshot.Issues {
 		if issue.Eligible {
+			if issue.Action == "issue-investigation" {
+				return NextAction{
+					SchemaVersion: 1,
+					Kind:          "nextAction",
+					Action:        "issue-investigation",
+					Repo:          snapshot.Repo,
+					Reason:        "eligible-investigation",
+					Issue:         &IssueRef{Number: issue.Issue.Number, URL: issue.Issue.URL},
+					BlockedItems:  []string{},
+					Instructions:  []string{"Do not edit files unless the user explicitly changes scope.", "Inspect and comment with findings, evidence, and a recommended next label."},
+				}
+			}
 			return NextAction{
 				SchemaVersion: 1,
 				Kind:          "nextAction",

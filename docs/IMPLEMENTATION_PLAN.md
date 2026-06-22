@@ -13,8 +13,9 @@
 - GitHub API foundations are implemented for issue-policy apply, PR policy
   issue/commit enrichment, and label sync.
 - Read-only queue inspection is implemented with GitHub issue/PR/check/review
-  fetching and a pure next-action classifier. Live GitHub validation is still
-  needed against Creo.
+  fetching and a pure next-action classifier. Live GitHub validation against
+  Creo succeeds for `doctor`, `queue`, `prs`, and `next`; the current Creo queue
+  has no open PR follow-up case to validate that ordering live.
 - Native worktree leasing is implemented with lease records, branch collision
   protection, dirty release refusal, listing, prune dry-run, and conservative
   prune cleanup behind `--yes`.
@@ -107,9 +108,8 @@ Acceptance:
 
 Remaining:
 
-- Live-validate queue and next-action behavior against Creo with GitHub auth.
-- Improve author classification into human, Codex, CodeRabbit, Greptile, and
-  unknown bot where GitHub exposes enough identity data.
+- Live-validate PR follow-up precedence against Creo when an open agent PR
+  exists.
 
 ## Phase 4 - Worktree Leasing
 
@@ -254,5 +254,11 @@ Integration, live gated:
   skipped and reported.
 - Validation: `go test ./...` covers prune removal, dirty skip, released
   records, and existing lease behavior.
-- Next slice: live-test against Creo when GitHub auth is available, then start
-  Creo migration wiring.
+- Fixed queue classification for `agent:investigate-only` issues so `next`
+  returns `issue-investigation` when no PR follow-up or implementation issue is
+  available.
+- Validation: `go test ./...`; live read-only validation in Creo with GitHub
+  auth shows `baton doctor --json` clean, `baton queue --json` listing current
+  issues, `baton prs --json` with no open staging PRs, and `baton next --json`
+  selecting issue #5 for investigation.
+- Next slice: add migration command support, then start Creo migration wiring.
