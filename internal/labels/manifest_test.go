@@ -14,6 +14,9 @@ func TestParseManifest(t *testing.T) {
 	if len(manifest.Labels) != 1 {
 		t.Fatalf("labels = %#v", manifest.Labels)
 	}
+	if manifest.Count != 1 || len(manifest.Help) == 0 {
+		t.Fatalf("manifest metadata count=%d help=%#v", manifest.Count, manifest.Help)
+	}
 	label := manifest.Labels[0]
 	if label.Name != "agent:ready-trivial" || label.Color != "0E8A16" || label.Description == "" {
 		t.Fatalf("label = %#v", label)
@@ -39,5 +42,11 @@ func TestPlanSync(t *testing.T) {
 	}
 	if plan.Changes[0].Action != "ok" || plan.Changes[1].Action != "update" {
 		t.Fatalf("changes = %#v", plan.Changes)
+	}
+	if plan.Count != 2 || plan.Counts.OK != 1 || plan.Counts.Update != 1 {
+		t.Fatalf("counts = %#v count=%d", plan.Counts, plan.Count)
+	}
+	if len(plan.Help) == 0 {
+		t.Fatal("plan help should include next command")
 	}
 }

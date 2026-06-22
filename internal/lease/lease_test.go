@@ -88,6 +88,9 @@ func TestPruneDryRunIncludesReleasedAndExpired(t *testing.T) {
 	if len(plan.Candidates) != 2 {
 		t.Fatalf("plan = %#v", plan)
 	}
+	if plan.Count != 2 || len(plan.Help) == 0 {
+		t.Fatalf("plan metadata count=%d help=%#v", plan.Count, plan.Help)
+	}
 }
 
 func TestPruneRemovesCleanReleasedAndSkipsDirty(t *testing.T) {
@@ -134,6 +137,9 @@ func TestPruneRemovesCleanReleasedAndSkipsDirty(t *testing.T) {
 	}
 	if len(result.Skipped) != 1 || result.Skipped[0].Lease.ID != dirty.ID || result.Skipped[0].Reason != "worktree is dirty" {
 		t.Fatalf("skipped = %#v", result.Skipped)
+	}
+	if result.Counts.Removed != 1 || result.Counts.Skipped != 1 || len(result.Help) == 0 {
+		t.Fatalf("result metadata counts=%#v help=%#v", result.Counts, result.Help)
 	}
 	if _, err := os.Stat(clean.WorktreePath); !os.IsNotExist(err) {
 		t.Fatalf("clean worktree still exists or unexpected stat error: %v", err)

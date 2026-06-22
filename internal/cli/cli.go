@@ -50,6 +50,38 @@ type errorResult struct {
 	Retryable     bool   `json:"retryable"`
 }
 
+type pullRequestsResult struct {
+	SchemaVersion int               `json:"schemaVersion"`
+	Kind          string            `json:"kind"`
+	Repo          string            `json:"repo"`
+	Count         int               `json:"count"`
+	Counts        pullRequestCounts `json:"counts"`
+	PullRequests  []queue.PullState `json:"pullRequests"`
+	Help          []string          `json:"help,omitempty"`
+}
+
+type pullRequestCounts struct {
+	Success int `json:"success"`
+	Failure int `json:"failure"`
+	Pending int `json:"pending"`
+	Unknown int `json:"unknown"`
+}
+
+type leasesResult struct {
+	SchemaVersion int            `json:"schemaVersion"`
+	Kind          string         `json:"kind"`
+	Count         int            `json:"count"`
+	Counts        leaseCounts    `json:"counts"`
+	Leases        []lease.Record `json:"leases"`
+	Help          []string       `json:"help,omitempty"`
+}
+
+type leaseCounts struct {
+	Active   int `json:"active"`
+	Released int `json:"released"`
+	Pruned   int `json:"pruned"`
+}
+
 func newRenderer(stdout, stderr io.Writer, structured bool) renderer {
 	return renderer{stdout: stdout, stderr: stderr, structured: structured}
 }
@@ -521,6 +553,10 @@ func runSyncLabels(args []string, stdout, stderr io.Writer) int {
 	if *jsonOut {
 		return out.JSON(plan)
 	}
+	if len(plan.Changes) == 0 {
+		fmt.Fprintln(stdout, "changes[0]:")
+		return exitOK
+	}
 	for _, change := range plan.Changes {
 		fmt.Fprintf(stdout, "%s %s\n", change.Action, change.Name)
 	}
@@ -544,6 +580,11 @@ func runQueue(args []string, stdout, stderr io.Writer) int {
 	if *jsonOut {
 		return out.JSON(snapshot)
 	}
+	if len(snapshot.Issues) == 0 {
+		fmt.Fprintln(stdout, "issues[0]:")
+		fmt.Fprintln(stdout, "help[1]: Run `baton next --json`")
+		return exitOK
+	}
 	for _, issue := range snapshot.Issues {
 		fmt.Fprintf(stdout, "#%d eligible=%v %s\n", issue.Issue.Number, issue.Eligible, strings.Join(issue.Reasons, ", "))
 	}
@@ -564,15 +605,16 @@ func runPRs(args []string, stdout, stderr io.Writer) int {
 	if code != exitOK {
 		return code
 	}
+	result := buildPullRequestsResult(snapshot.Repo, snapshot.PullRequests)
 	if *jsonOut {
-		return out.JSON(struct {
-			SchemaVersion int               `json:"schemaVersion"`
-			Kind          string            `json:"kind"`
-			Repo          string            `json:"repo"`
-			PullRequests  []queue.PullState `json:"pullRequests"`
-		}{SchemaVersion: 1, Kind: "pullRequests", Repo: snapshot.Repo, PullRequests: snapshot.PullRequests})
+		return out.JSON(result)
 	}
-	for _, pr := range snapshot.PullRequests {
+	if len(result.PullRequests) == 0 {
+		fmt.Fprintln(stdout, "pullRequests[0]:")
+		fmt.Fprintln(stdout, "help[1]: Run `baton queue --json`")
+		return exitOK
+	}
+	for _, pr := range result.PullRequests {
 		fmt.Fprintf(stdout, "#%d %s checks=%s\n", pr.PullRequest.Number, pr.PullRequest.HeadRef, pr.PullRequest.CheckState)
 	}
 	return exitOK
@@ -636,6 +678,10 @@ func runChecks(args []string, stdout, stderr io.Writer) int {
 		return out.JSON(rollup)
 	}
 	fmt.Fprintf(stdout, "PR #%d checks: %s\n", number, rollup.State)
+	if len(rollup.Checks) == 0 {
+		fmt.Fprintln(stdout, "checks[0]:")
+		return exitOK
+	}
 	for _, check := range rollup.Checks {
 		fmt.Fprintf(stdout, "- %s %s %s\n", check.Name, check.Status, check.Conclusion)
 	}
@@ -661,6 +707,11 @@ func runReviewThreads(args []string, stdout, stderr io.Writer) int {
 	}
 	if flags.json {
 		return out.JSON(threads)
+	}
+	if len(threads.Threads) == 0 {
+		fmt.Fprintln(stdout, "reviewThreads[0]:")
+		fmt.Fprintf(stdout, "help[1]: Run `baton pr %d --json`\n", number)
+		return exitOK
 	}
 	for _, thread := range threads.Threads {
 		fmt.Fprintf(stdout, "%s:%d resolved=%v outdated=%v\n", thread.Path, thread.Line, thread.IsResolved, thread.IsOutdated)
@@ -774,14 +825,16 @@ func runLeases(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return out.Error(exitLocalGit, err, "")
 	}
+	result := buildLeasesResult(records)
 	if *jsonOut {
-		return out.JSON(struct {
-			SchemaVersion int            `json:"schemaVersion"`
-			Kind          string         `json:"kind"`
-			Leases        []lease.Record `json:"leases"`
-		}{SchemaVersion: 1, Kind: "leases", Leases: records})
+		return out.JSON(result)
 	}
-	for _, record := range records {
+	if len(result.Leases) == 0 {
+		fmt.Fprintln(stdout, "leases[0]:")
+		fmt.Fprintln(stdout, "help[1]: Run `baton lease --purpose <purpose> --base <ref> --new-branch <ref>`")
+		return exitOK
+	}
+	for _, record := range result.Leases {
 		fmt.Fprintf(stdout, "%s %s %s\n", record.ID, record.Status, record.WorktreePath)
 	}
 	return exitOK
@@ -810,6 +863,10 @@ func runPrune(args []string, stdout, stderr io.Writer) int {
 		if *jsonOut {
 			return out.JSON(plan)
 		}
+		if len(plan.Candidates) == 0 {
+			fmt.Fprintln(stdout, "candidates[0]:")
+			return exitOK
+		}
 		for _, record := range plan.Candidates {
 			fmt.Fprintf(stdout, "%s %s\n", record.ID, record.Status)
 		}
@@ -821,6 +878,11 @@ func runPrune(args []string, stdout, stderr io.Writer) int {
 	}
 	if *jsonOut {
 		return out.JSON(result)
+	}
+	if len(result.Removed) == 0 && len(result.Skipped) == 0 {
+		fmt.Fprintln(stdout, "removed[0]:")
+		fmt.Fprintln(stdout, "skipped[0]:")
+		return exitOK
 	}
 	for _, record := range result.Removed {
 		fmt.Fprintf(stdout, "pruned %s\n", record.ID)
@@ -967,6 +1029,10 @@ func runLabels(args []string, stdout, stderr io.Writer) int {
 	}
 	if *jsonOut {
 		return out.JSON(manifest)
+	}
+	if len(manifest.Labels) == 0 {
+		fmt.Fprintln(stdout, "labels[0]:")
+		return exitOK
 	}
 	for _, label := range manifest.Labels {
 		fmt.Fprintf(stdout, "%s\t%s\t%s\n", label.Name, label.Color, label.Description)
@@ -1134,6 +1200,82 @@ func hasFlag(args []string, name string) bool {
 		}
 	}
 	return false
+}
+
+func buildPullRequestsResult(repo string, prs []queue.PullState) pullRequestsResult {
+	return pullRequestsResult{
+		SchemaVersion: schemaVersionV1,
+		Kind:          "pullRequests",
+		Repo:          repo,
+		Count:         len(prs),
+		Counts:        countPullRequests(prs),
+		PullRequests:  prs,
+		Help:          pullRequestsHelp(prs),
+	}
+}
+
+func countPullRequests(prs []queue.PullState) pullRequestCounts {
+	counts := pullRequestCounts{}
+	for _, pr := range prs {
+		switch pr.PullRequest.CheckState {
+		case "success":
+			counts.Success++
+		case "failure":
+			counts.Failure++
+		case "pending":
+			counts.Pending++
+		default:
+			counts.Unknown++
+		}
+	}
+	return counts
+}
+
+func pullRequestsHelp(prs []queue.PullState) []string {
+	if len(prs) == 0 {
+		return []string{"Run `baton queue --json` to inspect eligible issue work."}
+	}
+	return []string{
+		"Run `baton pr <number> --json` for PR details.",
+		"Run `baton checks <number> --json` to inspect check status.",
+		"Run `baton review-threads <number> --json` before completing review work.",
+	}
+}
+
+func buildLeasesResult(records []lease.Record) leasesResult {
+	return leasesResult{
+		SchemaVersion: schemaVersionV1,
+		Kind:          "leases",
+		Count:         len(records),
+		Counts:        countLeases(records),
+		Leases:        records,
+		Help:          leasesHelp(records),
+	}
+}
+
+func countLeases(records []lease.Record) leaseCounts {
+	counts := leaseCounts{}
+	for _, record := range records {
+		switch record.Status {
+		case "active":
+			counts.Active++
+		case "released":
+			counts.Released++
+		case "pruned":
+			counts.Pruned++
+		}
+	}
+	return counts
+}
+
+func leasesHelp(records []lease.Record) []string {
+	if len(records) == 0 {
+		return []string{"Run `baton lease --purpose <purpose> --base <ref> --new-branch <ref> --json` to acquire a worktree lease."}
+	}
+	return []string{
+		"Run `baton release --lease <id>` when work is complete.",
+		"Run `baton prune --dry-run --json` to inspect cleanup candidates.",
+	}
 }
 
 func exitCategory(code int) string {

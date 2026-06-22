@@ -126,6 +126,24 @@ func TestGetBranchHealth(t *testing.T) {
 	}
 }
 
+func TestBuildCheckRollupIncludesSummaryAndHelp(t *testing.T) {
+	rollup := buildCheckRollup("example-org/example-repo", 10, "abc123", []CheckState{
+		{Name: "unit", Status: "completed", Conclusion: "success"},
+		{Name: "lint", Status: "completed", Conclusion: "failure"},
+		{Name: "deploy", Status: "in_progress"},
+		{Name: "optional", Status: "completed", Conclusion: "skipped"},
+	})
+	if rollup.Count != 4 || rollup.Summary.Passed != 1 || rollup.Summary.Failed != 1 || rollup.Summary.Pending != 1 || rollup.Summary.Skipped != 1 {
+		t.Fatalf("rollup summary = %#v count=%d", rollup.Summary, rollup.Count)
+	}
+	if rollup.State != "failure" {
+		t.Fatalf("state = %q, want failure", rollup.State)
+	}
+	if len(rollup.Help) == 0 {
+		t.Fatal("rollup help should include next commands")
+	}
+}
+
 func TestGetReviewThreadsPaginatesThreadsAndComments(t *testing.T) {
 	var sawSecondThreadPage, sawSecondCommentPage bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -180,6 +198,12 @@ func TestGetReviewThreadsPaginatesThreadsAndComments(t *testing.T) {
 	}
 	if len(result.Threads[0].Comments) != 101 {
 		t.Fatalf("first thread comments = %d, want 101", len(result.Threads[0].Comments))
+	}
+	if result.Count != 2 || result.Summary.Total != 2 || result.Summary.Unresolved != 2 || result.Summary.HumanUnresolved != 2 {
+		t.Fatalf("thread summary = %#v count=%d", result.Summary, result.Count)
+	}
+	if len(result.Help) == 0 {
+		t.Fatal("review thread help should include next commands")
 	}
 }
 

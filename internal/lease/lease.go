@@ -59,14 +59,23 @@ type ReleaseResult struct {
 type PrunePlan struct {
 	SchemaVersion int      `json:"schemaVersion"`
 	Kind          string   `json:"kind"`
+	Count         int      `json:"count"`
 	Candidates    []Record `json:"candidates"`
+	Help          []string `json:"help,omitempty"`
 }
 
 type PruneResult struct {
 	SchemaVersion int         `json:"schemaVersion"`
 	Kind          string      `json:"kind"`
+	Counts        PruneCounts `json:"counts"`
 	Removed       []Record    `json:"removed"`
 	Skipped       []PruneSkip `json:"skipped"`
+	Help          []string    `json:"help,omitempty"`
+}
+
+type PruneCounts struct {
+	Removed int `json:"removed"`
+	Skipped int `json:"skipped"`
 }
 
 type PruneSkip struct {
@@ -278,7 +287,7 @@ func (m Manager) PruneDryRun(now time.Time) (PrunePlan, error) {
 			candidates = append(candidates, record)
 		}
 	}
-	return PrunePlan{SchemaVersion: 1, Kind: "prunePlan", Candidates: candidates}, nil
+	return PrunePlan{SchemaVersion: 1, Kind: "prunePlan", Count: len(candidates), Candidates: candidates, Help: prunePlanHelp(candidates)}, nil
 }
 
 func (m Manager) Prune(now time.Time) (PruneResult, error) {
@@ -325,6 +334,8 @@ func (m Manager) Prune(now time.Time) (PruneResult, error) {
 		}
 		result.Removed = append(result.Removed, record)
 	}
+	result.Counts = PruneCounts{Removed: len(result.Removed), Skipped: len(result.Skipped)}
+	result.Help = pruneResultHelp(result.Counts)
 	return result, nil
 }
 
@@ -424,4 +435,18 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func prunePlanHelp(candidates []Record) []string {
+	if len(candidates) == 0 {
+		return []string{"No prune candidates found."}
+	}
+	return []string{"Run `baton prune --yes --json` to remove clean managed candidates."}
+}
+
+func pruneResultHelp(counts PruneCounts) []string {
+	if counts.Skipped > 0 {
+		return []string{"Inspect skipped leases before rerunning prune."}
+	}
+	return []string{"Run `baton leases --json` to inspect remaining leases."}
 }

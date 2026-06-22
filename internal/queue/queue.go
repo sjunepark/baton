@@ -27,12 +27,22 @@ type PullRequest struct {
 }
 
 type Snapshot struct {
-	SchemaVersion int           `json:"schemaVersion"`
-	Kind          string        `json:"kind"`
-	Repo          string        `json:"repo"`
-	BranchHealth  *BranchHealth `json:"branchHealth,omitempty"`
-	Issues        []IssueState  `json:"issues"`
-	PullRequests  []PullState   `json:"pullRequests"`
+	SchemaVersion int            `json:"schemaVersion"`
+	Kind          string         `json:"kind"`
+	Repo          string         `json:"repo"`
+	Counts        SnapshotCounts `json:"counts"`
+	BranchHealth  *BranchHealth  `json:"branchHealth,omitempty"`
+	Issues        []IssueState   `json:"issues"`
+	PullRequests  []PullState    `json:"pullRequests"`
+	Help          []string       `json:"help,omitempty"`
+}
+
+type SnapshotCounts struct {
+	TotalIssues       int    `json:"totalIssues"`
+	EligibleIssues    int    `json:"eligibleIssues"`
+	SkippedIssues     int    `json:"skippedIssues"`
+	OpenPullRequests  int    `json:"openPullRequests"`
+	BranchHealthState string `json:"branchHealthState,omitempty"`
 }
 
 type BranchHealth struct {
@@ -94,6 +104,7 @@ func BuildSnapshotWithBranchHealth(repo string, cfg config.Config, issues []Issu
 	}
 
 	issueStates := make([]IssueState, 0, len(issues))
+	eligibleIssues := 0
 	for _, issue := range issues {
 		linkedPRs := prsByIssue[issue.Number]
 		if linkedPRs == nil {
@@ -122,10 +133,31 @@ func BuildSnapshotWithBranchHealth(repo string, cfg config.Config, issues []Issu
 		if len(state.Reasons) == 0 {
 			state.Reasons = append(state.Reasons, "eligible")
 		}
+		if state.Eligible {
+			eligibleIssues++
+		}
 		issueStates = append(issueStates, state)
 	}
 
-	return Snapshot{SchemaVersion: 1, Kind: "queueSnapshot", Repo: repo, BranchHealth: branchHealth, Issues: issueStates, PullRequests: prStates}
+	counts := SnapshotCounts{
+		TotalIssues:      len(issueStates),
+		EligibleIssues:   eligibleIssues,
+		SkippedIssues:    len(issueStates) - eligibleIssues,
+		OpenPullRequests: len(prStates),
+	}
+	if branchHealth != nil {
+		counts.BranchHealthState = branchHealth.CheckState
+	}
+	return Snapshot{
+		SchemaVersion: 1,
+		Kind:          "queueSnapshot",
+		Repo:          repo,
+		Counts:        counts,
+		BranchHealth:  branchHealth,
+		Issues:        issueStates,
+		PullRequests:  prStates,
+		Help:          snapshotHelp(issueStates, prStates),
+	}
 }
 
 func RecommendNext(snapshot Snapshot) NextAction {
@@ -232,4 +264,21 @@ func hasAny(labels map[string]struct{}, candidates []string) bool {
 		}
 	}
 	return false
+}
+
+func snapshotHelp(issues []IssueState, prs []PullState) []string {
+	help := []string{"Run `baton next --json`."}
+	if len(prs) > 0 {
+		help = append(help, "Run `baton pr <number> --json` or `baton checks <number> --json` for PR details.")
+	}
+	for _, issue := range issues {
+		if issue.Eligible {
+			help = append(help, fmt.Sprintf("Run `baton lease --purpose issue-%d --base <ref> --new-branch <ref> --json` before editing.", issue.Issue.Number))
+			return help
+		}
+	}
+	if len(prs) == 0 {
+		help = append(help, "Run `baton doctor --json` if no eligible work appears.")
+	}
+	return help
 }

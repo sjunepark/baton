@@ -57,6 +57,9 @@ objects.
   through a shared renderer. Structured errors use the AXI shape with category,
   exit code, message, hint, and retryability while preserving successful JSON
   result objects.
+- Queue, PR list, check rollup, review-thread, doctor, label, lease, and prune
+  outputs now expose additive count/summary/help metadata, and text list views
+  print explicit empty states.
 
 ## AXI Scorecard
 
@@ -381,10 +384,10 @@ Recommended enhancement:
    - Add structured error mapping.
 
 3. [ ] Add low-risk AXI metadata:
-   - `count` and `counts` fields.
-   - `help[]` fields.
-   - explicit empty-state text.
-   - subcommand help with exit 0.
+   - [x] `count` and `counts` fields.
+   - [x] `help[]` fields.
+   - [x] explicit empty-state text.
+   - [ ] subcommand help with exit 0.
 
 4. [ ] Add truncation:
    - Start with `review-threads`.
@@ -412,6 +415,11 @@ Recommended enhancement:
   Validation: `go test ./...` passes; a built `cmd/baton` binary emits
   structured error JSON on stdout with empty stderr for representative config
   and usage failures.
+- 2026-06-23: Completed the counts/help/empty-state metadata slice for queue,
+  PR lists, check rollups, review threads, doctor, labels, leases, and prune.
+  Validation: `go test ./...` passes; a built `cmd/baton` binary shows metadata
+  on `labels --json`, `leases --json`, and `doctor --json`, and `leases` text
+  output prints an explicit empty state.
 
 ## Keep As-Is
 

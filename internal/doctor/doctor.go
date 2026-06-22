@@ -11,9 +11,18 @@ import (
 )
 
 type Result struct {
-	SchemaVersion int     `json:"schemaVersion"`
-	Kind          string  `json:"kind"`
-	Checks        []Check `json:"checks"`
+	SchemaVersion int      `json:"schemaVersion"`
+	Kind          string   `json:"kind"`
+	ReadyState    string   `json:"readyState"`
+	Counts        Counts   `json:"counts"`
+	Checks        []Check  `json:"checks"`
+	Help          []string `json:"help,omitempty"`
+}
+
+type Counts struct {
+	OK   int `json:"ok"`
+	Warn int `json:"warn"`
+	Fail int `json:"fail"`
 }
 
 type Check struct {
@@ -63,7 +72,8 @@ func Run(configPath string) Result {
 	} else {
 		checks = append(checks, Check{Name: "worktree-root", Status: "ok", Message: root})
 	}
-	return Result{SchemaVersion: 1, Kind: "doctor", Checks: checks}
+	counts := countChecks(checks)
+	return Result{SchemaVersion: 1, Kind: "doctor", ReadyState: readyState(counts), Counts: counts, Checks: checks, Help: helpForChecks(checks)}
 }
 
 func (r Result) Failed() bool {
@@ -73,6 +83,45 @@ func (r Result) Failed() bool {
 		}
 	}
 	return false
+}
+
+func countChecks(checks []Check) Counts {
+	counts := Counts{}
+	for _, check := range checks {
+		switch check.Status {
+		case "ok":
+			counts.OK++
+		case "warn":
+			counts.Warn++
+		case "fail":
+			counts.Fail++
+		}
+	}
+	return counts
+}
+
+func readyState(counts Counts) string {
+	switch {
+	case counts.Fail > 0:
+		return "blocked"
+	case counts.Warn > 0:
+		return "degraded"
+	default:
+		return "ready"
+	}
+}
+
+func helpForChecks(checks []Check) []string {
+	help := []string{"Run `baton queue --json` or `baton next --json` after doctor is ready."}
+	for _, check := range checks {
+		if check.Name == "config" && check.Status != "ok" {
+			return []string{
+				"Run `baton init --dry-run --json` to preview Baton config.",
+				"Run `baton doctor --config <path> --json` to check a specific config.",
+			}
+		}
+	}
+	return help
 }
 
 func gitOutput(args ...string) (string, error) {

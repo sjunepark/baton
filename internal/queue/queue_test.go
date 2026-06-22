@@ -32,6 +32,12 @@ func TestBuildSnapshotEligibility(t *testing.T) {
 	if snapshot.Issues[3].LinkedPRs == nil || len(snapshot.Issues[3].LinkedPRs) != 0 {
 		t.Fatalf("empty linked PRs should be an empty array, got %#v", snapshot.Issues[3].LinkedPRs)
 	}
+	if snapshot.Counts.TotalIssues != 4 || snapshot.Counts.EligibleIssues != 1 || snapshot.Counts.SkippedIssues != 3 || snapshot.Counts.OpenPullRequests != 1 {
+		t.Fatalf("counts = %#v", snapshot.Counts)
+	}
+	if len(snapshot.Help) == 0 {
+		t.Fatal("snapshot help should include next commands")
+	}
 }
 
 func TestRecommendNextPrefersPRFollowup(t *testing.T) {

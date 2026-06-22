@@ -19,7 +19,19 @@ type CheckRollup struct {
 	PRNumber      int          `json:"prNumber"`
 	HeadSHA       string       `json:"headSha"`
 	State         string       `json:"state"`
+	Count         int          `json:"count"`
+	Summary       CheckSummary `json:"summary"`
 	Checks        []CheckState `json:"checks"`
+	Help          []string     `json:"help,omitempty"`
+}
+
+type CheckSummary struct {
+	Passed    int `json:"passed"`
+	Failed    int `json:"failed"`
+	Pending   int `json:"pending"`
+	Skipped   int `json:"skipped"`
+	Cancelled int `json:"cancelled"`
+	Unknown   int `json:"unknown"`
 }
 
 type CheckState struct {
@@ -34,7 +46,18 @@ type ReviewThreadResult struct {
 	Kind          string         `json:"kind"`
 	Repo          string         `json:"repo"`
 	PRNumber      int            `json:"prNumber"`
+	Count         int            `json:"count"`
+	Summary       ThreadSummary  `json:"summary"`
 	Threads       []ReviewThread `json:"threads"`
+	Help          []string       `json:"help,omitempty"`
+}
+
+type ThreadSummary struct {
+	Total           int `json:"total"`
+	Unresolved      int `json:"unresolved"`
+	HumanUnresolved int `json:"humanUnresolved"`
+	BotUnresolved   int `json:"botUnresolved"`
+	Outdated        int `json:"outdated"`
 }
 
 type ReviewThread struct {
@@ -166,7 +189,7 @@ func (c *Client) GetPullRequest(repo string, number int) (queue.PullRequest, err
 func (c *Client) GetCheckRollup(repo string, pr queue.PullRequest) (CheckRollup, error) {
 	checks := []CheckState{}
 	if pr.HeadSHA == "" {
-		return CheckRollup{SchemaVersion: 1, Kind: "checkRollup", Repo: repo, PRNumber: pr.Number, State: "unknown", Checks: checks}, nil
+		return buildCheckRollup(repo, pr.Number, "", checks), nil
 	}
 	var runs struct {
 		CheckRuns []struct {
@@ -196,7 +219,7 @@ func (c *Client) GetCheckRollup(repo string, pr queue.PullRequest) (CheckRollup,
 	for _, status := range statuses.Statuses {
 		checks = append(checks, CheckState{Name: status.Context, Status: status.State, Conclusion: status.State, URL: status.TargetURL})
 	}
-	return CheckRollup{SchemaVersion: 1, Kind: "checkRollup", Repo: repo, PRNumber: pr.Number, HeadSHA: pr.HeadSHA, State: classifyChecks(checks), Checks: checks}, nil
+	return buildCheckRollup(repo, pr.Number, pr.HeadSHA, checks), nil
 }
 
 func (c *Client) GetBranchHealth(repo string, ref string) (*queue.BranchHealth, error) {
@@ -282,7 +305,7 @@ func (c *Client) GetReviewThreads(repo string, prNumber int) (ReviewThreadResult
 		}
 		threadsCursor = &connection.PageInfo.EndCursor
 	}
-	return ReviewThreadResult{SchemaVersion: 1, Kind: "reviewThreads", Repo: repo, PRNumber: prNumber, Threads: threads}, nil
+	return buildReviewThreadResult(repo, prNumber, threads), nil
 }
 
 func (c *Client) getRemainingReviewThreadComments(threadID, cursor string) ([]ReviewComment, error) {
@@ -417,6 +440,114 @@ func reviewCommentsFromNodes(nodes []reviewCommentNode) []ReviewComment {
 		comments = append(comments, ReviewComment{Author: comment.Author.Login, AuthorKind: classifyAuthor(comment.Author.Login), Body: comment.Body, URL: comment.URL})
 	}
 	return comments
+}
+
+func buildCheckRollup(repo string, prNumber int, headSHA string, checks []CheckState) CheckRollup {
+	summary := CheckSummary{}
+	for _, check := range checks {
+		switch checkBucket(check) {
+		case "passed":
+			summary.Passed++
+		case "failed":
+			summary.Failed++
+		case "pending":
+			summary.Pending++
+		case "skipped":
+			summary.Skipped++
+		case "cancelled":
+			summary.Cancelled++
+		default:
+			summary.Unknown++
+		}
+	}
+	return CheckRollup{
+		SchemaVersion: 1,
+		Kind:          "checkRollup",
+		Repo:          repo,
+		PRNumber:      prNumber,
+		HeadSHA:       headSHA,
+		State:         classifyChecks(checks),
+		Count:         len(checks),
+		Summary:       summary,
+		Checks:        checks,
+		Help:          checkHelp(prNumber, summary),
+	}
+}
+
+func checkBucket(check CheckState) string {
+	switch {
+	case check.Conclusion == "success" || check.Status == "success":
+		return "passed"
+	case check.Conclusion == "failure" || check.Conclusion == "timed_out" || check.Conclusion == "action_required" || check.Status == "failure" || check.Status == "error":
+		return "failed"
+	case check.Conclusion == "cancelled":
+		return "cancelled"
+	case check.Conclusion == "skipped":
+		return "skipped"
+	case check.Status == "queued" || check.Status == "in_progress" || check.Status == "pending" || check.Conclusion == "":
+		return "pending"
+	default:
+		return "unknown"
+	}
+}
+
+func checkHelp(prNumber int, summary CheckSummary) []string {
+	help := []string{fmt.Sprintf("Run `baton pr %d --json` for PR context.", prNumber)}
+	if summary.Failed > 0 {
+		help = append(help, "Inspect failed check URLs before editing.")
+	}
+	if summary.Pending > 0 {
+		help = append(help, "Wait for pending checks or rerun after they complete.")
+	}
+	return help
+}
+
+func buildReviewThreadResult(repo string, prNumber int, threads []ReviewThread) ReviewThreadResult {
+	summary := ThreadSummary{Total: len(threads)}
+	for _, thread := range threads {
+		if thread.IsOutdated {
+			summary.Outdated++
+		}
+		if thread.IsResolved {
+			continue
+		}
+		summary.Unresolved++
+		if threadHasHumanComment(thread) {
+			summary.HumanUnresolved++
+		} else {
+			summary.BotUnresolved++
+		}
+	}
+	return ReviewThreadResult{
+		SchemaVersion: 1,
+		Kind:          "reviewThreads",
+		Repo:          repo,
+		PRNumber:      prNumber,
+		Count:         len(threads),
+		Summary:       summary,
+		Threads:       threads,
+		Help:          reviewThreadHelp(prNumber, summary),
+	}
+}
+
+func threadHasHumanComment(thread ReviewThread) bool {
+	for _, comment := range thread.Comments {
+		if comment.AuthorKind == "human" {
+			return true
+		}
+	}
+	return false
+}
+
+func reviewThreadHelp(prNumber int, summary ThreadSummary) []string {
+	help := []string{fmt.Sprintf("Run `baton pr %d --json` for PR context.", prNumber)}
+	if summary.HumanUnresolved > 0 {
+		help = append(help, "Stop and ask the user if unresolved human comments require product judgment.")
+	}
+	if summary.Unresolved > 0 {
+		help = append(help, "Address unresolved review threads before completing the PR.")
+	}
+	return help
 }
 
 func classifyChecks(checks []CheckState) string {

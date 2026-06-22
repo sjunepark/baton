@@ -4,7 +4,16 @@ type SyncPlan struct {
 	SchemaVersion int           `json:"schemaVersion"`
 	Kind          string        `json:"kind"`
 	Repo          string        `json:"repo"`
+	Count         int           `json:"count"`
+	Counts        SyncCounts    `json:"counts"`
 	Changes       []LabelChange `json:"changes"`
+	Help          []string      `json:"help,omitempty"`
+}
+
+type SyncCounts struct {
+	OK     int `json:"ok"`
+	Create int `json:"create"`
+	Update int `json:"update"`
 }
 
 type LabelChange struct {
@@ -35,5 +44,28 @@ func PlanSync(repo string, desired []Label, existing []Label) SyncPlan {
 			Description: label.Description,
 		})
 	}
-	return SyncPlan{SchemaVersion: 1, Kind: "labelSyncPlan", Repo: repo, Changes: changes}
+	return SyncPlan{SchemaVersion: 1, Kind: "labelSyncPlan", Repo: repo, Count: len(changes), Counts: countChanges(changes), Changes: changes, Help: syncHelp(changes)}
+}
+
+func countChanges(changes []LabelChange) SyncCounts {
+	counts := SyncCounts{}
+	for _, change := range changes {
+		switch change.Action {
+		case "ok":
+			counts.OK++
+		case "create":
+			counts.Create++
+		case "update":
+			counts.Update++
+		}
+	}
+	return counts
+}
+
+func syncHelp(changes []LabelChange) []string {
+	counts := countChanges(changes)
+	if counts.Create == 0 && counts.Update == 0 {
+		return []string{"No label changes needed."}
+	}
+	return []string{"Run `baton sync-labels --apply --json` to apply planned label changes."}
 }
