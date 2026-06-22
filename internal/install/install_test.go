@@ -69,6 +69,15 @@ func TestApplyWithOptionsRendersGoInstallTarget(t *testing.T) {
 	if !strings.Contains(text, "github.com/open-creo/baton/cmd/baton@v1.2.3") {
 		t.Fatalf("workflow did not use custom install target:\n%s", text)
 	}
+	if !strings.Contains(text, "actions/setup-go@v5") || !strings.Contains(text, "go-version: '1.26.x'") {
+		t.Fatalf("workflow did not set up Go:\n%s", text)
+	}
+	if !strings.Contains(text, "GOBIN=\"$RUNNER_TEMP/baton-bin\" go install github.com/open-creo/baton/cmd/baton@v1.2.3") {
+		t.Fatalf("workflow did not install Baton into runner temp bin:\n%s", text)
+	}
+	if !strings.Contains(text, "echo \"$RUNNER_TEMP/baton-bin\" >> \"$GITHUB_PATH\"") {
+		t.Fatalf("workflow did not add Baton install directory to PATH:\n%s", text)
+	}
 }
 
 func TestApplyWithOptionsRendersInstallCommand(t *testing.T) {

@@ -123,7 +123,7 @@ func (options Options) withDefaults() Options {
 		options.GoInstall = defaultGoInstall
 	}
 	if options.InstallCommand == "" {
-		options.InstallCommand = "go install " + options.GoInstall
+		options.InstallCommand = "mkdir -p \"$RUNNER_TEMP/baton-bin\"\nGOBIN=\"$RUNNER_TEMP/baton-bin\" go install " + options.GoInstall + "\necho \"$RUNNER_TEMP/baton-bin\" >> \"$GITHUB_PATH\""
 	}
 	return options
 }

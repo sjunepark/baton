@@ -27,6 +27,10 @@
 - Install templates can render a caller-provided trusted Baton install target
   with `baton init --go-install` or a full command with
   `baton init --install-command`.
+- The trusted module path `github.com/sjunepark/baton/cmd/baton@latest` is
+  published and validated with `go install`.
+- Generated workflows set up Go and install Baton into a runner-temp bin
+  directory that is added to `GITHUB_PATH`.
 - The README now reflects the implemented CLI and documents the trusted install
   path required before consuming repositories switch workflows to Baton.
 - Read-only queue and PR inspection commands now document and accept explicit
@@ -120,10 +124,6 @@ Acceptance:
 
 Remaining:
 
-- Publish Baton at `github.com/sjunepark/baton` or provide an equivalent
-  trusted binary install path before changing Creo workflows. This local Baton
-  checkout still has no configured Git remote, so the default `go install` path
-  is not yet usable in GitHub Actions until the repository exists remotely.
 - Live-validate PR follow-up precedence against Creo when an open agent PR
   exists.
 
@@ -343,5 +343,9 @@ Live integration env gates:
   help text for `queue`, `prs`, and `next`.
 - Added managed-but-editable notes to every installed target-repo template with
   regression coverage across the embedded template set.
-- Next slice: publish/configure a trusted Baton install path, then start Creo
-  migration wiring.
+- Created the public `sjunepark/baton` GitHub repository, pushed `main`, and
+  validated a fresh `go install github.com/sjunepark/baton/cmd/baton@latest`.
+- Hardened generated GitHub Actions templates to install Baton into
+  `$RUNNER_TEMP/baton-bin` and add that directory to `GITHUB_PATH` after
+  `actions/setup-go@v5`.
+- Next slice: wire Creo workflows to the published Baton install path.
