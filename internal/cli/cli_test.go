@@ -39,6 +39,48 @@ func TestNumberedReadCommandsValidateExplicitConfig(t *testing.T) {
 	}
 }
 
+func TestSubcommandHelpExitsZeroOnStdout(t *testing.T) {
+	commands := [][]string{
+		{"queue", "--help"},
+		{"next", "--help"},
+		{"lease", "--help"},
+		{"help", "queue"},
+	}
+
+	for _, args := range commands {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := Run(args, &stdout, &stderr, "test")
+			if code != exitOK {
+				t.Fatalf("Run(%v) exit = %d, want %d; stderr=%s", args, code, exitOK, stderr.String())
+			}
+			if stderr.String() != "" {
+				t.Fatalf("stderr = %q, want empty help stderr", stderr.String())
+			}
+			output := stdout.String()
+			for _, want := range []string{"Purpose:", "Usage:", "Examples:", "Related:"} {
+				if !strings.Contains(output, want) {
+					t.Fatalf("help output = %q, want %q", output, want)
+				}
+			}
+		})
+	}
+}
+
+func TestUnknownSubcommandHelpReturnsUsage(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"help", "missing"}, &stdout, &stderr, "test")
+	if code != exitUsage {
+		t.Fatalf("Run exit = %d, want %d", code, exitUsage)
+	}
+	if stdout.String() != "" {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), `unknown command "missing"`) {
+		t.Fatalf("stderr = %q, want unknown command", stderr.String())
+	}
+}
+
 func TestPRPolicyJSONReturnsPolicyExitOnErrors(t *testing.T) {
 	dir := t.TempDir()
 	fixture := filepath.Join(dir, "pr.json")

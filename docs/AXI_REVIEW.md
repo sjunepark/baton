@@ -60,6 +60,8 @@ objects.
 - Queue, PR list, check rollup, review-thread, doctor, label, lease, and prune
   outputs now expose additive count/summary/help metadata, and text list views
   print explicit empty states.
+- `baton help <command>` and `<command> --help` now provide first-class
+  command help on stdout with exit 0.
 
 ## AXI Scorecard
 
@@ -383,11 +385,11 @@ Recommended enhancement:
    - Preserve existing JSON structs and tests.
    - Add structured error mapping.
 
-3. [ ] Add low-risk AXI metadata:
+3. [x] Add low-risk AXI metadata:
    - [x] `count` and `counts` fields.
    - [x] `help[]` fields.
    - [x] explicit empty-state text.
-   - [ ] subcommand help with exit 0.
+   - [x] subcommand help with exit 0.
 
 4. [ ] Add truncation:
    - Start with `review-threads`.
@@ -420,6 +422,10 @@ Recommended enhancement:
   Validation: `go test ./...` passes; a built `cmd/baton` binary shows metadata
   on `labels --json`, `leases --json`, and `doctor --json`, and `leases` text
   output prints an explicit empty state.
+- 2026-06-23: Completed first-class command help with `baton help <command>`
+  and `<command> --help` rendering concise stdout help and exit 0. Validation:
+  `go test ./...` passes; a built `cmd/baton` binary verifies `queue --help`
+  and `help lease` exit 0 with empty stderr.
 
 ## Keep As-Is
 

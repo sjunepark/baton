@@ -120,8 +120,30 @@ func (r renderer) ErrorMessage(code int, message, hint string) int {
 // Run executes the Baton command line. It is small by design: command packages
 // own deterministic decisions, and this layer only parses flags and renders.
 func Run(args []string, stdout, stderr io.Writer, version string) int {
-	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" || args[0] == "help" {
+	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
 		printHelp(stdout)
+		return exitOK
+	}
+	if args[0] == "help" {
+		if len(args) == 1 {
+			printHelp(stdout)
+			return exitOK
+		}
+		if len(args) > 2 {
+			fmt.Fprintln(stderr, "help accepts at most one command")
+			return exitUsage
+		}
+		if !printCommandHelp(stdout, args[1]) {
+			fmt.Fprintf(stderr, "unknown command %q\n", args[1])
+			return exitUsage
+		}
+		return exitOK
+	}
+	if len(args) >= 2 && (args[1] == "--help" || args[1] == "-h") {
+		if !printCommandHelp(stdout, args[0]) {
+			fmt.Fprintf(stderr, "unknown command %q\n", args[0])
+			return exitUsage
+		}
 		return exitOK
 	}
 
@@ -206,6 +228,179 @@ The current implementation includes policy checks, install planning, GitHub
 label/policy writes, read-only queue inspection, branch setup, and native
 worktree leases.
 `)
+}
+
+type commandHelp struct {
+	Purpose  string
+	Usage    string
+	Flags    []string
+	Examples []string
+	Related  []string
+}
+
+var commandHelps = map[string]commandHelp{
+	"version": {
+		Purpose:  "Print the Baton version.",
+		Usage:    "baton version",
+		Examples: []string{"baton version"},
+	},
+	"init": {
+		Purpose:  "Preview or install Baton repository automation files.",
+		Usage:    "baton init --dry-run|--apply [--profile default] [--go-install module@version|--install-command <cmd>] [--yes] [--json]",
+		Flags:    []string{"--dry-run: preview installed files", "--apply: write installed files", "--yes: overwrite changed files when applying", "--json: emit structured JSON"},
+		Examples: []string{"baton init --dry-run --json", "baton init --apply --yes"},
+		Related:  []string{"baton doctor --json", "baton labels --file internal/install/templates/.github/labels.yml --json"},
+	},
+	"migrate-config": {
+		Purpose:  "Preview or write a Baton config migrated from the legacy policy config.",
+		Usage:    "baton migrate-config --dry-run|--apply [--from <path>] [--to <path>] [--yes] [--json]",
+		Flags:    []string{"--dry-run: preview migrated config", "--apply: write migrated config", "--from: legacy policy config path", "--to: Baton config output path", "--json: emit structured JSON"},
+		Examples: []string{"baton migrate-config --dry-run --json", "baton migrate-config --apply --yes"},
+		Related:  []string{"baton doctor --config .github/baton.yml --json"},
+	},
+	"doctor": {
+		Purpose:  "Check local Baton prerequisites and repository readiness.",
+		Usage:    "baton doctor [--config <path>] [--json]",
+		Flags:    []string{"--config: policy config path", "--json: emit structured JSON"},
+		Examples: []string{"baton doctor --json", "baton doctor --config .github/baton.yml --json"},
+		Related:  []string{"baton init --dry-run --json", "baton queue --json"},
+	},
+	"issue-policy": {
+		Purpose:  "Evaluate issue-form labels and optionally apply the policy result.",
+		Usage:    "baton issue-policy --body-file <path>|--event <path> [--labels a,b] [--apply] [--repo owner/name] [--config <path>] [--json]",
+		Flags:    []string{"--body-file: issue body markdown file", "--event: GitHub issue event payload", "--apply: apply labels and policy comment", "--json: emit structured JSON"},
+		Examples: []string{"baton issue-policy --body-file issue.md --json", "baton issue-policy --event event.json --apply --repo owner/name --json"},
+		Related:  []string{"baton queue --json"},
+	},
+	"pr-policy": {
+		Purpose:  "Evaluate pull request policy from a fixture or GitHub event.",
+		Usage:    "baton pr-policy --fixture <path>|--event <path> [--repo owner/name] [--config <path>] [--json]",
+		Flags:    []string{"--fixture: pure PR policy fixture JSON", "--event: GitHub pull_request event payload", "--json: emit structured JSON"},
+		Examples: []string{"baton pr-policy --fixture pr.json --config .github/baton.yml --json"},
+		Related:  []string{"baton pr <number> --json", "baton checks <number> --json"},
+	},
+	"sync-labels": {
+		Purpose:  "Compare or apply GitHub repository labels from a labels manifest.",
+		Usage:    "baton sync-labels --dry-run|--apply [--repo owner/name] [--labels-file <path>] [--json]",
+		Flags:    []string{"--dry-run: preview label changes", "--apply: apply label changes", "--labels-file: labels manifest path", "--json: emit structured JSON"},
+		Examples: []string{"baton sync-labels --dry-run --json", "baton sync-labels --apply --repo owner/name --json"},
+		Related:  []string{"baton labels --file <path> --json"},
+	},
+	"queue": {
+		Purpose:  "List open issues with Baton eligibility and linked PR state.",
+		Usage:    "baton queue [--repo owner/name] [--config <path>] [--json]",
+		Flags:    []string{"--repo: GitHub repository owner/name", "--config: policy config path", "--json: emit structured JSON"},
+		Examples: []string{"baton queue --json", "baton queue --repo owner/name --config .github/baton.yml --json"},
+		Related:  []string{"baton next --json", "baton prs --json", "baton lease --purpose <purpose> --base <ref> --new-branch <ref> --json"},
+	},
+	"prs": {
+		Purpose:  "List open pull requests relevant to Baton queue work.",
+		Usage:    "baton prs [--repo owner/name] [--config <path>] [--json]",
+		Flags:    []string{"--repo: GitHub repository owner/name", "--config: policy config path", "--json: emit structured JSON"},
+		Examples: []string{"baton prs --json"},
+		Related:  []string{"baton pr <number> --json", "baton checks <number> --json", "baton review-threads <number> --json"},
+	},
+	"pr": {
+		Purpose:  "Show a pull request summary.",
+		Usage:    "baton pr <number> [--repo owner/name] [--config <path>] [--json]",
+		Flags:    []string{"--repo: GitHub repository owner/name", "--config: policy config path", "--json: emit structured JSON"},
+		Examples: []string{"baton pr 12 --json"},
+		Related:  []string{"baton checks <number> --json", "baton review-threads <number> --json"},
+	},
+	"checks": {
+		Purpose:  "Show check rollup state for a pull request.",
+		Usage:    "baton checks <number> [--repo owner/name] [--config <path>] [--json]",
+		Flags:    []string{"--repo: GitHub repository owner/name", "--config: policy config path", "--json: emit structured JSON"},
+		Examples: []string{"baton checks 12 --json"},
+		Related:  []string{"baton pr <number> --json"},
+	},
+	"review-threads": {
+		Purpose:  "Show pull request review threads and unresolved summary.",
+		Usage:    "baton review-threads <number> [--repo owner/name] [--config <path>] [--json]",
+		Flags:    []string{"--repo: GitHub repository owner/name", "--config: policy config path", "--json: emit structured JSON"},
+		Examples: []string{"baton review-threads 12 --json"},
+		Related:  []string{"baton pr <number> --json", "baton checks <number> --json"},
+	},
+	"next": {
+		Purpose:  "Recommend the next Baton action from queue and PR state.",
+		Usage:    "baton next [--repo owner/name] [--config <path>] [--json]",
+		Flags:    []string{"--repo: GitHub repository owner/name", "--config: policy config path", "--json: emit structured JSON"},
+		Examples: []string{"baton next --json"},
+		Related:  []string{"baton queue --json", "baton lease --purpose <purpose> --base <ref> --new-branch <ref> --json"},
+	},
+	"lease": {
+		Purpose:  "Acquire a managed Baton worktree lease before editing.",
+		Usage:    "baton lease --purpose <purpose> --branch <ref>|--base <ref> --new-branch <ref> [--repo owner/name] [--json]",
+		Flags:    []string{"--purpose: lease purpose", "--branch: existing branch/ref", "--base: base ref for a new branch", "--new-branch: new branch name", "--json: emit structured JSON"},
+		Examples: []string{"baton lease --purpose issue-123 --base origin/agent --new-branch agent-work/issue-123 --json"},
+		Related:  []string{"baton leases --json", "baton release --lease <id>"},
+	},
+	"release": {
+		Purpose:  "Release a managed Baton worktree lease.",
+		Usage:    "baton release --lease <id>|--path <path> [--keep-dirty] [--json]",
+		Flags:    []string{"--lease: lease id", "--path: lease worktree path", "--keep-dirty: mark dirty lease released", "--json: emit structured JSON"},
+		Examples: []string{"baton release --lease <id>", "baton release --path <path> --keep-dirty --json"},
+		Related:  []string{"baton leases --json", "baton prune --dry-run --json"},
+	},
+	"leases": {
+		Purpose:  "List managed Baton worktree leases.",
+		Usage:    "baton leases [--state-root <path>] [--json]",
+		Flags:    []string{"--state-root: Baton state root", "--json: emit structured JSON"},
+		Examples: []string{"baton leases --json"},
+		Related:  []string{"baton lease --purpose <purpose> --base <ref> --new-branch <ref> --json", "baton prune --dry-run --json"},
+	},
+	"prune": {
+		Purpose:  "Preview or remove safe managed worktree prune candidates.",
+		Usage:    "baton prune --dry-run|--yes [--state-root <path>] [--json]",
+		Flags:    []string{"--dry-run: preview prune candidates", "--yes: remove clean managed candidates", "--state-root: Baton state root", "--json: emit structured JSON"},
+		Examples: []string{"baton prune --dry-run --json", "baton prune --yes --json"},
+		Related:  []string{"baton leases --json"},
+	},
+	"complete": {
+		Purpose:  "Record completion details and optionally post a GitHub comment.",
+		Usage:    "baton complete --summary <text> [--lease <id>] [--validation <text>] [--comment --repo owner/name --issue N|--pr N] [--json]",
+		Flags:    []string{"--summary: completion summary", "--validation: validation performed", "--comment: post a GitHub comment", "--json: emit structured JSON"},
+		Examples: []string{"baton complete --summary done --validation 'go test ./...' --json"},
+		Related:  []string{"baton release --lease <id>"},
+	},
+	"ensure-branch": {
+		Purpose:  "Plan or apply Baton staging branch setup.",
+		Usage:    "baton ensure-branch [--apply] [--remote origin] [--base main] [--target agent] [--json]",
+		Flags:    []string{"--apply: run planned git commands", "--remote: remote name", "--base: base branch", "--target: staging branch", "--json: emit structured JSON"},
+		Examples: []string{"baton ensure-branch --json", "baton ensure-branch --apply"},
+		Related:  []string{"baton doctor --json"},
+	},
+	"labels": {
+		Purpose:  "Read and validate a Baton labels manifest.",
+		Usage:    "baton labels --file <path> [--json]",
+		Flags:    []string{"--file: labels manifest path", "--json: emit structured JSON"},
+		Examples: []string{"baton labels --file internal/install/templates/.github/labels.yml --json"},
+		Related:  []string{"baton sync-labels --dry-run --json"},
+	},
+}
+
+func printCommandHelp(w io.Writer, name string) bool {
+	help, ok := commandHelps[name]
+	if !ok {
+		return false
+	}
+	fmt.Fprintf(w, "baton %s\n\n", name)
+	fmt.Fprintf(w, "Purpose:\n  %s\n\n", help.Purpose)
+	fmt.Fprintf(w, "Usage:\n  %s\n", help.Usage)
+	printHelpList(w, "Flags", help.Flags)
+	printHelpList(w, "Examples", help.Examples)
+	printHelpList(w, "Related", help.Related)
+	return true
+}
+
+func printHelpList(w io.Writer, title string, values []string) {
+	if len(values) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "\n%s:\n", title)
+	for _, value := range values {
+		fmt.Fprintf(w, "  %s\n", value)
+	}
 }
 
 func runInit(args []string, stdout, stderr io.Writer) int {
