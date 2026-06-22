@@ -32,6 +32,8 @@ const (
 	exitGitHub      = 5
 	exitLocalGit    = 6
 	schemaVersionV1 = 1
+
+	defaultReviewThreadBodyLimit = 4096
 )
 
 type renderer struct {
@@ -316,9 +318,9 @@ var commandHelps = map[string]commandHelp{
 	},
 	"review-threads": {
 		Purpose:  "Show pull request review threads and unresolved summary.",
-		Usage:    "baton review-threads <number> [--repo owner/name] [--config <path>] [--json]",
-		Flags:    []string{"--repo: GitHub repository owner/name", "--config: policy config path", "--json: emit structured JSON"},
-		Examples: []string{"baton review-threads 12 --json"},
+		Usage:    "baton review-threads <number> [--repo owner/name] [--config <path>] [--full] [--body-limit <chars>] [--json]",
+		Flags:    []string{"--repo: GitHub repository owner/name", "--config: policy config path", "--full: include full comment bodies", "--body-limit: maximum default comment body characters", "--json: emit structured JSON"},
+		Examples: []string{"baton review-threads 12 --json", "baton review-threads 12 --full --json"},
 		Related:  []string{"baton pr <number> --json", "baton checks <number> --json"},
 	},
 	"next": {
@@ -892,6 +894,9 @@ func runReviewThreads(args []string, stdout, stderr io.Writer) int {
 	if code := validateOptionalConfig(flags.config, out); code != exitOK {
 		return code
 	}
+	if flags.bodyLimit < 0 {
+		return out.ErrorMessage(exitUsage, "review-threads --body-limit must be non-negative", "")
+	}
 	repo, client, code := githubClientForRepo(flags.repo, out)
 	if code != exitOK {
 		return code
@@ -900,6 +905,7 @@ func runReviewThreads(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return out.Error(exitGitHub, err, "")
 	}
+	threads = truncateReviewThreadBodies(threads, flags.bodyLimit, flags.full)
 	if flags.json {
 		return out.JSON(threads)
 	}
@@ -1257,9 +1263,11 @@ func applyIssueDecisionIfRequested(apply bool, eventPath, repoFlag, eventRepo st
 }
 
 type numberFlags struct {
-	repo   string
-	config string
-	json   bool
+	repo      string
+	config    string
+	json      bool
+	full      bool
+	bodyLimit int
 }
 
 func parseNumberCommand(name string, args []string, stdout, stderr io.Writer) (int, numberFlags, int) {
@@ -1277,10 +1285,16 @@ func parseNumberCommand(name string, args []string, stdout, stderr io.Writer) (i
 	repoFlag := fs.String("repo", "", "GitHub repository owner/name")
 	configPath := fs.String("config", "", "policy config path")
 	jsonOut := fs.Bool("json", false, "emit JSON")
+	full := false
+	bodyLimit := defaultReviewThreadBodyLimit
+	if name == "review-threads" {
+		fs.BoolVar(&full, "full", false, "include full comment bodies")
+		fs.IntVar(&bodyLimit, "body-limit", defaultReviewThreadBodyLimit, "maximum default comment body characters")
+	}
 	if err := fs.Parse(args[1:]); err != nil {
 		return 0, numberFlags{json: structured}, out.Error(exitUsage, err, "")
 	}
-	return number, numberFlags{repo: *repoFlag, config: *configPath, json: *jsonOut}, exitOK
+	return number, numberFlags{repo: *repoFlag, config: *configPath, json: *jsonOut, full: full, bodyLimit: bodyLimit}, exitOK
 }
 
 func validateOptionalConfig(path string, out renderer) int {
@@ -1446,6 +1460,35 @@ func buildLeasesResult(records []lease.Record) leasesResult {
 		Leases:        records,
 		Help:          leasesHelp(records),
 	}
+}
+
+func truncateReviewThreadBodies(result gh.ReviewThreadResult, limit int, full bool) gh.ReviewThreadResult {
+	threads := make([]gh.ReviewThread, len(result.Threads))
+	copy(threads, result.Threads)
+	result.Threads = threads
+	for threadIndex := range result.Threads {
+		comments := make([]gh.ReviewComment, len(result.Threads[threadIndex].Comments))
+		for commentIndex, comment := range result.Threads[threadIndex].Comments {
+			comments[commentIndex] = truncateReviewComment(comment, result.PRNumber, limit, full)
+		}
+		result.Threads[threadIndex].Comments = comments
+	}
+	return result
+}
+
+func truncateReviewComment(comment gh.ReviewComment, prNumber, limit int, full bool) gh.ReviewComment {
+	bodyRunes := []rune(comment.Body)
+	comment.BodyChars = len(bodyRunes)
+	if full || len(bodyRunes) <= limit {
+		comment.BodyTruncated = false
+		return comment
+	}
+	preview := string(bodyRunes[:limit])
+	comment.Body = preview
+	comment.BodyPreview = preview
+	comment.BodyTruncated = true
+	comment.FullCommand = fmt.Sprintf("baton review-threads %d --full --json", prNumber)
+	return comment
 }
 
 func countLeases(records []lease.Record) leaseCounts {

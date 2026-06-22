@@ -69,10 +69,14 @@ type ReviewThread struct {
 }
 
 type ReviewComment struct {
-	Author     string `json:"author"`
-	AuthorKind string `json:"authorKind"`
-	Body       string `json:"body"`
-	URL        string `json:"url"`
+	Author        string `json:"author"`
+	AuthorKind    string `json:"authorKind"`
+	Body          string `json:"body"`
+	BodyChars     int    `json:"bodyChars"`
+	BodyTruncated bool   `json:"bodyTruncated"`
+	BodyPreview   string `json:"bodyPreview,omitempty"`
+	FullCommand   string `json:"fullCommand,omitempty"`
+	URL           string `json:"url"`
 }
 
 func (c *Client) ListOpenIssues(repo string) ([]queue.Issue, error) {

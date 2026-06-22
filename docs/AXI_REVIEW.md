@@ -62,6 +62,9 @@ objects.
   print explicit empty states.
 - `baton help <command>` and `<command> --help` now provide first-class
   command help on stdout with exit 0.
+- `baton review-threads` now defaults to bounded comment-body output with
+  `bodyChars`, `bodyTruncated`, `bodyPreview`, and `fullCommand` metadata, plus
+  `--full` and `--body-limit` escape hatches.
 
 ## AXI Scorecard
 
@@ -392,9 +395,9 @@ Recommended enhancement:
    - [x] subcommand help with exit 0.
 
 4. [ ] Add truncation:
-   - Start with `review-threads`.
-   - Add `--full` tests.
-   - Then extend to PR body/config-like dry-run content.
+   - [x] Start with `review-threads`.
+   - [x] Add `--full` tests.
+   - [ ] Then extend to PR body/config-like dry-run content.
 
 5. [ ] Add compact/TOON output:
    - Start with read-only commands: `home`, `doctor`, `next`, `queue`, `prs`,
@@ -426,6 +429,11 @@ Recommended enhancement:
   and `<command> --help` rendering concise stdout help and exit 0. Validation:
   `go test ./...` passes; a built `cmd/baton` binary verifies `queue --help`
   and `help lease` exit 0 with empty stderr.
+- 2026-06-23: Completed the initial truncation slice for `review-threads` by
+  adding default body limits, `--full`, `--body-limit`, and body metadata.
+  Validation: `go test ./...` passes; a built `cmd/baton` binary verifies
+  review-thread help documents truncation flags and negative `--body-limit`
+  returns structured usage JSON with empty stderr.
 
 ## Keep As-Is
 

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/sjunepark/baton/internal/config"
+	"github.com/sjunepark/baton/internal/gh"
 )
 
 func TestNumberedReadCommandsValidateExplicitConfig(t *testing.T) {
@@ -78,6 +79,45 @@ func TestUnknownSubcommandHelpReturnsUsage(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), `unknown command "missing"`) {
 		t.Fatalf("stderr = %q, want unknown command", stderr.String())
+	}
+}
+
+func TestReviewThreadBodyTruncation(t *testing.T) {
+	result := gh.ReviewThreadResult{
+		SchemaVersion: 1,
+		Kind:          "reviewThreads",
+		PRNumber:      12,
+		Threads: []gh.ReviewThread{{
+			Comments: []gh.ReviewComment{{Body: "abcdef", AuthorKind: "human"}},
+		}},
+	}
+
+	truncated := truncateReviewThreadBodies(result, 3, false)
+	comment := truncated.Threads[0].Comments[0]
+	if comment.Body != "abc" || comment.BodyPreview != "abc" || !comment.BodyTruncated {
+		t.Fatalf("truncated comment = %#v", comment)
+	}
+	if comment.BodyChars != 6 || comment.FullCommand != "baton review-threads 12 --full --json" {
+		t.Fatalf("truncation metadata = %#v", comment)
+	}
+
+	full := truncateReviewThreadBodies(result, 3, true)
+	comment = full.Threads[0].Comments[0]
+	if comment.Body != "abcdef" || comment.BodyTruncated || comment.BodyPreview != "" || comment.BodyChars != 6 {
+		t.Fatalf("full comment = %#v", comment)
+	}
+}
+
+func TestReviewThreadsRejectsNegativeBodyLimit(t *testing.T) {
+	configPath := writeDefaultConfig(t, t.TempDir())
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"review-threads", "12", "--config", configPath, "--body-limit", "-1", "--json"}, &stdout, &stderr, "test")
+	if code != exitUsage {
+		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitUsage, stdout.String(), stderr.String())
+	}
+	result := decodeErrorResult(t, stdout.String())
+	if result.Category != "usage" || !strings.Contains(result.Message, "body-limit") {
+		t.Fatalf("error result = %#v", result)
 	}
 }
 
