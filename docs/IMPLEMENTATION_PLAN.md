@@ -24,6 +24,8 @@
   metadata by default and can post a GitHub issue/PR comment only with explicit
   `--comment`.
 - Legacy Creo config migration is implemented with `baton migrate-config`.
+- Install templates can render a caller-provided trusted Baton install target
+  with `baton init --go-install`.
 
 ## Phase 0 - Repository Scaffold
 
@@ -292,5 +294,9 @@ Integration, live gated:
 - Recorded Phase 6 prerequisite: this local Baton checkout has no Git remote or
   published install path, so changing Creo GitHub Actions now would create a
   broken `go install` step.
+- Added `baton init --go-install` so generated workflows can use a published
+  trusted Baton module/version instead of the default placeholder path.
+- Validation: `go test ./...` covers rendering the custom install target into
+  generated workflow files.
 - Next slice: publish/configure a trusted Baton install path, then start Creo
   migration wiring.

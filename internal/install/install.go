@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 //go:embed all:templates
@@ -22,12 +23,27 @@ type FileChange struct {
 	Action string `json:"action"`
 }
 
+type Options struct {
+	GoInstall string
+}
+
+const defaultGoInstall = "github.com/sejunpark/baton/cmd/baton@latest"
+
 func Preview(root string) (Plan, error) {
-	return plan(root)
+	return PreviewWithOptions(root, Options{})
+}
+
+func PreviewWithOptions(root string, options Options) (Plan, error) {
+	return plan(root, options.withDefaults())
 }
 
 func Apply(root string, overwrite bool) (Plan, error) {
-	installPlan, err := plan(root)
+	return ApplyWithOptions(root, overwrite, Options{})
+}
+
+func ApplyWithOptions(root string, overwrite bool, options Options) (Plan, error) {
+	options = options.withDefaults()
+	installPlan, err := plan(root, options)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -38,7 +54,7 @@ func Apply(root string, overwrite bool) (Plan, error) {
 		if change.Action == "overwrite" && !overwrite {
 			return Plan{}, fmt.Errorf("%s already exists with different content; rerun with --yes to overwrite", change.Path)
 		}
-		content, err := templateContent(change.Path)
+		content, err := templateContent(change.Path, options)
 		if err != nil {
 			return Plan{}, err
 		}
@@ -53,11 +69,11 @@ func Apply(root string, overwrite bool) (Plan, error) {
 	return installPlan, nil
 }
 
-func plan(root string) (Plan, error) {
+func plan(root string, options Options) (Plan, error) {
 	paths := templatePaths()
 	changes := make([]FileChange, 0, len(paths))
 	for _, path := range paths {
-		content, err := templateContent(path)
+		content, err := templateContent(path, options)
 		if err != nil {
 			return Plan{}, err
 		}
@@ -89,7 +105,18 @@ func templatePaths() []string {
 	}
 }
 
-func templateContent(path string) ([]byte, error) {
+func templateContent(path string, options Options) ([]byte, error) {
 	name := filepath.ToSlash(filepath.Join("templates", path))
-	return templatesFS.ReadFile(name)
+	content, err := templatesFS.ReadFile(name)
+	if err != nil {
+		return nil, err
+	}
+	return []byte(strings.ReplaceAll(string(content), defaultGoInstall, options.GoInstall)), nil
+}
+
+func (options Options) withDefaults() Options {
+	if options.GoInstall == "" {
+		options.GoInstall = defaultGoInstall
+	}
+	return options
 }

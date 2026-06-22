@@ -96,7 +96,7 @@ func printHelp(w io.Writer) {
 Usage:
   baton --help
   baton version
-  baton init --dry-run|--apply [--profile default] [--yes] [--json]
+  baton init --dry-run|--apply [--profile default] [--go-install module@version] [--yes] [--json]
   baton migrate-config --dry-run|--apply [--from <path>] [--to <path>] [--yes] [--json]
   baton doctor [--config <path>] [--json]
   baton issue-policy --body-file <path> [--labels a,b] [--config <path>] [--json]
@@ -131,6 +131,7 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 	dryRun := fs.Bool("dry-run", false, "preview installed files")
 	apply := fs.Bool("apply", false, "write installed files")
 	profile := fs.String("profile", "default", "template profile")
+	goInstall := fs.String("go-install", "", "Go install target for Baton in generated workflows")
 	yes := fs.Bool("yes", false, "overwrite changed files when applying")
 	jsonOut := fs.Bool("json", false, "emit JSON")
 	if err := fs.Parse(args); err != nil {
@@ -144,14 +145,15 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "init currently supports only --profile default")
 		return exitUsage
 	}
+	options := install.Options{GoInstall: *goInstall}
 	var (
 		plan install.Plan
 		err  error
 	)
 	if *apply {
-		plan, err = install.Apply(".", *yes)
+		plan, err = install.ApplyWithOptions(".", *yes, options)
 	} else {
-		plan, err = install.Preview(".")
+		plan, err = install.PreviewWithOptions(".", options)
 	}
 	if err != nil {
 		fmt.Fprintln(stderr, err)
