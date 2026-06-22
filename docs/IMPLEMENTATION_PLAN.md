@@ -41,6 +41,9 @@
   at `v0.1.2` in GitHub Actions and run Baton for issue and PR policy gates.
 - Creo package scripts for label sync and branch setup now invoke Baton; label
   sync is dry-run by default with an explicit apply script.
+- Creo `agent` has removed the legacy GitHub policy scripts and tests after
+  successful Baton-backed workflow validation; promotion PR #9 is clean and
+  green with Baton selecting it as ready PR follow-up.
 
 ## Phase 0 - Repository Scaffold
 
@@ -159,14 +162,9 @@ Tasks:
 
 Acceptance:
 
-- [ ] A fresh Codex session can use the skill to run one safe read-only triage.
+- [x] A fresh Codex session can use the skill to run one safe read-only triage.
 - [x] A fresh Codex session can acquire a lease before editing.
 - [x] Skill does not duplicate long CLI docs.
-
-Remaining:
-
-- Live-test the skill in a fresh Codex session against Creo after Baton has a
-  usable install path.
 
 ## Phase 6 - Creo Migration
 
@@ -179,15 +177,15 @@ Tasks:
 - [x] Run policy checks in CI.
 - [x] Update Codex automations to invoke Baton.
 - [x] Add PR follow-up automation.
-- [ ] Remove old JS scripts after trial success.
+- [x] Remove old JS scripts after trial success.
 
 Acceptance:
 
-- [ ] Creo issue policy still applies labels correctly from the live issue
+- [x] Creo issue policy still applies labels correctly from the live issue
   event workflow.
 - [x] Creo PR policy still fails/passes as before.
 - [x] Existing open PRs are discoverable by `baton next`.
-- [ ] Codex automations operate in Baton leases.
+- [x] Codex automations operate in Baton leases.
 
 ## Validation Matrix
 
@@ -363,13 +361,28 @@ Live integration env gates:
   merging `origin/main` back into `agent`.
 - Known residual: the direct `main` push triggered broad Creo `Checks` and
   Windows smoke failures on the default branch before the staged `agent`
-  fixes are promoted; the promotion PR is clean and green. Live issue-event
-  workflow validation and old JS script removal remain pending.
+  fixes are promoted; the promotion PR is clean and green.
 - Added promotion PR discovery and green-check PR follow-up handling to
   `queue`, `prs`, and `next`.
 - Validation: `go test ./...`; live `prs --json --repo open-creo/creo`
   reports promotion PR #9 (`agent` -> `main`) with `checkState: success`, and
   live `next --json --repo open-creo/creo` returns `pr-followup` for PR #9
   with reason `ready-for-review` before issue intake.
-- Next slice: live issue-policy event behavior and Baton lease use from a
-  fresh automation session before removing legacy Creo scripts.
+- Live-validated Creo issue-policy events by temporarily editing trial issue #5:
+  the Baton-backed Issue Policy workflow completed successfully and labels
+  remained `enhancement` plus `agent:investigate-only` after cleanup.
+- Live-validated Baton lease use in Creo with an isolated temporary state root:
+  acquired a lease from `origin/agent`, released it cleanly, pruned the managed
+  worktree, and deleted the temporary local validation branch.
+- Removed Creo legacy GitHub policy scripts/tests from `agent` after the trial
+  succeeded. Validation: Creo PR #9 (`agent` -> `main`) is `CLEAN`; Typecheck,
+  Windows managed Node smoke, Gitleaks, and Baton-backed PR Policy checks are
+  all successful on commit `acab786c`.
+- Fresh Codex validation: an ephemeral Codex exec session read
+  `skills/baton/SKILL.md` plus its command and JSON references, then ran
+  `go run ./cmd/baton next --json --repo open-creo/creo`; Baton returned
+  `pr-followup` with reason `ready-for-review` for Creo PR #9.
+- Baton read-only validation after cleanup: live `prs --json --repo
+  open-creo/creo` reports PR #9 with `checkState: success`, and live
+  `next --json --repo open-creo/creo` returns `pr-followup` for PR #9 with
+  reason `ready-for-review`.
