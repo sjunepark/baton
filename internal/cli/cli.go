@@ -424,7 +424,13 @@ func runPRPolicy(args []string, stdout, stderr io.Writer) int {
 	input.Policy = cfg
 	decision := policy.ComputePullRequestPolicy(input)
 	if *jsonOut {
-		return writeJSON(stdout, stderr, decision)
+		if code := writeJSON(stdout, stderr, decision); code != exitOK {
+			return code
+		}
+		if len(decision.Errors) > 0 {
+			return exitPolicy
+		}
+		return exitOK
 	}
 	if len(decision.Errors) == 0 {
 		fmt.Fprintln(stdout, "PR policy check passed.")
