@@ -37,6 +37,10 @@
   `--config` paths, matching the automation command contract.
 - Installed target-repo templates now state that they are Baton-managed and
   editable in the consuming repository.
+- Creo `main` and `agent` now install `github.com/sjunepark/baton/cmd/baton`
+  at `v0.1.2` in GitHub Actions and run Baton for issue and PR policy gates.
+- Creo package scripts for label sync and branch setup now invoke Baton; label
+  sync is dry-run by default with an explicit apply script.
 
 ## Phase 0 - Repository Scaffold
 
@@ -176,18 +180,19 @@ Goal: consume Baton from Creo.
 Tasks:
 
 - [x] Keep current Creo policy files initially.
-- [ ] Point Creo workflows to Baton commands.
-- [ ] Run policy checks in CI.
-- [ ] Update Codex automations to invoke Baton.
+- [x] Point Creo workflows to Baton commands.
+- [x] Run policy checks in CI.
+- [x] Update Codex automations to invoke Baton.
 - [ ] Add PR follow-up automation.
 - [ ] Remove old JS scripts after trial success.
 
 Acceptance:
 
-- Creo issue policy still applies labels correctly.
-- Creo PR policy still fails/passes as before.
-- Existing open PRs are discoverable by `baton next`.
-- Codex automations operate in Baton leases.
+- [ ] Creo issue policy still applies labels correctly from the live issue
+  event workflow.
+- [x] Creo PR policy still fails/passes as before.
+- [ ] Existing open PRs are discoverable by `baton next`.
+- [ ] Codex automations operate in Baton leases.
 
 ## Validation Matrix
 
@@ -352,4 +357,18 @@ Live integration env gates:
   `agent-work/` vs reserved `agent/...` behavior with unit tests.
 - Fixed `pr-policy --json` so policy errors still return a policy-failure exit
   code for automation callers.
-- Next slice: wire Creo workflows to the published Baton install path.
+- Migrated Creo `main` and `agent` to Baton v0.1.2 for GitHub policy
+  workflows, updated Creo package scripts to call Baton for branch setup and
+  label sync, and pushed both branches.
+- Validation: Baton CI is green for v0.1.2; Creo local validation passed for
+  YAML parsing, legacy policy tests, targeted quality, `baton ensure-branch`,
+  `baton sync-labels --dry-run`, and direct Baton issue/PR policy fixtures.
+  GitHub Actions PR Policy passed on open Creo promotion PR #9 using the
+  Baton-backed workflow, and all fresh PR checks on that PR are green after
+  merging `origin/main` back into `agent`.
+- Known residual: the direct `main` push triggered broad Creo `Checks` and
+  Windows smoke failures on the default branch before the staged `agent`
+  fixes are promoted; the promotion PR is clean and green. Live issue-event
+  workflow validation and old JS script removal remain pending.
+- Next slice: add/validate PR follow-up automation and live issue-policy event
+  behavior before removing legacy Creo scripts.
