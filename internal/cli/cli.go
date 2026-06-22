@@ -264,7 +264,10 @@ func (r renderer) TOONError(result errorResult, code int) int {
 // Run executes the Baton command line. It is small by design: command packages
 // own deterministic decisions, and this layer only parses flags and renders.
 func Run(args []string, stdout, stderr io.Writer, version string) int {
-	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
+	if len(args) == 0 {
+		return runHome(nil, stdout, stderr)
+	}
+	if args[0] == "--help" || args[0] == "-h" {
 		printHelp(stdout)
 		return exitOK
 	}

@@ -70,6 +70,30 @@ func TestSubcommandHelpExitsZeroOnStdout(t *testing.T) {
 	}
 }
 
+func TestNoArgsShowsHomeAndHelpStaysGlobal(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := Run(nil, &stdout, &stderr, "test")
+	if code != exitOK {
+		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitOK, stdout.String(), stderr.String())
+	}
+	if stderr.String() != "" {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "description: Coordinate GitHub issue/PR agent workflows") {
+		t.Fatalf("no-args output = %q, want home view", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run([]string{"--help"}, &stdout, &stderr, "test")
+	if code != exitOK {
+		t.Fatalf("Run --help exit = %d, want %d", code, exitOK)
+	}
+	if !strings.Contains(stdout.String(), "Usage:") || strings.Contains(stdout.String(), "leases.active:") {
+		t.Fatalf("--help output = %q, want global help", stdout.String())
+	}
+}
+
 func TestUnknownSubcommandHelpReturnsUsage(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := Run([]string{"help", "missing"}, &stdout, &stderr, "test")

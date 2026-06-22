@@ -166,17 +166,8 @@ Guidelines:
 
 ## Home View
 
-Ship `baton home` before changing no-args behavior.
-
-Rationale:
-
-- Current no-args behavior is global help and is already documented by CLI
-  usage output.
-- A separate `home` command lets the live dashboard contract stabilize with
-  tests before replacing no-args help.
-- Once `home` is covered by tests and documented in the bundled skill, no-args
-  can be changed to render the same home view while `baton --help` keeps global
-  help.
+Running `baton` with no arguments renders the same local dashboard as
+`baton home`. `baton --help` keeps global help output.
 
 The home view should not fail just because config, auth, or remote state is
 missing. Missing pieces should be explicit fields in the result:

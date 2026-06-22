@@ -48,6 +48,11 @@ return structured JSON for automation.
 
 ## Core Commands
 
+### `baton`
+
+With no arguments, show the local Baton dashboard. Use `baton --help` for
+global command help.
+
 ### `baton home`
 
 Show a local Baton dashboard without failing on missing config, auth, or remote

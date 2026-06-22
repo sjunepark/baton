@@ -73,6 +73,8 @@ objects.
   commands `home`, `doctor`, `next`, `queue`, `prs`, `checks`, and
   `review-threads` support `--format toon|json|text` with `--json` preserved as
   a compatibility alias.
+- Running `baton` with no arguments now renders the content-first home view;
+  `baton --help` remains global help.
 - Agent-facing docs now prefer compact `--format toon` reads while keeping
   `--json` documented as the stable automation contract.
 
@@ -459,6 +461,9 @@ Recommended enhancement:
 - 2026-06-23: Completed agent-facing docs by updating the bundled Baton skill,
   skill references, README examples, CLI spec, and skill spec to prefer compact
   `--format toon` reads while preserving `--json` for automation contracts.
+- 2026-06-23: Completed AXI-002 no-args home behavior by making bare `baton`
+  render the home dashboard while preserving `baton --help` as global help.
+  Validation: `go test ./...` passes.
 
 ## Keep As-Is
 
