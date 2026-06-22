@@ -19,8 +19,9 @@
 - Native worktree leasing is implemented with lease records, branch collision
   protection, dirty release refusal, listing, prune dry-run, and conservative
   prune cleanup behind `--yes`.
-- `baton doctor` and local-only `baton complete` are implemented. GitHub
-  commenting from `complete` remains intentionally deferred.
+- `baton doctor` and `baton complete` are implemented. `complete` records local
+  metadata by default and can post a GitHub issue/PR comment only with explicit
+  `--comment`.
 - Legacy Creo config migration is implemented with `baton migrate-config`.
 
 ## Phase 0 - Repository Scaffold
@@ -202,8 +203,8 @@ Integration, live gated:
   in v1.
 - Whether to support Treehouse as a v1 backend or defer until native leasing is
   proven.
-- Whether `baton complete` should write GitHub comments directly or only produce
-  suggested comment text in v1.
+- Resolved: `baton complete` records local metadata by default; GitHub comments
+  are opt-in with `--comment --repo owner/name --issue N|--pr N`.
 - Whether Baton should manage GitHub Project fields or leave Projects as a
   human scheduling view in v1.
 
@@ -267,4 +268,8 @@ Integration, live gated:
   and overwrite protection.
 - Validation: `go test ./...`, dry-run migration from Creo's legacy config,
   and apply migration in a temporary directory pass.
+- Added explicit opt-in GitHub comments for `baton complete --comment` on issue
+  or PR timelines.
+- Validation: `go test ./...` covers completion comment body formatting and the
+  GitHub issue comment REST endpoint.
 - Next slice: start Creo migration wiring.

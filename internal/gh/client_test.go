@@ -77,3 +77,24 @@ func TestApplyIssueDecisionUsesLabelsAndPolicyComment(t *testing.T) {
 		t.Fatalf("sawAdd=%v sawRemove=%v sawPatch=%v", sawAdd, sawRemove, sawPatch)
 	}
 }
+
+func TestCreateIssueComment(t *testing.T) {
+	var sawComment bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/repos/open-creo/creo/issues/12/comments" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+		}
+		sawComment = true
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "token", server.Client())
+	if err := client.CreateIssueComment("open-creo/creo", 12, "done"); err != nil {
+		t.Fatal(err)
+	}
+	if !sawComment {
+		t.Fatal("comment was not posted")
+	}
+}

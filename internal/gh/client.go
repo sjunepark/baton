@@ -161,6 +161,10 @@ func (c *Client) UpdateLabel(repo string, label labels.Label) error {
 	return c.patchJSON(fmt.Sprintf("/repos/%s/labels/%s", repo, url.PathEscape(label.Name)), label, nil)
 }
 
+func (c *Client) CreateIssueComment(repo string, number int, body string) error {
+	return c.postJSON(fmt.Sprintf("/repos/%s/issues/%d/comments", repo, number), map[string]any{"body": body}, nil)
+}
+
 func (c *Client) getJSON(path string, out any) error {
 	return c.doJSON(http.MethodGet, path, nil, out, false)
 }

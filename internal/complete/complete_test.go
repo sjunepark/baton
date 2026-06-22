@@ -3,6 +3,7 @@ package complete
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -19,5 +20,13 @@ func TestWriteCompletion(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "completions", "20260622T103000Z.json")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCommentBody(t *testing.T) {
+	record := Record{LeaseID: "lease-1", Summary: "Implemented change", Validation: "go test ./..."}
+	body := CommentBody(record)
+	if !strings.Contains(body, "Implemented change") || !strings.Contains(body, "go test ./...") || !strings.Contains(body, "lease-1") {
+		t.Fatalf("body = %q", body)
 	}
 }

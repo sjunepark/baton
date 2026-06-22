@@ -115,7 +115,7 @@ Usage:
   baton release --lease <id>|--path <path> [--keep-dirty]
   baton leases --json
   baton prune --dry-run|--yes --json
-  baton complete --summary <text> [--lease <id>] [--validation <text>] [--json]
+  baton complete --summary <text> [--lease <id>] [--validation <text>] [--comment --repo owner/name --issue N|--pr N] [--json]
   baton ensure-branch [--apply] [--remote origin] [--base main] [--target agent] [--json]
   baton labels --file <path> [--json]
 
@@ -787,6 +787,10 @@ func runComplete(args []string, stdout, stderr io.Writer) int {
 	leaseID := fs.String("lease", "", "lease id")
 	summary := fs.String("summary", "", "completion summary")
 	validation := fs.String("validation", "", "validation performed")
+	comment := fs.Bool("comment", false, "post completion as a GitHub issue/PR comment")
+	repoFlag := fs.String("repo", "", "GitHub repository owner/name")
+	issueNumber := fs.Int("issue", 0, "issue number to comment on")
+	prNumber := fs.Int("pr", 0, "PR number to comment on")
 	stateRoot := fs.String("state-root", "", "Baton state root")
 	jsonOut := fs.Bool("json", false, "emit JSON")
 	if err := fs.Parse(args); err != nil {
@@ -796,6 +800,28 @@ func runComplete(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return exitUsage
+	}
+	if *comment {
+		target := *issueNumber
+		if *prNumber != 0 {
+			if target != 0 {
+				fmt.Fprintln(stderr, "complete --comment requires only one of --issue or --pr")
+				return exitUsage
+			}
+			target = *prNumber
+		}
+		if target == 0 {
+			fmt.Fprintln(stderr, "complete --comment requires --issue or --pr")
+			return exitUsage
+		}
+		repo, client, code := githubClientForRepo(*repoFlag, stderr)
+		if code != exitOK {
+			return code
+		}
+		if err := client.CreateIssueComment(repo, target, complete.CommentBody(record)); err != nil {
+			fmt.Fprintln(stderr, err)
+			return exitGitHub
+		}
 	}
 	if *jsonOut {
 		return writeJSON(stdout, stderr, record)

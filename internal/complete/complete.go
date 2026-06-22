@@ -21,6 +21,17 @@ type Record struct {
 	CreatedAt     time.Time `json:"createdAt"`
 }
 
+func CommentBody(record Record) string {
+	body := "Baton completion recorded.\n\nSummary:\n" + record.Summary
+	if strings.TrimSpace(record.Validation) != "" {
+		body += "\n\nValidation:\n" + record.Validation
+	}
+	if strings.TrimSpace(record.LeaseID) != "" {
+		body += "\n\nLease: `" + record.LeaseID + "`"
+	}
+	return body
+}
+
 func Write(stateRoot, leaseID, summary, validation string, now time.Time) (Record, error) {
 	if strings.TrimSpace(summary) == "" {
 		return Record{}, fmt.Errorf("summary is required")
