@@ -24,6 +24,15 @@ func TestComputePullRequestPolicy(t *testing.T) {
 			wantErrors: []string{},
 		},
 		{
+			name: "agent work PR requires work branch prefix",
+			input: PRPolicyInput{
+				PullRequest:      workPullRequestWithHead("Refs #123", "agent/123-issue-policy"),
+				ReferencedIssues: []ReferencedIssue{issue(123, "agent:ready-trivial")},
+				CommitMessages:   []string{"Document issue policy"},
+			},
+			wantErrorSubstr: "Work PR branches into agent must start with agent-work/; agent/... is reserved by the shared staging branch.",
+		},
+		{
 			name: "agent work PR requires refs",
 			input: PRPolicyInput{
 				PullRequest:    workPullRequest("No linked issue."),
@@ -142,12 +151,16 @@ func TestIsNoisyCommitSubject(t *testing.T) {
 }
 
 func workPullRequest(body string) PullRequest {
+	return workPullRequestWithHead(body, "agent-work/123-issue-policy")
+}
+
+func workPullRequestWithHead(body, headRef string) PullRequest {
 	return PullRequest{
 		Number:                 10,
 		Title:                  "Update issue policy",
 		Body:                   body,
 		BaseRef:                "agent",
-		HeadRef:                "agent/123-issue-policy",
+		HeadRef:                headRef,
 		BaseRepositoryFullName: "open-creo/creo",
 		HeadRepositoryFullName: "open-creo/creo",
 	}

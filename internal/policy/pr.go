@@ -94,6 +94,9 @@ func validateWorkPullRequest(errors *[]string, input PRPolicyInput, cfg config.C
 	if len(closing) > 0 {
 		*errors = append(*errors, fmt.Sprintf("Work PRs into %s must use Refs #123, not closing keywords.", targetBranch))
 	}
+	if cfg.Repository.WorkBranchPrefix != "" && !strings.HasPrefix(input.PullRequest.HeadRef, cfg.Repository.WorkBranchPrefix) {
+		*errors = append(*errors, fmt.Sprintf("Work PR branches into %s must start with %s; %s/... is reserved by the shared staging branch.", targetBranch, cfg.Repository.WorkBranchPrefix, targetBranch))
+	}
 
 	issuesByNumber := map[int]ReferencedIssue{}
 	for _, issue := range input.ReferencedIssues {
