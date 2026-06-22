@@ -104,12 +104,12 @@ Usage:
   baton pr-policy --fixture <path> [--config <path>] [--json]
   baton pr-policy --event <path> [--config <path>] [--json]
   baton sync-labels --dry-run|--apply [--repo owner/name] [--labels-file <path>] [--json]
-  baton queue --json [--repo owner/name]
-  baton prs --json [--repo owner/name]
+  baton queue --json [--repo owner/name] [--config <path>]
+  baton prs --json [--repo owner/name] [--config <path>]
   baton pr <number> --json [--repo owner/name] [--config <path>]
   baton checks <number> --json [--repo owner/name] [--config <path>]
   baton review-threads <number> --json [--repo owner/name] [--config <path>]
-  baton next --json [--repo owner/name]
+  baton next --json [--repo owner/name] [--config <path>]
   baton lease --purpose <purpose> --branch <ref> [--repo owner/name] --json
   baton lease --purpose <purpose> --base <ref> --new-branch <ref> [--repo owner/name] --json
   baton release --lease <id>|--path <path> [--keep-dirty]

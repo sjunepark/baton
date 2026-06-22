@@ -29,8 +29,8 @@
   `baton init --install-command`.
 - The README now reflects the implemented CLI and documents the trusted install
   path required before consuming repositories switch workflows to Baton.
-- Numbered read-only PR commands now accept and validate an explicit
-  `--config` path, matching the automation command contract.
+- Read-only queue and PR inspection commands now document and accept explicit
+  `--config` paths, matching the automation command contract.
 
 ## Phase 0 - Repository Scaffold
 
@@ -337,6 +337,7 @@ Live integration env gates:
   including local validation, target-repo initialization, queue inspection,
   leasing, and the trusted install path prerequisite for GitHub Actions.
 - Added `--config` support to `pr`, `checks`, and `review-threads` read-only
-  commands with CLI regression coverage for bad explicit config paths.
+  commands with CLI regression coverage for bad explicit config paths; aligned
+  help text for `queue`, `prs`, and `next`.
 - Next slice: publish/configure a trusted Baton install path, then start Creo
   migration wiring.
