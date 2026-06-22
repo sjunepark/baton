@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,8 +25,15 @@ func TestNumberedReadCommandsValidateExplicitConfig(t *testing.T) {
 			if code != exitConfig {
 				t.Fatalf("Run(%v) exit = %d, want %d; stderr=%s", args, code, exitConfig, stderr.String())
 			}
-			if !strings.Contains(stderr.String(), "does-not-exist.yml") {
-				t.Fatalf("stderr = %q, want missing config path", stderr.String())
+			if stderr.String() != "" {
+				t.Fatalf("stderr = %q, want empty structured-mode stderr", stderr.String())
+			}
+			result := decodeErrorResult(t, stdout.String())
+			if result.Category != "config" || result.ExitCode != exitConfig {
+				t.Fatalf("error result = %+v, want config exit %d", result, exitConfig)
+			}
+			if !strings.Contains(result.Message, "does-not-exist.yml") {
+				t.Fatalf("message = %q, want missing config path", result.Message)
 			}
 		})
 	}
@@ -77,9 +85,71 @@ func TestPolicyCommandFailsWhenRepoConfigMissing(t *testing.T) {
 	if code != exitConfig {
 		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitConfig, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stderr.String(), config.ErrConfigNotFound.Error()) {
-		t.Fatalf("stderr = %q, want missing config error", stderr.String())
+	if stderr.String() != "" {
+		t.Fatalf("stderr = %q, want empty structured-mode stderr", stderr.String())
 	}
+	result := decodeErrorResult(t, stdout.String())
+	if result.Category != "config" || result.ExitCode != exitConfig {
+		t.Fatalf("error result = %+v, want config exit %d", result, exitConfig)
+	}
+	if !strings.Contains(result.Message, config.ErrConfigNotFound.Error()) {
+		t.Fatalf("message = %q, want missing config error", result.Message)
+	}
+	if !strings.Contains(result.Hint, "<path>") {
+		t.Fatalf("hint = %q, want readable placeholder", result.Hint)
+	}
+}
+
+func TestIssuePolicyApplyJSONFailureReturnsSingleErrorObject(t *testing.T) {
+	dir := t.TempDir()
+	bodyPath := filepath.Join(dir, "issue.md")
+	if err := os.WriteFile(bodyPath, []byte("### Summary\n\nDo the thing."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	configPath := writeDefaultConfig(t, dir)
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"issue-policy", "--body-file", bodyPath, "--config", configPath, "--apply", "--json"}, &stdout, &stderr, "test")
+	if code != exitUsage {
+		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitUsage, stdout.String(), stderr.String())
+	}
+	if stderr.String() != "" {
+		t.Fatalf("stderr = %q, want empty structured-mode stderr", stderr.String())
+	}
+	result := decodeErrorResult(t, stdout.String())
+	if result.Kind != "error" || result.Category != "usage" {
+		t.Fatalf("error result = %+v, want usage error", result)
+	}
+	if !strings.Contains(result.Message, "--event") {
+		t.Fatalf("message = %q, want --event requirement", result.Message)
+	}
+}
+
+func TestJSONUsageErrorReturnsStructuredError(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"init", "--dry-run", "--apply", "--json"}, &stdout, &stderr, "test")
+	if code != exitUsage {
+		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitUsage, stdout.String(), stderr.String())
+	}
+	if stderr.String() != "" {
+		t.Fatalf("stderr = %q, want empty structured-mode stderr", stderr.String())
+	}
+	result := decodeErrorResult(t, stdout.String())
+	if result.Kind != "error" || result.Category != "usage" || result.ExitCode != exitUsage {
+		t.Fatalf("error result = %+v, want usage error", result)
+	}
+	if result.Hint == "" {
+		t.Fatalf("hint is empty in %+v", result)
+	}
+}
+
+func decodeErrorResult(t *testing.T, content string) errorResult {
+	t.Helper()
+	var result errorResult
+	if err := json.Unmarshal([]byte(content), &result); err != nil {
+		t.Fatalf("decode error result from %q: %v", content, err)
+	}
+	return result
 }
 
 func writeDefaultConfig(t *testing.T, dir string) string {

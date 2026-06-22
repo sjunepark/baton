@@ -34,6 +34,57 @@ const (
 	schemaVersionV1 = 1
 )
 
+type renderer struct {
+	stdout     io.Writer
+	stderr     io.Writer
+	structured bool
+}
+
+type errorResult struct {
+	SchemaVersion int    `json:"schemaVersion"`
+	Kind          string `json:"kind"`
+	Category      string `json:"category"`
+	ExitCode      int    `json:"exitCode"`
+	Message       string `json:"message"`
+	Hint          string `json:"hint,omitempty"`
+	Retryable     bool   `json:"retryable"`
+}
+
+func newRenderer(stdout, stderr io.Writer, structured bool) renderer {
+	return renderer{stdout: stdout, stderr: stderr, structured: structured}
+}
+
+func (r renderer) JSON(value any) int {
+	return writeJSON(r.stdout, r.stderr, value)
+}
+
+func (r renderer) Error(code int, err error, hint string) int {
+	if err == nil {
+		err = fmt.Errorf("command failed")
+	}
+	return r.ErrorMessage(code, err.Error(), hint)
+}
+
+func (r renderer) ErrorMessage(code int, message, hint string) int {
+	if !r.structured {
+		fmt.Fprintln(r.stderr, message)
+		return code
+	}
+	result := errorResult{
+		SchemaVersion: schemaVersionV1,
+		Kind:          "error",
+		Category:      exitCategory(code),
+		ExitCode:      code,
+		Message:       message,
+		Hint:          firstNonEmpty(hint, defaultErrorHint(code, message)),
+		Retryable:     errorRetryable(code),
+	}
+	if writeCode := r.JSON(result); writeCode != exitOK {
+		return writeCode
+	}
+	return code
+}
+
 // Run executes the Baton command line. It is small by design: command packages
 // own deterministic decisions, and this layer only parses flags and renders.
 func Run(args []string, stdout, stderr io.Writer, version string) int {
@@ -138,17 +189,15 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
+	out := newRenderer(stdout, stderr, *jsonOut)
 	if *dryRun == *apply {
-		fmt.Fprintln(stderr, "init requires exactly one of --dry-run or --apply")
-		return exitUsage
+		return out.ErrorMessage(exitUsage, "init requires exactly one of --dry-run or --apply", "Run `baton init --dry-run` to preview or `baton init --apply` to write files.")
 	}
 	if *profile != "default" {
-		fmt.Fprintln(stderr, "init currently supports only --profile default")
-		return exitUsage
+		return out.ErrorMessage(exitUsage, "init currently supports only --profile default", "")
 	}
 	if *goInstall != "" && *installCommand != "" {
-		fmt.Fprintln(stderr, "init accepts only one of --go-install or --install-command")
-		return exitUsage
+		return out.ErrorMessage(exitUsage, "init accepts only one of --go-install or --install-command", "")
 	}
 	options := install.Options{GoInstall: *goInstall, InstallCommand: *installCommand}
 	var (
@@ -161,11 +210,10 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 		plan, err = install.PreviewWithOptions(".", options)
 	}
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return exitConfig
+		return out.Error(exitConfig, err, "")
 	}
 	if *jsonOut {
-		return writeJSON(stdout, stderr, plan)
+		return out.JSON(plan)
 	}
 	for _, change := range plan.Changes {
 		fmt.Fprintf(stdout, "%s %s\n", change.Action, change.Path)
@@ -185,19 +233,17 @@ func runMigrateConfig(args []string, stdout, stderr io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
+	out := newRenderer(stdout, stderr, *jsonOut)
 	if *dryRun == *apply {
-		fmt.Fprintln(stderr, "migrate-config requires exactly one of --dry-run or --apply")
-		return exitUsage
+		return out.ErrorMessage(exitUsage, "migrate-config requires exactly one of --dry-run or --apply", "Run `baton migrate-config --dry-run` to preview or `baton migrate-config --apply` to write.")
 	}
 	cfg, err := config.Load(*from)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return exitConfig
+		return out.Error(exitConfig, err, "")
 	}
 	content, err := config.MarshalYAML(cfg)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return exitConfig
+		return out.Error(exitConfig, err, "")
 	}
 	action := "create"
 	if existing, err := os.ReadFile(*to); err == nil {
@@ -207,8 +253,7 @@ func runMigrateConfig(args []string, stdout, stderr io.Writer) int {
 			action = "overwrite"
 		}
 	} else if !os.IsNotExist(err) {
-		fmt.Fprintln(stderr, err)
-		return exitConfig
+		return out.Error(exitConfig, err, "")
 	}
 	result := struct {
 		SchemaVersion int    `json:"schemaVersion"`
@@ -221,27 +266,24 @@ func runMigrateConfig(args []string, stdout, stderr io.Writer) int {
 	if *dryRun {
 		result.Content = string(content)
 		if *jsonOut {
-			return writeJSON(stdout, stderr, result)
+			return out.JSON(result)
 		}
 		fmt.Fprintf(stdout, "%s %s from %s\n\n%s", action, *to, *from, content)
 		return exitOK
 	}
 	if action == "overwrite" && !*yes {
-		fmt.Fprintf(stderr, "%s already exists with different content; rerun with --yes to overwrite\n", *to)
-		return exitConfig
+		return out.ErrorMessage(exitConfig, fmt.Sprintf("%s already exists with different content; rerun with --yes to overwrite", *to), "")
 	}
 	if action != "unchanged" {
 		if err := os.MkdirAll(filepath.Dir(*to), 0o755); err != nil {
-			fmt.Fprintln(stderr, err)
-			return exitConfig
+			return out.Error(exitConfig, err, "")
 		}
 		if err := os.WriteFile(*to, content, 0o644); err != nil {
-			fmt.Fprintln(stderr, err)
-			return exitConfig
+			return out.Error(exitConfig, err, "")
 		}
 	}
 	if *jsonOut {
-		return writeJSON(stdout, stderr, result)
+		return out.JSON(result)
 	}
 	fmt.Fprintf(stdout, "%s %s\n", action, *to)
 	return exitOK
@@ -255,9 +297,10 @@ func runDoctor(args []string, stdout, stderr io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
+	out := newRenderer(stdout, stderr, *jsonOut)
 	result := doctor.Run(*configPath)
 	if *jsonOut {
-		if code := writeJSON(stdout, stderr, result); code != exitOK {
+		if code := out.JSON(result); code != exitOK {
 			return code
 		}
 	} else {
@@ -288,15 +331,14 @@ func runIssuePolicy(args []string, stdout, stderr io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
+	out := newRenderer(stdout, stderr, *jsonOut)
 	if (*bodyFile == "") == (*eventPath == "") {
-		fmt.Fprintln(stderr, "issue-policy requires exactly one of --body-file or --event")
-		return exitUsage
+		return out.ErrorMessage(exitUsage, "issue-policy requires exactly one of --body-file or --event", "Run `baton issue-policy --body-file <path>` or `baton issue-policy --event <path>`.")
 	}
 
 	cfg, err := loadConfig(*configPath)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return exitConfig
+		return out.Error(exitConfig, err, "")
 	}
 	body := ""
 	currentLabels := splitCSV(*labelsCSV)
@@ -305,13 +347,11 @@ func runIssuePolicy(args []string, stdout, stderr io.Writer) int {
 	if *eventPath != "" {
 		content, err := os.ReadFile(*eventPath)
 		if err != nil {
-			fmt.Fprintf(stderr, "read issue event: %v\n", err)
-			return exitUsage
+			return out.ErrorMessage(exitUsage, fmt.Sprintf("read issue event: %v", err), "")
 		}
 		event, err := gh.ParseIssueEvent(content)
 		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return exitUsage
+			return out.Error(exitUsage, err, "")
 		}
 		body = event.Body
 		currentLabels = event.Labels
@@ -320,8 +360,7 @@ func runIssuePolicy(args []string, stdout, stderr io.Writer) int {
 	} else {
 		content, err := os.ReadFile(*bodyFile)
 		if err != nil {
-			fmt.Fprintf(stderr, "read issue body: %v\n", err)
-			return exitUsage
+			return out.ErrorMessage(exitUsage, fmt.Sprintf("read issue body: %v", err), "")
 		}
 		body = string(content)
 	}
@@ -331,24 +370,23 @@ func runIssuePolicy(args []string, stdout, stderr io.Writer) int {
 		CurrentLabels: currentLabels,
 		Policy:        cfg.IssuePolicy,
 	})
-	if *jsonOut {
-		if code := writeJSON(stdout, stderr, decision); code != exitOK {
-			return code
-		}
-	}
 	if !decision.IsFormIssue {
 		if !*jsonOut {
 			fmt.Fprintln(stdout, "Issue policy: body does not match the configured form.")
 		}
-		return applyIssueDecisionIfRequested(*apply, *eventPath, *repoFlag, eventRepo, eventIssueNumber, decision, cfg, stderr)
-	}
-	if !*jsonOut {
+	} else if !*jsonOut {
 		fmt.Fprintf(stdout, "Issue policy: add %s; remove %s\n", strings.Join(decision.LabelsToAdd, ", "), strings.Join(decision.LabelsToRemove, ", "))
 		if len(decision.MissingRequiredSections) > 0 {
 			fmt.Fprintf(stdout, "Missing required sections: %s\n", strings.Join(decision.MissingRequiredSections, ", "))
 		}
 	}
-	return applyIssueDecisionIfRequested(*apply, *eventPath, *repoFlag, eventRepo, eventIssueNumber, decision, cfg, stderr)
+	if code := applyIssueDecisionIfRequested(*apply, *eventPath, *repoFlag, eventRepo, eventIssueNumber, decision, cfg, out); code != exitOK {
+		return code
+	}
+	if *jsonOut {
+		return out.JSON(decision)
+	}
+	return exitOK
 }
 
 func runPRPolicy(args []string, stdout, stderr io.Writer) int {
@@ -362,61 +400,52 @@ func runPRPolicy(args []string, stdout, stderr io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
+	out := newRenderer(stdout, stderr, *jsonOut)
 	if (*fixturePath == "") == (*eventPath == "") {
-		fmt.Fprintln(stderr, "pr-policy requires exactly one of --fixture or --event")
-		return exitUsage
+		return out.ErrorMessage(exitUsage, "pr-policy requires exactly one of --fixture or --event", "Run `baton pr-policy --fixture <path>` or `baton pr-policy --event <path>`.")
 	}
 	cfg, err := loadConfig(*configPath)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return exitConfig
+		return out.Error(exitConfig, err, "")
 	}
 	var input policy.PRPolicyInput
 	if *fixturePath != "" {
 		content, err := os.ReadFile(*fixturePath)
 		if err != nil {
-			fmt.Fprintf(stderr, "read PR policy fixture: %v\n", err)
-			return exitUsage
+			return out.ErrorMessage(exitUsage, fmt.Sprintf("read PR policy fixture: %v", err), "")
 		}
 		if err := json.Unmarshal(content, &input); err != nil {
-			fmt.Fprintf(stderr, "parse PR policy fixture: %v\n", err)
-			return exitUsage
+			return out.ErrorMessage(exitUsage, fmt.Sprintf("parse PR policy fixture: %v", err), "")
 		}
 	} else {
 		content, err := os.ReadFile(*eventPath)
 		if err != nil {
-			fmt.Fprintf(stderr, "read PR event: %v\n", err)
-			return exitUsage
+			return out.ErrorMessage(exitUsage, fmt.Sprintf("read PR event: %v", err), "")
 		}
 		pr, err := gh.ParsePullRequestEvent(content)
 		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return exitUsage
+			return out.Error(exitUsage, err, "")
 		}
 		input.PullRequest = pr
 		repo := firstNonEmpty(*repoFlag, pr.BaseRepositoryFullName)
 		if repo == "" {
-			fmt.Fprintln(stderr, "--repo, GITHUB_REPOSITORY, or pull_request.base.repo.full_name is required")
-			return exitUsage
+			return out.ErrorMessage(exitUsage, "--repo, GITHUB_REPOSITORY, or pull_request.base.repo.full_name is required", "")
 		}
 		client, err := gh.NewClientFromEnv()
 		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return exitAuth
+			return out.Error(exitAuth, err, "")
 		}
 		issueNumbers := gh.IssueNumbersForPR(pr)
 		if len(issueNumbers) > 0 {
 			issues, err := client.FetchIssueLabels(repo, issueNumbers)
 			if err != nil {
-				fmt.Fprintln(stderr, err)
-				return exitGitHub
+				return out.Error(exitGitHub, err, "")
 			}
 			input.ReferencedIssues = issues
 		}
 		messages, reachedCap, err := client.FetchCommitListing(repo, pr.Number)
 		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return exitGitHub
+			return out.Error(exitGitHub, err, "")
 		}
 		input.CommitMessages = messages
 		input.CommitListingReachedCap = reachedCap
@@ -424,7 +453,7 @@ func runPRPolicy(args []string, stdout, stderr io.Writer) int {
 	input.Policy = cfg
 	decision := policy.ComputePullRequestPolicy(input)
 	if *jsonOut {
-		if code := writeJSON(stdout, stderr, decision); code != exitOK {
+		if code := out.JSON(decision); code != exitOK {
 			return code
 		}
 		if len(decision.Errors) > 0 {
@@ -454,29 +483,25 @@ func runSyncLabels(args []string, stdout, stderr io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
+	out := newRenderer(stdout, stderr, *jsonOut)
 	if *dryRun == *apply {
-		fmt.Fprintln(stderr, "sync-labels requires exactly one of --dry-run or --apply")
-		return exitUsage
+		return out.ErrorMessage(exitUsage, "sync-labels requires exactly one of --dry-run or --apply", "Run `baton sync-labels --dry-run` to preview or `baton sync-labels --apply` to update GitHub labels.")
 	}
 	repo, err := gh.RepoFromEnvOrFlag(*repoFlag)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return exitUsage
+		return out.Error(exitUsage, err, "")
 	}
 	manifest, err := labels.LoadManifest(*labelsFile)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return exitConfig
+		return out.Error(exitConfig, err, "")
 	}
 	client, err := gh.NewClientFromEnv()
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return exitAuth
+		return out.Error(exitAuth, err, "")
 	}
 	existing, err := client.ListLabels(repo)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return exitGitHub
+		return out.Error(exitGitHub, err, "")
 	}
 	plan := labels.PlanSync(repo, manifest.Labels, existing)
 	if *apply {
@@ -484,19 +509,17 @@ func runSyncLabels(args []string, stdout, stderr io.Writer) int {
 			switch change.Action {
 			case "create":
 				if err := client.CreateLabel(repo, labels.Label{Name: change.Name, Color: change.Color, Description: change.Description}); err != nil {
-					fmt.Fprintln(stderr, err)
-					return exitGitHub
+					return out.Error(exitGitHub, err, "")
 				}
 			case "update":
 				if err := client.UpdateLabel(repo, labels.Label{Name: change.Name, Color: change.Color, Description: change.Description}); err != nil {
-					fmt.Fprintln(stderr, err)
-					return exitGitHub
+					return out.Error(exitGitHub, err, "")
 				}
 			}
 		}
 	}
 	if *jsonOut {
-		return writeJSON(stdout, stderr, plan)
+		return out.JSON(plan)
 	}
 	for _, change := range plan.Changes {
 		fmt.Fprintf(stdout, "%s %s\n", change.Action, change.Name)
@@ -513,12 +536,13 @@ func runQueue(args []string, stdout, stderr io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
-	snapshot, code := fetchQueueSnapshot(*repoFlag, *configPath, false, stderr)
+	out := newRenderer(stdout, stderr, *jsonOut)
+	snapshot, code := fetchQueueSnapshot(*repoFlag, *configPath, false, out)
 	if code != exitOK {
 		return code
 	}
 	if *jsonOut {
-		return writeJSON(stdout, stderr, snapshot)
+		return out.JSON(snapshot)
 	}
 	for _, issue := range snapshot.Issues {
 		fmt.Fprintf(stdout, "#%d eligible=%v %s\n", issue.Issue.Number, issue.Eligible, strings.Join(issue.Reasons, ", "))
@@ -535,12 +559,13 @@ func runPRs(args []string, stdout, stderr io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
-	snapshot, code := fetchQueueSnapshot(*repoFlag, *configPath, true, stderr)
+	out := newRenderer(stdout, stderr, *jsonOut)
+	snapshot, code := fetchQueueSnapshot(*repoFlag, *configPath, true, out)
 	if code != exitOK {
 		return code
 	}
 	if *jsonOut {
-		return writeJSON(stdout, stderr, struct {
+		return out.JSON(struct {
 			SchemaVersion int               `json:"schemaVersion"`
 			Kind          string            `json:"kind"`
 			Repo          string            `json:"repo"`
@@ -554,28 +579,28 @@ func runPRs(args []string, stdout, stderr io.Writer) int {
 }
 
 func runPR(args []string, stdout, stderr io.Writer) int {
-	number, flags, code := parseNumberCommand("pr", args, stderr)
+	number, flags, code := parseNumberCommand("pr", args, stdout, stderr)
+	out := newRenderer(stdout, stderr, flags.json)
 	if code != exitOK {
 		return code
 	}
-	if code := validateOptionalConfig(flags.config, stderr); code != exitOK {
+	if code := validateOptionalConfig(flags.config, out); code != exitOK {
 		return code
 	}
-	repo, client, code := githubClientForRepo(flags.repo, stderr)
+	repo, client, code := githubClientForRepo(flags.repo, out)
 	if code != exitOK {
 		return code
 	}
 	pr, err := client.GetPullRequest(repo, number)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return exitGitHub
+		return out.Error(exitGitHub, err, "")
 	}
 	checks, err := client.GetCheckRollup(repo, pr)
 	if err == nil {
 		pr.CheckState = checks.State
 	}
 	if flags.json {
-		return writeJSON(stdout, stderr, struct {
+		return out.JSON(struct {
 			SchemaVersion int               `json:"schemaVersion"`
 			Kind          string            `json:"kind"`
 			Repo          string            `json:"repo"`
@@ -587,29 +612,28 @@ func runPR(args []string, stdout, stderr io.Writer) int {
 }
 
 func runChecks(args []string, stdout, stderr io.Writer) int {
-	number, flags, code := parseNumberCommand("checks", args, stderr)
+	number, flags, code := parseNumberCommand("checks", args, stdout, stderr)
+	out := newRenderer(stdout, stderr, flags.json)
 	if code != exitOK {
 		return code
 	}
-	if code := validateOptionalConfig(flags.config, stderr); code != exitOK {
+	if code := validateOptionalConfig(flags.config, out); code != exitOK {
 		return code
 	}
-	repo, client, code := githubClientForRepo(flags.repo, stderr)
+	repo, client, code := githubClientForRepo(flags.repo, out)
 	if code != exitOK {
 		return code
 	}
 	pr, err := client.GetPullRequest(repo, number)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return exitGitHub
+		return out.Error(exitGitHub, err, "")
 	}
 	rollup, err := client.GetCheckRollup(repo, pr)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return exitGitHub
+		return out.Error(exitGitHub, err, "")
 	}
 	if flags.json {
-		return writeJSON(stdout, stderr, rollup)
+		return out.JSON(rollup)
 	}
 	fmt.Fprintf(stdout, "PR #%d checks: %s\n", number, rollup.State)
 	for _, check := range rollup.Checks {
@@ -619,24 +643,24 @@ func runChecks(args []string, stdout, stderr io.Writer) int {
 }
 
 func runReviewThreads(args []string, stdout, stderr io.Writer) int {
-	number, flags, code := parseNumberCommand("review-threads", args, stderr)
+	number, flags, code := parseNumberCommand("review-threads", args, stdout, stderr)
+	out := newRenderer(stdout, stderr, flags.json)
 	if code != exitOK {
 		return code
 	}
-	if code := validateOptionalConfig(flags.config, stderr); code != exitOK {
+	if code := validateOptionalConfig(flags.config, out); code != exitOK {
 		return code
 	}
-	repo, client, code := githubClientForRepo(flags.repo, stderr)
+	repo, client, code := githubClientForRepo(flags.repo, out)
 	if code != exitOK {
 		return code
 	}
 	threads, err := client.GetReviewThreads(repo, number)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return exitGitHub
+		return out.Error(exitGitHub, err, "")
 	}
 	if flags.json {
-		return writeJSON(stdout, stderr, threads)
+		return out.JSON(threads)
 	}
 	for _, thread := range threads.Threads {
 		fmt.Fprintf(stdout, "%s:%d resolved=%v outdated=%v\n", thread.Path, thread.Line, thread.IsResolved, thread.IsOutdated)
@@ -653,13 +677,14 @@ func runNext(args []string, stdout, stderr io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
-	snapshot, code := fetchQueueSnapshot(*repoFlag, *configPath, true, stderr)
+	out := newRenderer(stdout, stderr, *jsonOut)
+	snapshot, code := fetchQueueSnapshot(*repoFlag, *configPath, true, out)
 	if code != exitOK {
 		return code
 	}
 	next := queue.RecommendNext(snapshot)
 	if *jsonOut {
-		return writeJSON(stdout, stderr, next)
+		return out.JSON(next)
 	}
 	fmt.Fprintf(stdout, "Next action: %s\nReason: %s\n", next.Action, next.Reason)
 	return exitOK
@@ -679,6 +704,7 @@ func runLease(args []string, stdout, stderr io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
+	out := newRenderer(stdout, stderr, *jsonOut)
 	manager := lease.NewManager(*stateRoot)
 	record, err := manager.Acquire(lease.AcquireRequest{
 		Purpose:   *purpose,
@@ -688,11 +714,10 @@ func runLease(args []string, stdout, stderr io.Writer) int {
 		Repo:      firstNonEmpty(*repo, *repoName),
 	})
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return exitLocalGit
+		return out.Error(exitLocalGit, err, "")
 	}
 	if *jsonOut {
-		return writeJSON(stdout, stderr, record)
+		return out.JSON(record)
 	}
 	fmt.Fprintf(stdout, "Lease %s: %s\n", record.ID, record.WorktreePath)
 	return exitOK
@@ -709,9 +734,9 @@ func runRelease(args []string, stdout, stderr io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
+	out := newRenderer(stdout, stderr, *jsonOut)
 	if (*leaseID == "") == (*path == "") {
-		fmt.Fprintln(stderr, "release requires exactly one of --lease or --path")
-		return exitUsage
+		return out.ErrorMessage(exitUsage, "release requires exactly one of --lease or --path", "Run `baton release --lease <id>` or `baton release --path <path>`.")
 	}
 	manager := lease.NewManager(*stateRoot)
 	var (
@@ -724,14 +749,13 @@ func runRelease(args []string, stdout, stderr io.Writer) int {
 		result, err = manager.ReleaseByPath(*path, *keepDirty)
 	}
 	if err != nil {
-		if result.Dirty {
-			writeJSON(stdout, stderr, result)
+		if result.Dirty && !out.structured {
+			out.JSON(result)
 		}
-		fmt.Fprintln(stderr, err)
-		return exitLocalGit
+		return out.Error(exitLocalGit, err, "")
 	}
 	if *jsonOut {
-		return writeJSON(stdout, stderr, result)
+		return out.JSON(result)
 	}
 	fmt.Fprintf(stdout, "Released %s\n", result.Lease.ID)
 	return exitOK
@@ -745,13 +769,13 @@ func runLeases(args []string, stdout, stderr io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
+	out := newRenderer(stdout, stderr, *jsonOut)
 	records, err := lease.NewManager(*stateRoot).List()
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return exitLocalGit
+		return out.Error(exitLocalGit, err, "")
 	}
 	if *jsonOut {
-		return writeJSON(stdout, stderr, struct {
+		return out.JSON(struct {
 			SchemaVersion int            `json:"schemaVersion"`
 			Kind          string         `json:"kind"`
 			Leases        []lease.Record `json:"leases"`
@@ -773,19 +797,18 @@ func runPrune(args []string, stdout, stderr io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
+	out := newRenderer(stdout, stderr, *jsonOut)
 	if *dryRun == *yes {
-		fmt.Fprintln(stderr, "prune requires exactly one of --dry-run or --yes")
-		return exitUsage
+		return out.ErrorMessage(exitUsage, "prune requires exactly one of --dry-run or --yes", "Run `baton prune --dry-run` to preview or `baton prune --yes` to remove safe candidates.")
 	}
 	manager := lease.NewManager(*stateRoot)
 	if *dryRun {
 		plan, err := manager.PruneDryRun(time.Now().UTC())
 		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return exitLocalGit
+			return out.Error(exitLocalGit, err, "")
 		}
 		if *jsonOut {
-			return writeJSON(stdout, stderr, plan)
+			return out.JSON(plan)
 		}
 		for _, record := range plan.Candidates {
 			fmt.Fprintf(stdout, "%s %s\n", record.ID, record.Status)
@@ -794,11 +817,10 @@ func runPrune(args []string, stdout, stderr io.Writer) int {
 	}
 	result, err := manager.Prune(time.Now().UTC())
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return exitLocalGit
+		return out.Error(exitLocalGit, err, "")
 	}
 	if *jsonOut {
-		return writeJSON(stdout, stderr, result)
+		return out.JSON(result)
 	}
 	for _, record := range result.Removed {
 		fmt.Fprintf(stdout, "pruned %s\n", record.ID)
@@ -824,35 +846,32 @@ func runComplete(args []string, stdout, stderr io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
+	out := newRenderer(stdout, stderr, *jsonOut)
 	record, err := complete.Write(*stateRoot, *leaseID, *summary, *validation, time.Now().UTC())
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return exitUsage
+		return out.Error(exitUsage, err, "")
 	}
 	if *comment {
 		target := *issueNumber
 		if *prNumber != 0 {
 			if target != 0 {
-				fmt.Fprintln(stderr, "complete --comment requires only one of --issue or --pr")
-				return exitUsage
+				return out.ErrorMessage(exitUsage, "complete --comment requires only one of --issue or --pr", "")
 			}
 			target = *prNumber
 		}
 		if target == 0 {
-			fmt.Fprintln(stderr, "complete --comment requires --issue or --pr")
-			return exitUsage
+			return out.ErrorMessage(exitUsage, "complete --comment requires --issue or --pr", "")
 		}
-		repo, client, code := githubClientForRepo(*repoFlag, stderr)
+		repo, client, code := githubClientForRepo(*repoFlag, out)
 		if code != exitOK {
 			return code
 		}
 		if err := client.CreateIssueComment(repo, target, complete.CommentBody(record)); err != nil {
-			fmt.Fprintln(stderr, err)
-			return exitGitHub
+			return out.Error(exitGitHub, err, "")
 		}
 	}
 	if *jsonOut {
-		return writeJSON(stdout, stderr, record)
+		return out.JSON(record)
 	}
 	fmt.Fprintf(stdout, "Recorded completion %s\n", record.ID)
 	return exitOK
@@ -873,6 +892,7 @@ func runEnsureBranch(args []string, stdout, stderr io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
+	out := newRenderer(stdout, stderr, *jsonOut)
 	input := git.AgentBranchPlanInput{
 		Remote:              *remote,
 		BaseBranch:          *base,
@@ -885,14 +905,13 @@ func runEnsureBranch(args []string, stdout, stderr io.Writer) int {
 	if *remoteBase == "" && *remoteTarget == "" && *localTarget == "" && *localUpstream == "" {
 		inspected, err := git.InspectAgentBranchRefs(input)
 		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return exitLocalGit
+			return out.Error(exitLocalGit, err, "")
 		}
 		input = inspected
 	}
 	plan := git.ComputeAgentBranchPlan(input)
 	if *jsonOut {
-		if code := writeJSON(stdout, stderr, plan); code != exitOK {
+		if code := out.JSON(plan); code != exitOK {
 			return code
 		}
 	}
@@ -919,8 +938,7 @@ func runEnsureBranch(args []string, stdout, stderr io.Writer) int {
 	}
 	if *apply {
 		if err := git.ApplyAgentBranchPlan(plan); err != nil {
-			fmt.Fprintln(stderr, err)
-			return exitLocalGit
+			return out.Error(exitLocalGit, err, "")
 		}
 		return exitOK
 	}
@@ -942,13 +960,13 @@ func runLabels(args []string, stdout, stderr io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
+	out := newRenderer(stdout, stderr, *jsonOut)
 	manifest, err := labels.LoadManifest(*path)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return exitConfig
+		return out.Error(exitConfig, err, "")
 	}
 	if *jsonOut {
-		return writeJSON(stdout, stderr, manifest)
+		return out.JSON(manifest)
 	}
 	for _, label := range manifest.Labels {
 		fmt.Fprintf(stdout, "%s\t%s\t%s\n", label.Name, label.Color, label.Description)
@@ -956,27 +974,23 @@ func runLabels(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-func applyIssueDecisionIfRequested(apply bool, eventPath, repoFlag, eventRepo string, issueNumber int, decision policy.IssuePolicyDecision, cfg config.Config, stderr io.Writer) int {
+func applyIssueDecisionIfRequested(apply bool, eventPath, repoFlag, eventRepo string, issueNumber int, decision policy.IssuePolicyDecision, cfg config.Config, out renderer) int {
 	if !apply {
 		return exitOK
 	}
 	if eventPath == "" {
-		fmt.Fprintln(stderr, "issue-policy --apply requires --event")
-		return exitUsage
+		return out.ErrorMessage(exitUsage, "issue-policy --apply requires --event", "")
 	}
 	repo := firstNonEmpty(repoFlag, eventRepo, os.Getenv("GITHUB_REPOSITORY"))
 	if repo == "" || issueNumber == 0 {
-		fmt.Fprintln(stderr, "issue-policy --apply requires a repository and issue number")
-		return exitUsage
+		return out.ErrorMessage(exitUsage, "issue-policy --apply requires a repository and issue number", "")
 	}
 	client, err := gh.NewClientFromEnv()
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return exitAuth
+		return out.Error(exitAuth, err, "")
 	}
 	if err := client.ApplyIssueDecision(repo, issueNumber, decision, cfg.IssuePolicy.PolicyCommentMarker); err != nil {
-		fmt.Fprintln(stderr, err)
-		return exitGitHub
+		return out.Error(exitGitHub, err, "")
 	}
 	return exitOK
 }
@@ -987,15 +1001,15 @@ type numberFlags struct {
 	json   bool
 }
 
-func parseNumberCommand(name string, args []string, stderr io.Writer) (int, numberFlags, int) {
+func parseNumberCommand(name string, args []string, stdout, stderr io.Writer) (int, numberFlags, int) {
+	structured := hasFlag(args, "json")
+	out := newRenderer(stdout, stderr, structured)
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
-		fmt.Fprintf(stderr, "%s requires a number\n", name)
-		return 0, numberFlags{}, exitUsage
+		return 0, numberFlags{json: structured}, out.ErrorMessage(exitUsage, fmt.Sprintf("%s requires a number", name), fmt.Sprintf("Run `baton %s <number> --json`.", name))
 	}
 	number, err := gh.IssueNumberFromString(args[0])
 	if err != nil {
-		fmt.Fprintf(stderr, "%s number: %v\n", name, err)
-		return 0, numberFlags{}, exitUsage
+		return 0, numberFlags{json: structured}, out.ErrorMessage(exitUsage, fmt.Sprintf("%s number: %v", name, err), "")
 	}
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -1003,47 +1017,42 @@ func parseNumberCommand(name string, args []string, stderr io.Writer) (int, numb
 	configPath := fs.String("config", "", "policy config path")
 	jsonOut := fs.Bool("json", false, "emit JSON")
 	if err := fs.Parse(args[1:]); err != nil {
-		return 0, numberFlags{}, exitUsage
+		return 0, numberFlags{json: structured}, out.Error(exitUsage, err, "")
 	}
 	return number, numberFlags{repo: *repoFlag, config: *configPath, json: *jsonOut}, exitOK
 }
 
-func validateOptionalConfig(path string, stderr io.Writer) int {
+func validateOptionalConfig(path string, out renderer) int {
 	if path == "" {
 		return exitOK
 	}
 	if _, err := loadConfig(path); err != nil {
-		fmt.Fprintln(stderr, err)
-		return exitConfig
+		return out.Error(exitConfig, err, "")
 	}
 	return exitOK
 }
 
-func fetchQueueSnapshot(repoFlag, configPath string, includeChecks bool, stderr io.Writer) (queue.Snapshot, int) {
+func fetchQueueSnapshot(repoFlag, configPath string, includeChecks bool, out renderer) (queue.Snapshot, int) {
 	cfg, err := loadConfig(configPath)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return queue.Snapshot{}, exitConfig
+		return queue.Snapshot{}, out.Error(exitConfig, err, "")
 	}
-	repo, client, code := githubClientForRepo(repoFlag, stderr)
+	repo, client, code := githubClientForRepo(repoFlag, out)
 	if code != exitOK {
 		return queue.Snapshot{}, code
 	}
 	issues, err := client.ListOpenIssues(repo)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return queue.Snapshot{}, exitGitHub
+		return queue.Snapshot{}, out.Error(exitGitHub, err, "")
 	}
 	prs, err := client.ListOpenPullRequests(repo, cfg.Repository.StagingBranch)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return queue.Snapshot{}, exitGitHub
+		return queue.Snapshot{}, out.Error(exitGitHub, err, "")
 	}
 	if cfg.Repository.BaseBranch != "" && cfg.Repository.BaseBranch != cfg.Repository.StagingBranch {
 		promotionPRs, err := client.ListOpenPullRequests(repo, cfg.Repository.BaseBranch)
 		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return queue.Snapshot{}, exitGitHub
+			return queue.Snapshot{}, out.Error(exitGitHub, err, "")
 		}
 		for _, pr := range promotionPRs {
 			if pr.HeadRef == cfg.Repository.StagingBranch {
@@ -1055,30 +1064,26 @@ func fetchQueueSnapshot(repoFlag, configPath string, includeChecks bool, stderr 
 		for i := range prs {
 			rollup, err := client.GetCheckRollup(repo, prs[i])
 			if err != nil {
-				fmt.Fprintln(stderr, err)
-				return queue.Snapshot{}, exitGitHub
+				return queue.Snapshot{}, out.Error(exitGitHub, err, "")
 			}
 			prs[i].CheckState = rollup.State
 		}
 	}
 	branchHealth, err := client.GetBranchHealth(repo, cfg.Repository.StagingBranch)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return queue.Snapshot{}, exitGitHub
+		return queue.Snapshot{}, out.Error(exitGitHub, err, "")
 	}
 	return queue.BuildSnapshotWithBranchHealth(repo, cfg, issues, prs, branchHealth), exitOK
 }
 
-func githubClientForRepo(repoFlag string, stderr io.Writer) (string, *gh.Client, int) {
+func githubClientForRepo(repoFlag string, out renderer) (string, *gh.Client, int) {
 	repo, err := gh.RepoFromEnvOrFlag(repoFlag)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return "", nil, exitUsage
+		return "", nil, out.Error(exitUsage, err, "")
 	}
 	client, err := gh.NewClientFromEnv()
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return "", nil, exitAuth
+		return "", nil, out.Error(exitAuth, err, "")
 	}
 	return repo, client, exitOK
 }
@@ -1121,8 +1126,64 @@ func splitCSV(value string) []string {
 	return labels
 }
 
+func hasFlag(args []string, name string) bool {
+	long := "--" + name
+	for _, arg := range args {
+		if arg == long || strings.HasPrefix(arg, long+"=") {
+			return true
+		}
+	}
+	return false
+}
+
+func exitCategory(code int) string {
+	switch code {
+	case exitPolicy:
+		return "policy"
+	case exitUsage:
+		return "usage"
+	case exitConfig:
+		return "config"
+	case exitAuth:
+		return "auth"
+	case exitGitHub:
+		return "github"
+	case exitLocalGit:
+		return "localGit"
+	default:
+		return "unknown"
+	}
+}
+
+func errorRetryable(code int) bool {
+	return code == exitGitHub
+}
+
+func defaultErrorHint(code int, message string) string {
+	switch code {
+	case exitUsage:
+		return "Run `baton --help` or the command with `--help`."
+	case exitConfig:
+		if strings.Contains(message, config.ErrConfigNotFound.Error()) {
+			return "Run `baton init --dry-run` or pass `--config <path>`."
+		}
+		return "Check the Baton config path and contents, then retry."
+	case exitAuth:
+		return "Run `gh auth status` and ensure GitHub authentication is available."
+	case exitGitHub:
+		return "Check GitHub API access and retry after the upstream issue is resolved."
+	case exitLocalGit:
+		return "Inspect the local git or worktree state, then retry."
+	case exitPolicy:
+		return "Inspect the policy decision output before continuing."
+	default:
+		return ""
+	}
+}
+
 func writeJSON(stdout, stderr io.Writer, value any) int {
 	encoder := json.NewEncoder(stdout)
+	encoder.SetEscapeHTML(false)
 	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(value); err != nil {
 		fmt.Fprintf(stderr, "encode JSON: %v\n", err)

@@ -53,7 +53,10 @@ objects.
   `help[]` fields.
 - The home/no-args decision is recorded there: ship `baton home` first, then
   change no-args to that home view after tests and docs are in place.
-- No CLI implementation changes have been made for this AXI plan yet.
+- `internal/cli` now routes JSON success output and post-parse JSON-mode errors
+  through a shared renderer. Structured errors use the AXI shape with category,
+  exit code, message, hint, and retryability while preserving successful JSON
+  result objects.
 
 ## AXI Scorecard
 
@@ -372,7 +375,7 @@ Recommended enhancement:
    - Decide whether no-args `baton` changes immediately or whether `baton home`
      ships first.
 
-2. [ ] Centralize CLI rendering:
+2. [x] Centralize CLI rendering:
    - Introduce a result envelope or renderer helper in `internal/cli`.
    - Preserve existing JSON structs and tests.
    - Add structured error mapping.
@@ -403,6 +406,12 @@ Recommended enhancement:
 - 2026-06-23: Completed the interface-contract slice by adding
   `docs/OUTPUT_SPEC.md` and recording the `baton home` before no-args-home
   decision. Validation: `go test ./...` passes.
+- 2026-06-23: Completed the centralized-renderer slice by adding an
+  `internal/cli` renderer, AXI-shaped structured errors for JSON-mode command
+  failures after flag parsing, and CLI tests for config and usage errors.
+  Validation: `go test ./...` passes; a built `cmd/baton` binary emits
+  structured error JSON on stdout with empty stderr for representative config
+  and usage failures.
 
 ## Keep As-Is
 
