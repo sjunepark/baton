@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -33,6 +34,24 @@ func TestValidateRejectsUnknownRequiredSection(t *testing.T) {
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("expected validation error")
 	}
+}
+
+func TestMarshalYAMLUsesBatonShape(t *testing.T) {
+	content, err := MarshalYAML(DefaultCreoCompat())
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	if !contains(text, "issue_policy:") || !contains(text, "repository:") {
+		t.Fatalf("unexpected yaml:\n%s", text)
+	}
+	if contains(text, "schemaVersion") || contains(text, "schemaversion") {
+		t.Fatalf("schemaVersion should not be written to config yaml:\n%s", text)
+	}
+}
+
+func contains(text, needle string) bool {
+	return strings.Contains(text, needle)
 }
 
 const legacyPolicyYAML = `target_branch: agent

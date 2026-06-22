@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -47,6 +48,8 @@ func Run(args []string, stdout, stderr io.Writer, version string) int {
 		return exitOK
 	case "init":
 		return runInit(args[1:], stdout, stderr)
+	case "migrate-config":
+		return runMigrateConfig(args[1:], stdout, stderr)
 	case "doctor":
 		return runDoctor(args[1:], stdout, stderr)
 	case "issue-policy":
@@ -94,6 +97,7 @@ Usage:
   baton --help
   baton version
   baton init --dry-run|--apply [--yes] [--json]
+  baton migrate-config --dry-run|--apply [--from <path>] [--to <path>] [--yes] [--json]
   baton doctor [--config <path>] [--json]
   baton issue-policy --body-file <path> [--labels a,b] [--config <path>] [--json]
   baton issue-policy --event <path> [--apply] [--repo owner/name] [--config <path>] [--json]
@@ -154,6 +158,80 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 	for _, change := range plan.Changes {
 		fmt.Fprintf(stdout, "%s %s\n", change.Action, change.Path)
 	}
+	return exitOK
+}
+
+func runMigrateConfig(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("migrate-config", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	from := fs.String("from", ".github/agent-issue-policy.yml", "legacy policy config path")
+	to := fs.String("to", ".github/baton.yml", "Baton config output path")
+	dryRun := fs.Bool("dry-run", false, "preview migrated config")
+	apply := fs.Bool("apply", false, "write migrated config")
+	yes := fs.Bool("yes", false, "overwrite changed target")
+	jsonOut := fs.Bool("json", false, "emit JSON")
+	if err := fs.Parse(args); err != nil {
+		return exitUsage
+	}
+	if *dryRun == *apply {
+		fmt.Fprintln(stderr, "migrate-config requires exactly one of --dry-run or --apply")
+		return exitUsage
+	}
+	cfg, err := config.Load(*from)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitConfig
+	}
+	content, err := config.MarshalYAML(cfg)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitConfig
+	}
+	action := "create"
+	if existing, err := os.ReadFile(*to); err == nil {
+		if string(existing) == string(content) {
+			action = "unchanged"
+		} else {
+			action = "overwrite"
+		}
+	} else if !os.IsNotExist(err) {
+		fmt.Fprintln(stderr, err)
+		return exitConfig
+	}
+	result := struct {
+		SchemaVersion int    `json:"schemaVersion"`
+		Kind          string `json:"kind"`
+		From          string `json:"from"`
+		To            string `json:"to"`
+		Action        string `json:"action"`
+		Content       string `json:"content,omitempty"`
+	}{SchemaVersion: 1, Kind: "configMigration", From: *from, To: *to, Action: action}
+	if *dryRun {
+		result.Content = string(content)
+		if *jsonOut {
+			return writeJSON(stdout, stderr, result)
+		}
+		fmt.Fprintf(stdout, "%s %s from %s\n\n%s", action, *to, *from, content)
+		return exitOK
+	}
+	if action == "overwrite" && !*yes {
+		fmt.Fprintf(stderr, "%s already exists with different content; rerun with --yes to overwrite\n", *to)
+		return exitConfig
+	}
+	if action != "unchanged" {
+		if err := os.MkdirAll(filepath.Dir(*to), 0o755); err != nil {
+			fmt.Fprintln(stderr, err)
+			return exitConfig
+		}
+		if err := os.WriteFile(*to, content, 0o644); err != nil {
+			fmt.Fprintln(stderr, err)
+			return exitConfig
+		}
+	}
+	if *jsonOut {
+		return writeJSON(stdout, stderr, result)
+	}
+	fmt.Fprintf(stdout, "%s %s\n", action, *to)
 	return exitOK
 }
 

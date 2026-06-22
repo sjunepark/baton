@@ -21,6 +21,7 @@
   prune cleanup behind `--yes`.
 - `baton doctor` and local-only `baton complete` are implemented. GitHub
   commenting from `complete` remains intentionally deferred.
+- Legacy Creo config migration is implemented with `baton migrate-config`.
 
 ## Phase 0 - Repository Scaffold
 
@@ -158,12 +159,12 @@ Goal: consume Baton from Creo.
 
 Tasks:
 
-- Keep current Creo policy files initially.
-- Point Creo workflows to Baton commands.
-- Run policy checks in CI.
-- Update Codex automations to invoke Baton.
-- Add PR follow-up automation.
-- Remove old JS scripts after trial success.
+- [x] Keep current Creo policy files initially.
+- [ ] Point Creo workflows to Baton commands.
+- [ ] Run policy checks in CI.
+- [ ] Update Codex automations to invoke Baton.
+- [ ] Add PR follow-up automation.
+- [ ] Remove old JS scripts after trial success.
 
 Acceptance:
 
@@ -261,4 +262,9 @@ Integration, live gated:
   auth shows `baton doctor --json` clean, `baton queue --json` listing current
   issues, `baton prs --json` with no open staging PRs, and `baton next --json`
   selecting issue #5 for investigation.
-- Next slice: add migration command support, then start Creo migration wiring.
+- Added `baton migrate-config` to convert legacy
+  `.github/agent-issue-policy.yml` into `.github/baton.yml` with dry-run/apply
+  and overwrite protection.
+- Validation: `go test ./...`, dry-run migration from Creo's legacy config,
+  and apply migration in a temporary directory pass.
+- Next slice: start Creo migration wiring.

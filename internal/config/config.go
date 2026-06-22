@@ -12,7 +12,7 @@ import (
 var ErrConfigNotFound = errors.New("baton config not found")
 
 type Config struct {
-	SchemaVersion int              `json:"schemaVersion"`
+	SchemaVersion int              `json:"schemaVersion" yaml:"-"`
 	Version       int              `json:"version" yaml:"version"`
 	Repository    RepositoryConfig `json:"repository" yaml:"repository"`
 	IssuePolicy   IssuePolicy      `json:"issuePolicy" yaml:"issue_policy"`
@@ -124,6 +124,12 @@ func Load(path string) (Config, error) {
 		return Config{}, fmt.Errorf("validate %s: %w", path, err)
 	}
 	return cfg, nil
+}
+
+func MarshalYAML(cfg Config) ([]byte, error) {
+	cfg.applyDefaults()
+	cfg.SchemaVersion = 0
+	return yaml.Marshal(cfg)
 }
 
 func normalizeLegacy(legacy legacyIssuePolicy) Config {
