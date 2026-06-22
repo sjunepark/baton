@@ -27,7 +27,7 @@
 - Install templates can render a caller-provided trusted Baton install target
   with `baton init --go-install` or a full command with
   `baton init --install-command`.
-- The trusted module path `github.com/sjunepark/baton/cmd/baton@latest` is
+- The trusted module path `github.com/sjunepark/baton/cmd/baton@v0.1.0` is
   published and validated with `go install`.
 - Generated workflows set up Go and install Baton into a runner-temp bin
   directory that is added to `GITHUB_PATH`.
@@ -344,7 +344,7 @@ Live integration env gates:
 - Added managed-but-editable notes to every installed target-repo template with
   regression coverage across the embedded template set.
 - Created the public `sjunepark/baton` GitHub repository, pushed `main`, and
-  validated a fresh `go install github.com/sjunepark/baton/cmd/baton@latest`.
+  validated a fresh `go install github.com/sjunepark/baton/cmd/baton@v0.1.0`.
 - Hardened generated GitHub Actions templates to install Baton into
   `$RUNNER_TEMP/baton-bin` and add that directory to `GITHUB_PATH` after
   `actions/setup-go@v5`.

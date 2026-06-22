@@ -26,7 +26,7 @@ trusted Baton install path for consuming GitHub Actions workflows. The default
 template command is:
 
 ```sh
-go install github.com/sjunepark/baton/cmd/baton@latest
+go install github.com/sjunepark/baton/cmd/baton@v0.1.0
 ```
 
 That path must resolve from GitHub Actions before a consuming repository points
@@ -51,7 +51,7 @@ baton init --dry-run --json
 Apply installation files after reviewing the plan:
 
 ```sh
-baton init --apply --go-install github.com/sjunepark/baton/cmd/baton@latest
+baton init --apply --go-install github.com/sjunepark/baton/cmd/baton@v0.1.0
 ```
 
 For a pinned release or alternate trusted source, pass a full command:
@@ -112,4 +112,3 @@ installing Baton so PR-modified repository code is not executed.
 - [docs/SKILL_SPEC.md](docs/SKILL_SPEC.md): companion skill requirements.
 - [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md): current progress
   and remaining migration work.
-
