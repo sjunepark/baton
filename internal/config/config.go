@@ -157,7 +157,7 @@ func MarshalYAML(cfg Config) ([]byte, error) {
 }
 
 func normalizeLegacy(legacy legacyIssuePolicy) Config {
-	cfg := DefaultCreoCompat()
+	cfg := DefaultConfig()
 	cfg.Repository.StagingBranch = firstNonEmpty(legacy.TargetBranch, cfg.Repository.StagingBranch)
 	cfg.Repository.WorkBranchPrefix = firstNonEmpty(legacy.WorkBranchPrefix, cfg.Repository.WorkBranchPrefix)
 	cfg.IssuePolicy = IssuePolicy{
@@ -256,7 +256,7 @@ func (cfg Config) Validate() error {
 	return nil
 }
 
-func DefaultCreoCompat() Config {
+func DefaultConfig() Config {
 	cfg := Config{
 		SchemaVersion: 1,
 		Version:       1,
@@ -267,7 +267,7 @@ func DefaultCreoCompat() Config {
 			WorkBranchPrefix: "agent-work/",
 		},
 		IssuePolicy: IssuePolicy{
-			PolicyCommentMarker: "<!-- creo-agent-issue-policy:v1 -->",
+			PolicyCommentMarker: "<!-- baton-issue-policy:v1 -->",
 			FormSections: map[string]string{
 				"work_kind":           "Work kind",
 				"agent_mode":          "Agent mode",

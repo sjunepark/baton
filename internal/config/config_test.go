@@ -29,7 +29,7 @@ func TestLoadLegacyIssuePolicy(t *testing.T) {
 }
 
 func TestValidateRejectsUnknownRequiredSection(t *testing.T) {
-	cfg := DefaultCreoCompat()
+	cfg := DefaultConfig()
 	cfg.IssuePolicy.RequiredSections["ready-trivial"] = []string{"missing"}
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("expected validation error")
@@ -37,7 +37,7 @@ func TestValidateRejectsUnknownRequiredSection(t *testing.T) {
 }
 
 func TestMarshalYAMLUsesBatonShape(t *testing.T) {
-	content, err := MarshalYAML(DefaultCreoCompat())
+	content, err := MarshalYAML(DefaultConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestMarshalYAMLUsesBatonShape(t *testing.T) {
 }
 
 func TestLoadPreservesExplicitFalsePRPolicyBooleans(t *testing.T) {
-	content, err := MarshalYAML(DefaultCreoCompat())
+	content, err := MarshalYAML(DefaultConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func contains(text, needle string) bool {
 }
 
 const legacyPolicyYAML = `target_branch: agent
-policy_comment_marker: '<!-- creo-agent-issue-policy:v1 -->'
+policy_comment_marker: '<!-- legacy-agent-issue-policy:v1 -->'
 
 form_sections:
   work_kind: Work kind

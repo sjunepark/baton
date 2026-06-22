@@ -7,8 +7,8 @@ import (
 )
 
 func TestBuildSnapshotEligibility(t *testing.T) {
-	cfg := config.DefaultCreoCompat()
-	snapshot := BuildSnapshot("open-creo/creo", cfg,
+	cfg := config.DefaultConfig()
+	snapshot := BuildSnapshot("example-org/example-repo", cfg,
 		[]Issue{
 			{Number: 1, URL: "https://example/1", Labels: []string{"agent:ready-trivial"}},
 			{Number: 2, URL: "https://example/2", Labels: []string{"agent:ready-bounded", "needs:discussion"}},
@@ -38,7 +38,7 @@ func TestRecommendNextPrefersPRFollowup(t *testing.T) {
 	snapshot := Snapshot{
 		SchemaVersion: 1,
 		Kind:          "queueSnapshot",
-		Repo:          "open-creo/creo",
+		Repo:          "example-org/example-repo",
 		Issues:        []IssueState{{Issue: Issue{Number: 1, URL: "https://example/1"}, Eligible: true}},
 		PullRequests: []PullState{{
 			PullRequest: PullRequest{Number: 10, URL: "https://example/pr/10", BaseRef: "agent", HeadRef: "agent-work/1", CheckState: "failure"},
@@ -54,7 +54,7 @@ func TestRecommendNextPrefersSuccessfulPRFollowupBeforeIssue(t *testing.T) {
 	snapshot := Snapshot{
 		SchemaVersion: 1,
 		Kind:          "queueSnapshot",
-		Repo:          "open-creo/creo",
+		Repo:          "example-org/example-repo",
 		Issues:        []IssueState{{Issue: Issue{Number: 1, URL: "https://example/1"}, Eligible: true, Action: "issue-implementation"}},
 		PullRequests: []PullState{{
 			PullRequest: PullRequest{Number: 10, URL: "https://example/pr/10", BaseRef: "main", HeadRef: "agent", CheckState: "success"},
@@ -70,7 +70,7 @@ func TestRecommendNextPrefersBranchHealthBeforeIssue(t *testing.T) {
 	snapshot := Snapshot{
 		SchemaVersion: 1,
 		Kind:          "queueSnapshot",
-		Repo:          "open-creo/creo",
+		Repo:          "example-org/example-repo",
 		BranchHealth:  &BranchHealth{Ref: "agent", SHA: "abc", CheckState: "failure"},
 		Issues:        []IssueState{{Issue: Issue{Number: 1, URL: "https://example/1"}, Eligible: true, Action: "issue-implementation"}},
 	}
@@ -84,7 +84,7 @@ func TestRecommendNextPrefersBranchHealthBeforePRFollowup(t *testing.T) {
 	snapshot := Snapshot{
 		SchemaVersion: 1,
 		Kind:          "queueSnapshot",
-		Repo:          "open-creo/creo",
+		Repo:          "example-org/example-repo",
 		BranchHealth:  &BranchHealth{Ref: "agent", SHA: "abc", CheckState: "pending"},
 		PullRequests: []PullState{{
 			PullRequest: PullRequest{Number: 10, URL: "https://example/pr/10", BaseRef: "agent", HeadRef: "agent-work/1", CheckState: "failure"},
@@ -100,7 +100,7 @@ func TestRecommendNextIssueImplementation(t *testing.T) {
 	snapshot := Snapshot{
 		SchemaVersion: 1,
 		Kind:          "queueSnapshot",
-		Repo:          "open-creo/creo",
+		Repo:          "example-org/example-repo",
 		Issues:        []IssueState{{Issue: Issue{Number: 1, URL: "https://example/1"}, Eligible: true}},
 	}
 	next := RecommendNext(snapshot)
@@ -113,7 +113,7 @@ func TestRecommendNextIssueInvestigation(t *testing.T) {
 	snapshot := Snapshot{
 		SchemaVersion: 1,
 		Kind:          "queueSnapshot",
-		Repo:          "open-creo/creo",
+		Repo:          "example-org/example-repo",
 		Issues:        []IssueState{{Issue: Issue{Number: 1, URL: "https://example/1"}, Eligible: true, Action: "issue-investigation"}},
 	}
 	next := RecommendNext(snapshot)

@@ -95,7 +95,7 @@ baton ensure-branch
 baton ensure-branch --apply
 ```
 
-Must preserve current Creo behavior:
+Must preserve the original reference behavior:
 
 - create local/published `agent` only when it exactly matches configured base;
 - refuse force resets;
@@ -231,17 +231,17 @@ JSON result:
   "schemaVersion": 1,
   "kind": "nextAction",
   "action": "pr-followup",
-  "repo": "open-creo/creo",
+  "repo": "example-org/example-repo",
   "reason": "failing-checks",
   "pr": {
     "number": 8,
-    "url": "https://github.com/open-creo/creo/pull/8",
+    "url": "https://github.com/example-org/example-repo/pull/8",
     "headRef": "agent-work/github-agent-branch-policy",
     "baseRef": "agent"
   },
   "issue": {
     "number": 7,
-    "url": "https://github.com/open-creo/creo/issues/7"
+    "url": "https://github.com/example-org/example-repo/issues/7"
   },
   "blockedItems": [],
   "instructions": [
@@ -279,8 +279,8 @@ JSON result:
   "schemaVersion": 1,
   "kind": "lease",
   "id": "20260622T103000Z-pr-8",
-  "path": "/Users/sejunpark/.baton/worktrees/creo/lease-abc123/creo",
-  "repo": "open-creo/creo",
+  "path": "/Users/example/.baton/worktrees/example-repo/lease-abc123/example-repo",
+  "repo": "example-org/example-repo",
   "headRef": "agent-work/foo",
   "baseRef": "agent",
   "expiresAt": "2026-06-22T18:30:00Z"
@@ -337,4 +337,3 @@ PR policy:
 
 The actual install step is an implementation detail. Options include GitHub
 release binary download, `go install`, or an action wrapper.
-

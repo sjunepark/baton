@@ -41,8 +41,8 @@ func TestPRPolicyJSONReturnsPolicyExitOnErrors(t *testing.T) {
     "body": "Refs #123",
     "baseRef": "agent",
     "headRef": "agent/123-issue-policy",
-    "baseRepositoryFullName": "open-creo/creo",
-    "headRepositoryFullName": "open-creo/creo"
+    "baseRepositoryFullName": "example-org/example-repo",
+    "headRepositoryFullName": "example-org/example-repo"
   },
   "referencedIssues": [
     { "number": 123, "labels": ["agent:ready-trivial"] }
@@ -84,7 +84,7 @@ func TestPolicyCommandFailsWhenRepoConfigMissing(t *testing.T) {
 
 func writeDefaultConfig(t *testing.T, dir string) string {
 	t.Helper()
-	content, err := config.MarshalYAML(config.DefaultCreoCompat())
+	content, err := config.MarshalYAML(config.DefaultConfig())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -51,7 +51,7 @@ var (
 func ComputePullRequestPolicy(input PRPolicyInput) PRPolicyDecision {
 	cfg := input.Policy
 	if cfg.Version == 0 {
-		cfg = config.DefaultCreoCompat()
+		cfg = config.DefaultConfig()
 	}
 	referenceKeywords := referenceKeywordsForPolicy(cfg.PRPolicy.RequiredReferenceKeyword)
 	closingKeywords := closingKeywordsForPolicy(cfg.PRPolicy.ForbiddenClosingKeywords)

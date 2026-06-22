@@ -4,9 +4,9 @@
 
 Codex Desktop automations can run periodically, but each automation still needs
 safe project context, deterministic GitHub state, and protection against
-overlapping branch mutations. Current Creo automation already uses GitHub Issues
-and an `agent` staging branch, but the policy and helper scripts live inside one
-repo and are not reusable.
+overlapping branch mutations. The original reference automation already uses
+GitHub Issues and an `agent` staging branch, but the policy and helper scripts
+live inside one repo and are not reusable.
 
 Baton should extract this workflow into a reusable tool for the user's projects.
 
@@ -42,10 +42,10 @@ Baton should extract this workflow into a reusable tool for the user's projects.
 
 ### Policy Extraction
 
-- Baton must provide reusable issue policy behavior equivalent to the current
-  Creo issue policy action.
-- Baton must provide reusable PR policy behavior equivalent to the current Creo
-  PR policy action.
+- Baton must provide reusable issue policy behavior equivalent to the original
+  reference issue policy action.
+- Baton must provide reusable PR policy behavior equivalent to the original
+  reference PR policy action.
 - Baton must support repository-local policy config.
 - Baton must provide installable GitHub workflow templates that call the Baton
   CLI rather than copied repo-local scripts.
@@ -134,4 +134,3 @@ Baton should extract this workflow into a reusable tool for the user's projects.
   - what checkout path is leased;
   - what GitHub writes were made;
   - what remains blocked.
-

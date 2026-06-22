@@ -8,7 +8,7 @@ import (
 )
 
 func TestComputeIssuePolicy(t *testing.T) {
-	cfg := config.DefaultCreoCompat()
+	cfg := config.DefaultConfig()
 	tests := []struct {
 		name                    string
 		body                    string
@@ -34,7 +34,7 @@ func TestComputeIssuePolicy(t *testing.T) {
 			wantAdd:                 []string{"agent:blocked", "agent:ready-bounded", "bug"},
 			wantRemove:              []string{},
 			wantMissing:             []string{"Acceptance criteria"},
-			wantPolicyCommentSubstr: "<!-- creo-agent-issue-policy:v1 -->",
+			wantPolicyCommentSubstr: "<!-- baton-issue-policy:v1 -->",
 		},
 		{
 			name:          "ready bounded complete without allowed scope",

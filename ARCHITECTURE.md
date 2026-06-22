@@ -34,7 +34,7 @@ GitHub state + repo config
 
 - Config loader
   - Reads Baton policy config from the target repo.
-  - Supports current Creo config as a migration input.
+  - Supports the legacy agent issue-policy config as a migration input.
   - Validates labels, branch names, issue form section IDs, and mode mappings.
 
 - GitHub client
@@ -160,4 +160,3 @@ skills/baton/
 - Optional `gh` fallback for auth or operations that are too costly to
   duplicate initially.
 - Optional Treehouse backend for pooled worktrees after native leasing works.
-

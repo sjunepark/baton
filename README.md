@@ -1,9 +1,9 @@
 # Baton
 
 Baton is a Go CLI and companion Codex skill for reusable GitHub issue/PR agent
-workflows. It extracts the Creo agent workflow into deterministic commands for
-policy checks, queue inspection, safe worktree leasing, and target-repository
-installation.
+workflows. It turns repository-local agent workflow policy into deterministic
+commands for policy checks, queue inspection, safe worktree leasing, and
+target-repository installation.
 
 The CLI owns deterministic GitHub, git, policy, and lease state. Codex keeps
 the judgment work: deciding implementation shape, handling ambiguous review
@@ -13,7 +13,7 @@ feedback, and reporting decisions back to the user.
 
 Implemented:
 
-- issue and PR policy parity with the Creo reference behavior;
+- issue and PR policy behavior extracted from the original reference workflow;
 - GitHub workflow, issue template, label, and config installation templates;
 - GitHub issue/PR/check/review-thread queue inspection;
 - `baton next --json` for one recommended automation action;
@@ -105,8 +105,8 @@ installing Baton so PR-modified repository code is not executed.
 - [ARCHITECTURE.md](ARCHITECTURE.md): system shape and invariants.
 - [docs/CLI_SPEC.md](docs/CLI_SPEC.md): command and JSON contract.
 - [docs/CONFIG_SPEC.md](docs/CONFIG_SPEC.md): reusable policy config.
-- [docs/GITHUB_POLICY_EXTRACTION.md](docs/GITHUB_POLICY_EXTRACTION.md): Creo
-  extraction plan.
+- [docs/GITHUB_POLICY_EXTRACTION.md](docs/GITHUB_POLICY_EXTRACTION.md):
+  extraction plan for the original reference workflow.
 - [docs/WORKTREE_LEASING.md](docs/WORKTREE_LEASING.md): automation isolation
   design.
 - [docs/SKILL_SPEC.md](docs/SKILL_SPEC.md): companion skill requirements.

@@ -7,7 +7,7 @@ import (
 )
 
 func TestComputePullRequestPolicy(t *testing.T) {
-	cfg := config.DefaultCreoCompat()
+	cfg := config.DefaultConfig()
 	tests := []struct {
 		name            string
 		input           PRPolicyInput
@@ -145,7 +145,7 @@ func TestIssueReferenceExtraction(t *testing.T) {
 }
 
 func TestComputePullRequestPolicyUsesConfiguredKeywords(t *testing.T) {
-	cfg := config.DefaultCreoCompat()
+	cfg := config.DefaultConfig()
 	cfg.PRPolicy.RequiredReferenceKeyword = "Relates"
 	cfg.PRPolicy.ForbiddenClosingKeywords = []string{"Finishes"}
 
@@ -168,7 +168,7 @@ func TestComputePullRequestPolicyUsesConfiguredKeywords(t *testing.T) {
 }
 
 func TestComputePullRequestPolicyHonorsFalsePRPolicyOptions(t *testing.T) {
-	cfg := config.DefaultCreoCompat()
+	cfg := config.DefaultConfig()
 	cfg.PRPolicy.FailWhenCommitListingReachesCap = false
 	cfg.PRPolicy.RejectAllTrivialMultiIssuePRs = false
 
@@ -183,7 +183,7 @@ func TestComputePullRequestPolicyHonorsFalsePRPolicyOptions(t *testing.T) {
 }
 
 func TestIsNoisyCommitSubject(t *testing.T) {
-	cfg := config.DefaultCreoCompat()
+	cfg := config.DefaultConfig()
 	assertEqual(t, IsNoisyCommitSubject("fix lint", cfg.PRPolicy.NoisyCommitSubjects), true)
 	assertEqual(t, IsNoisyCommitSubject("Fix issue policy docs", cfg.PRPolicy.NoisyCommitSubjects), false)
 }
@@ -199,8 +199,8 @@ func workPullRequestWithHead(body, headRef string) PullRequest {
 		Body:                   body,
 		BaseRef:                "agent",
 		HeadRef:                headRef,
-		BaseRepositoryFullName: "open-creo/creo",
-		HeadRepositoryFullName: "open-creo/creo",
+		BaseRepositoryFullName: "example-org/example-repo",
+		HeadRepositoryFullName: "example-org/example-repo",
 	}
 }
 
@@ -211,8 +211,8 @@ func promotionPullRequest(body, headRef string) PullRequest {
 		Body:                   body,
 		BaseRef:                "main",
 		HeadRef:                headRef,
-		BaseRepositoryFullName: "open-creo/creo",
-		HeadRepositoryFullName: "open-creo/creo",
+		BaseRepositoryFullName: "example-org/example-repo",
+		HeadRepositoryFullName: "example-org/example-repo",
 	}
 }
 

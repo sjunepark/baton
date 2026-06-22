@@ -14,7 +14,7 @@ import (
 
 func TestFetchCommitListingDetectsCap(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/repos/open-creo/creo/pulls/10/commits" {
+		if r.URL.Path != "/repos/example-org/example-repo/pulls/10/commits" {
 			t.Fatalf("unexpected path %s", r.URL.String())
 		}
 		page := r.URL.Query().Get("page")
@@ -31,7 +31,7 @@ func TestFetchCommitListingDetectsCap(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, "token", server.Client())
-	messages, reachedCap, err := client.FetchCommitListing("open-creo/creo", 10)
+	messages, reachedCap, err := client.FetchCommitListing("example-org/example-repo", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,17 +44,17 @@ func TestApplyIssueDecisionUsesLabelsAndPolicyComment(t *testing.T) {
 	var sawAdd, sawRemove, sawPatch bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.Method == http.MethodPost && r.URL.Path == "/repos/open-creo/creo/issues/12/labels":
+		case r.Method == http.MethodPost && r.URL.Path == "/repos/example-org/example-repo/issues/12/labels":
 			sawAdd = true
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`[]`))
-		case r.Method == http.MethodDelete && r.URL.Path == "/repos/open-creo/creo/issues/12/labels/agent:blocked":
+		case r.Method == http.MethodDelete && r.URL.Path == "/repos/example-org/example-repo/issues/12/labels/agent:blocked":
 			sawRemove = true
 			w.WriteHeader(http.StatusNoContent)
-		case r.Method == http.MethodGet && r.URL.Path == "/repos/open-creo/creo/issues/12/comments":
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/example-org/example-repo/issues/12/comments":
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`[{"id":99,"body":"<!-- creo-agent-issue-policy:v1 -->\nold"}]`))
-		case r.Method == http.MethodPatch && r.URL.Path == "/repos/open-creo/creo/issues/comments/99":
+			w.Write([]byte(`[{"id":99,"body":"<!-- baton-issue-policy:v1 -->\nold"}]`))
+		case r.Method == http.MethodPatch && r.URL.Path == "/repos/example-org/example-repo/issues/comments/99":
 			sawPatch = true
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{}`))
@@ -64,7 +64,7 @@ func TestApplyIssueDecisionUsesLabelsAndPolicyComment(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg := config.DefaultCreoCompat()
+	cfg := config.DefaultConfig()
 	decision := policy.IssuePolicyDecision{
 		IsFormIssue:       true,
 		LabelsToAdd:       []string{"bug"},
@@ -72,7 +72,7 @@ func TestApplyIssueDecisionUsesLabelsAndPolicyComment(t *testing.T) {
 		PolicyCommentBody: nil,
 	}
 	client := NewClient(server.URL, "token", server.Client())
-	if err := client.ApplyIssueDecision("open-creo/creo", 12, decision, cfg.IssuePolicy.PolicyCommentMarker); err != nil {
+	if err := client.ApplyIssueDecision("example-org/example-repo", 12, decision, cfg.IssuePolicy.PolicyCommentMarker); err != nil {
 		t.Fatal(err)
 	}
 	if !sawAdd || !sawRemove || !sawPatch {
@@ -83,7 +83,7 @@ func TestApplyIssueDecisionUsesLabelsAndPolicyComment(t *testing.T) {
 func TestCreateIssueComment(t *testing.T) {
 	var sawComment bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.URL.Path != "/repos/open-creo/creo/issues/12/comments" {
+		if r.Method != http.MethodPost || r.URL.Path != "/repos/example-org/example-repo/issues/12/comments" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
 		}
 		sawComment = true
@@ -93,7 +93,7 @@ func TestCreateIssueComment(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, "token", server.Client())
-	if err := client.CreateIssueComment("open-creo/creo", 12, "done"); err != nil {
+	if err := client.CreateIssueComment("example-org/example-repo", 12, "done"); err != nil {
 		t.Fatal(err)
 	}
 	if !sawComment {
@@ -104,11 +104,11 @@ func TestCreateIssueComment(t *testing.T) {
 func TestGetBranchHealth(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/repos/open-creo/creo/git/ref/heads/agent":
+		case "/repos/example-org/example-repo/git/ref/heads/agent":
 			w.Write([]byte(`{"object":{"sha":"abc123"}}`))
-		case "/repos/open-creo/creo/commits/abc123/check-runs":
+		case "/repos/example-org/example-repo/commits/abc123/check-runs":
 			w.Write([]byte(`{"check_runs":[{"name":"test","status":"completed","conclusion":"failure","html_url":"https://example/check"}]}`))
-		case "/repos/open-creo/creo/commits/abc123/status":
+		case "/repos/example-org/example-repo/commits/abc123/status":
 			w.Write([]byte(`{"statuses":[]}`))
 		default:
 			t.Fatalf("unexpected path %s", r.URL.String())
@@ -117,7 +117,7 @@ func TestGetBranchHealth(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, "token", server.Client())
-	health, err := client.GetBranchHealth("open-creo/creo", "agent")
+	health, err := client.GetBranchHealth("example-org/example-repo", "agent")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestGetReviewThreadsPaginatesThreadsAndComments(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, "token", server.Client())
-	result, err := client.GetReviewThreads("open-creo/creo", 10)
+	result, err := client.GetReviewThreads("example-org/example-repo", 10)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -20,9 +20,9 @@ Each lease should have a record stored under Baton state, for example:
 {
   "schemaVersion": 1,
   "id": "20260622T103000Z-pr-8",
-  "repo": "open-creo/creo",
-  "sourceRepoPath": "/Users/sejunpark/IT/creo",
-  "worktreePath": "/Users/sejunpark/.baton/worktrees/creo/lease-abc123/creo",
+  "repo": "example-org/example-repo",
+  "sourceRepoPath": "/Users/example/projects/example-repo",
+  "worktreePath": "/Users/example/.baton/worktrees/example-repo/lease-abc123/example-repo",
   "purpose": "pr-followup",
   "baseRef": "agent",
   "headRef": "agent-work/github-agent-branch-policy",
@@ -139,4 +139,3 @@ baton lease exec --lease <id> -- <command>
 
 The first implementation can keep execution outside Baton and simply return the
 lease path to Codex.
-

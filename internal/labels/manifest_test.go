@@ -24,7 +24,7 @@ func TestParseManifest(t *testing.T) {
 }
 
 func TestPlanSync(t *testing.T) {
-	plan := PlanSync("open-creo/creo",
+	plan := PlanSync("example-org/example-repo",
 		[]Label{
 			{Name: "bug", Color: "D73A4A", Description: "Confirmed defect."},
 			{Name: "enhancement", Color: "A2EEEF", Description: "Feature."},
