@@ -167,15 +167,7 @@ func createBlockedComment(missing []string, marker string) string {
 	for i, section := range missing {
 		lines[i] = fmt.Sprintf("- %s", section)
 	}
-	return fmt.Sprintf(`%s
-
-This issue is marked ready for agent work, but the policy gate is blocking implementation.
-
-Missing required sections:
-
-%s
-
-Update the issue body and the policy action will remove `+"`agent:blocked`"+` when the form is complete.`, marker, strings.Join(lines, "\n"))
+	return fmt.Sprintf("%s\n\nThis issue is marked ready for agent work, but the policy gate is blocking implementation.\n\nMissing required sections:\n\n%s\n\nUpdate the issue body and the policy action will remove `agent:blocked` when the form is complete.", marker, strings.Join(lines, "\n"))
 }
 
 func ClearIssuePolicyComment(marker string) string {

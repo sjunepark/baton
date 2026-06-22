@@ -110,7 +110,7 @@ Usage:
   baton lease --purpose <purpose> --base <ref> --new-branch <ref> --json
   baton release --lease <id>|--path <path> [--keep-dirty]
   baton leases --json
-  baton prune --dry-run --json
+  baton prune --dry-run|--yes --json
   baton complete --summary <text> [--lease <id>] [--validation <text>] [--json]
   baton ensure-branch [--apply] [--remote origin] [--base main] [--target agent] [--json]
   baton labels --file <path> [--json]
@@ -661,25 +661,44 @@ func runPrune(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("prune", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	dryRun := fs.Bool("dry-run", false, "preview prune candidates")
+	yes := fs.Bool("yes", false, "remove clean managed prune candidates")
 	stateRoot := fs.String("state-root", "", "Baton state root")
 	jsonOut := fs.Bool("json", false, "emit JSON")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
-	if !*dryRun {
-		fmt.Fprintln(stderr, "prune currently requires --dry-run")
+	if *dryRun == *yes {
+		fmt.Fprintln(stderr, "prune requires exactly one of --dry-run or --yes")
 		return exitUsage
 	}
-	plan, err := lease.NewManager(*stateRoot).PruneDryRun(time.Now().UTC())
+	manager := lease.NewManager(*stateRoot)
+	if *dryRun {
+		plan, err := manager.PruneDryRun(time.Now().UTC())
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return exitLocalGit
+		}
+		if *jsonOut {
+			return writeJSON(stdout, stderr, plan)
+		}
+		for _, record := range plan.Candidates {
+			fmt.Fprintf(stdout, "%s %s\n", record.ID, record.Status)
+		}
+		return exitOK
+	}
+	result, err := manager.Prune(time.Now().UTC())
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return exitLocalGit
 	}
 	if *jsonOut {
-		return writeJSON(stdout, stderr, plan)
+		return writeJSON(stdout, stderr, result)
 	}
-	for _, record := range plan.Candidates {
-		fmt.Fprintf(stdout, "%s %s\n", record.ID, record.Status)
+	for _, record := range result.Removed {
+		fmt.Fprintf(stdout, "pruned %s\n", record.ID)
+	}
+	for _, skipped := range result.Skipped {
+		fmt.Fprintf(stdout, "skipped %s: %s\n", skipped.Lease.ID, skipped.Reason)
 	}
 	return exitOK
 }

@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -59,6 +60,19 @@ type PrunePlan struct {
 	SchemaVersion int      `json:"schemaVersion"`
 	Kind          string   `json:"kind"`
 	Candidates    []Record `json:"candidates"`
+}
+
+type PruneResult struct {
+	SchemaVersion int         `json:"schemaVersion"`
+	Kind          string      `json:"kind"`
+	Removed       []Record    `json:"removed"`
+	Skipped       []PruneSkip `json:"skipped"`
+}
+
+type PruneSkip struct {
+	Lease        Record   `json:"lease"`
+	Reason       string   `json:"reason"`
+	ChangedFiles []string `json:"changedFiles,omitempty"`
 }
 
 func DefaultStateRoot() string {
@@ -267,6 +281,53 @@ func (m Manager) PruneDryRun(now time.Time) (PrunePlan, error) {
 	return PrunePlan{SchemaVersion: 1, Kind: "prunePlan", Candidates: candidates}, nil
 }
 
+func (m Manager) Prune(now time.Time) (PruneResult, error) {
+	unlock, err := m.lock()
+	if err != nil {
+		return PruneResult{}, err
+	}
+	defer unlock()
+	plan, err := m.PruneDryRun(now)
+	if err != nil {
+		return PruneResult{}, err
+	}
+	result := PruneResult{SchemaVersion: 1, Kind: "pruneResult", Removed: []Record{}, Skipped: []PruneSkip{}}
+	for _, record := range plan.Candidates {
+		if !m.isManagedWorktree(record.WorktreePath) {
+			result.Skipped = append(result.Skipped, PruneSkip{Lease: record, Reason: "worktree path is not under Baton state root"})
+			continue
+		}
+		if record.Status == "active" && processAlive(record.Owner) {
+			result.Skipped = append(result.Skipped, PruneSkip{Lease: record, Reason: "active lease owner process is still running"})
+			continue
+		}
+		if _, err := os.Stat(record.WorktreePath); err == nil {
+			changed, err := changedFiles(record.WorktreePath)
+			if err != nil {
+				result.Skipped = append(result.Skipped, PruneSkip{Lease: record, Reason: err.Error()})
+				continue
+			}
+			if len(changed) > 0 {
+				result.Skipped = append(result.Skipped, PruneSkip{Lease: record, Reason: "worktree is dirty", ChangedFiles: changed})
+				continue
+			}
+			if _, err := gitOutput(record.SourceRepoPath, "worktree", "remove", record.WorktreePath); err != nil {
+				result.Skipped = append(result.Skipped, PruneSkip{Lease: record, Reason: err.Error()})
+				continue
+			}
+		} else if !os.IsNotExist(err) {
+			result.Skipped = append(result.Skipped, PruneSkip{Lease: record, Reason: err.Error()})
+			continue
+		}
+		record.Status = "pruned"
+		if err := m.write(record); err != nil {
+			return PruneResult{}, err
+		}
+		result.Removed = append(result.Removed, record)
+	}
+	return result, nil
+}
+
 func (m Manager) write(record Record) error {
 	if err := os.MkdirAll(filepath.Join(m.StateRoot, "leases"), 0o755); err != nil {
 		return err
@@ -281,6 +342,31 @@ func (m Manager) write(record Record) error {
 
 func (m Manager) recordPath(id string) string {
 	return filepath.Join(m.StateRoot, "leases", id+".json")
+}
+
+func (m Manager) isManagedWorktree(path string) bool {
+	cleanPath, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	root, err := filepath.Abs(filepath.Join(m.StateRoot, "worktrees"))
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(root, cleanPath)
+	return err == nil && rel != "." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) && rel != ".."
+}
+
+func processAlive(owner Owner) bool {
+	host, _ := os.Hostname()
+	if owner.PID <= 0 || owner.Hostname == "" || owner.Hostname != host {
+		return false
+	}
+	process, err := os.FindProcess(owner.PID)
+	if err != nil {
+		return false
+	}
+	return process.Signal(syscall.Signal(0)) == nil
 }
 
 func changedFiles(path string) ([]string, error) {

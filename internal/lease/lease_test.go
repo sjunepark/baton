@@ -90,6 +90,63 @@ func TestPruneDryRunIncludesReleasedAndExpired(t *testing.T) {
 	}
 }
 
+func TestPruneRemovesCleanReleasedAndSkipsDirty(t *testing.T) {
+	repo := initRepo(t)
+	manager := NewManager(filepath.Join(t.TempDir(), "state"))
+	now := time.Date(2026, 6, 22, 10, 30, 0, 0, time.UTC)
+	clean, err := manager.Acquire(AcquireRequest{
+		SourceRepoPath: repo,
+		Purpose:        "clean",
+		BaseRef:        "main",
+		NewBranch:      "agent-work/clean",
+		Repo:           "demo",
+		Now:            now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.ReleaseByID(clean.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	dirty, err := manager.Acquire(AcquireRequest{
+		SourceRepoPath: repo,
+		Purpose:        "dirty",
+		BaseRef:        "main",
+		NewBranch:      "agent-work/dirty",
+		Repo:           "demo",
+		Now:            now.Add(time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dirty.WorktreePath, "dirty.txt"), []byte("dirty\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.ReleaseByID(dirty.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	result, err := manager.Prune(now.Add(10 * time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Removed) != 1 || result.Removed[0].ID != clean.ID {
+		t.Fatalf("removed = %#v", result.Removed)
+	}
+	if len(result.Skipped) != 1 || result.Skipped[0].Lease.ID != dirty.ID || result.Skipped[0].Reason != "worktree is dirty" {
+		t.Fatalf("skipped = %#v", result.Skipped)
+	}
+	if _, err := os.Stat(clean.WorktreePath); !os.IsNotExist(err) {
+		t.Fatalf("clean worktree still exists or unexpected stat error: %v", err)
+	}
+	record, err := manager.FindByID(clean.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Status != "pruned" {
+		t.Fatalf("status = %q", record.Status)
+	}
+}
+
 func initRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()

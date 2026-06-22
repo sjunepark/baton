@@ -16,8 +16,8 @@
   fetching and a pure next-action classifier. Live GitHub validation is still
   needed against Creo.
 - Native worktree leasing is implemented with lease records, branch collision
-  protection, dirty release refusal, listing, and prune dry-run. It does not
-  yet remove worktrees during prune.
+  protection, dirty release refusal, listing, prune dry-run, and conservative
+  prune cleanup behind `--yes`.
 - `baton doctor` and local-only `baton complete` are implemented. GitHub
   commenting from `complete` remains intentionally deferred.
 
@@ -62,10 +62,6 @@ Acceptance:
   - noisy commit subject rejection;
   - commit listing cap fail-closed;
   - branch setup plans.
-
-Remaining:
-
-- Add event fixture tests.
 
 ## Phase 2 - Installable Templates
 
@@ -134,10 +130,6 @@ Acceptance:
 - [x] Dirty managed worktrees are not reused.
 - [x] Release refuses dirty worktrees by default.
 - [x] User's original checkout branch is never changed.
-
-Remaining:
-
-- Implement actual prune cleanup behind `--yes`; current prune is dry-run only.
 
 ## Phase 5 - Skill Package
 
@@ -257,5 +249,10 @@ Integration, live gated:
   missing repo-local Baton config, missing origin remote, and missing
   `GITHUB_TOKEN`/`GH_TOKEN` in this repository.
 - Added repository CI for `go test ./...`.
+- Added conservative `baton prune --yes` cleanup for clean Baton-managed
+  worktrees. Dirty candidates and active leases with a live owner process are
+  skipped and reported.
+- Validation: `go test ./...` covers prune removal, dirty skip, released
+  records, and existing lease behavior.
 - Next slice: live-test against Creo when GitHub auth is available, then start
   Creo migration wiring.
