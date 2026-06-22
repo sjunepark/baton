@@ -84,6 +84,40 @@ type pullRequestCounts struct {
 	Unknown int `json:"unknown"`
 }
 
+type pullRequestDashboard struct {
+	SchemaVersion     int                         `json:"schemaVersion"`
+	Kind              string                      `json:"kind"`
+	Repo              string                      `json:"repo"`
+	PullRequest       queue.PullRequest           `json:"pullRequest"`
+	ReferencedIssues  []int                       `json:"referencedIssues"`
+	IssueReadiness    []pullRequestIssueReadiness `json:"issueReadiness,omitempty"`
+	Checks            pullRequestCheckSummary     `json:"checks"`
+	ReviewThreads     pullRequestReviewSummary    `json:"reviewThreads"`
+	LikelyNextCommand string                      `json:"likelyNextCommand"`
+	Warnings          []string                    `json:"warnings,omitempty"`
+	Help              []string                    `json:"help,omitempty"`
+}
+
+type pullRequestIssueReadiness struct {
+	Number  int      `json:"number"`
+	Found   bool     `json:"found"`
+	Ready   bool     `json:"ready"`
+	Action  string   `json:"action,omitempty"`
+	Labels  []string `json:"labels,omitempty"`
+	Reasons []string `json:"reasons"`
+}
+
+type pullRequestCheckSummary struct {
+	State   string          `json:"state"`
+	Count   int             `json:"count"`
+	Summary gh.CheckSummary `json:"summary"`
+}
+
+type pullRequestReviewSummary struct {
+	Count   int              `json:"count"`
+	Summary gh.ThreadSummary `json:"summary"`
+}
+
 type leasesResult struct {
 	SchemaVersion int            `json:"schemaVersion"`
 	Kind          string         `json:"kind"`
@@ -1039,19 +1073,38 @@ func runPR(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return out.Error(exitGitHub, err, "")
 	}
+	result := buildPullRequestDashboard(repo, pr)
+	checkSummaryAvailable := false
 	checks, err := client.GetCheckRollup(repo, pr)
 	if err == nil {
+		checkSummaryAvailable = true
 		pr.CheckState = checks.State
+		result.PullRequest = pr
+		result.Checks = pullRequestCheckSummary{State: checks.State, Count: checks.Count, Summary: checks.Summary}
+	} else {
+		result.Warnings = append(result.Warnings, "check summary unavailable: "+err.Error())
 	}
+	reviewSummaryAvailable := false
+	threads, err := client.GetReviewThreads(repo, number)
+	if err == nil {
+		reviewSummaryAvailable = true
+		result.ReviewThreads = pullRequestReviewSummary{Count: threads.Count, Summary: threads.Summary}
+	} else {
+		result.Warnings = append(result.Warnings, "review thread summary unavailable: "+err.Error())
+	}
+	addIssueReadiness(&result, flags.config, client)
+	result.LikelyNextCommand = pullRequestLikelyNextCommand(number, result.Checks.Summary, result.ReviewThreads.Summary, checkSummaryAvailable, reviewSummaryAvailable)
+	result.Help = pullRequestDashboardHelp(number, result.Checks.Summary, result.ReviewThreads.Summary)
 	if flags.json {
-		return out.JSON(struct {
-			SchemaVersion int               `json:"schemaVersion"`
-			Kind          string            `json:"kind"`
-			Repo          string            `json:"repo"`
-			PullRequest   queue.PullRequest `json:"pullRequest"`
-		}{SchemaVersion: 1, Kind: "pullRequest", Repo: repo, PullRequest: pr})
+		return out.JSON(result)
 	}
-	fmt.Fprintf(stdout, "#%d %s -> %s checks=%s\n", pr.Number, pr.HeadRef, pr.BaseRef, pr.CheckState)
+	fmt.Fprintf(stdout, "#%d %s -> %s checks=%s reviewThreads=%d unresolved=%d\n", pr.Number, pr.HeadRef, pr.BaseRef, result.Checks.State, result.ReviewThreads.Count, result.ReviewThreads.Summary.Unresolved)
+	if len(result.ReferencedIssues) > 0 {
+		fmt.Fprintf(stdout, "referencedIssues=%s\n", intList(result.ReferencedIssues))
+	}
+	if result.LikelyNextCommand != "" {
+		fmt.Fprintf(stdout, "next: %s\n", result.LikelyNextCommand)
+	}
 	return exitOK
 }
 
@@ -2141,6 +2194,141 @@ func buildPullRequestsResult(repo string, prs []queue.PullState) pullRequestsRes
 		PullRequests:  prs,
 		Help:          pullRequestsHelp(prs),
 	}
+}
+
+func buildPullRequestDashboard(repo string, pr queue.PullRequest) pullRequestDashboard {
+	referencedIssues := pullRequestReferencedIssues(pr)
+	return pullRequestDashboard{
+		SchemaVersion:    schemaVersionV1,
+		Kind:             "pullRequest",
+		Repo:             repo,
+		PullRequest:      pr,
+		ReferencedIssues: referencedIssues,
+		Checks:           pullRequestCheckSummary{State: firstNonEmpty(pr.CheckState, "unknown")},
+		ReviewThreads:    pullRequestReviewSummary{},
+		Help:             pullRequestDashboardHelp(pr.Number, gh.CheckSummary{}, gh.ThreadSummary{}),
+	}
+}
+
+func addIssueReadiness(result *pullRequestDashboard, configPath string, client *gh.Client) {
+	if len(result.ReferencedIssues) == 0 {
+		return
+	}
+	cfg, err := loadConfig(configPath)
+	if err != nil {
+		result.Warnings = append(result.Warnings, "issue readiness unavailable: "+err.Error())
+		return
+	}
+	issues, err := client.ListOpenIssues(result.Repo)
+	if err != nil {
+		result.Warnings = append(result.Warnings, "issue readiness unavailable: "+err.Error())
+		return
+	}
+	result.IssueReadiness = buildIssueReadiness(result.ReferencedIssues, issues, cfg)
+}
+
+func buildIssueReadiness(referenced []int, issues []queue.Issue, cfg config.Config) []pullRequestIssueReadiness {
+	issuesByNumber := map[int]queue.Issue{}
+	for _, issue := range issues {
+		issuesByNumber[issue.Number] = issue
+	}
+	readiness := make([]pullRequestIssueReadiness, 0, len(referenced))
+	for _, number := range referenced {
+		issue, ok := issuesByNumber[number]
+		if !ok {
+			readiness = append(readiness, pullRequestIssueReadiness{Number: number, Found: false, Ready: false, Reasons: []string{"referenced issue is not open or was not returned by GitHub"}})
+			continue
+		}
+		readiness = append(readiness, classifyIssueReadiness(issue, cfg))
+	}
+	return readiness
+}
+
+func classifyIssueReadiness(issue queue.Issue, cfg config.Config) pullRequestIssueReadiness {
+	result := pullRequestIssueReadiness{Number: issue.Number, Found: true, Ready: true, Labels: issue.Labels, Reasons: []string{}}
+	labels := stringSet(issue.Labels)
+	if hasAny(labels, cfg.IssuePolicy.ImplementationLabels) {
+		result.Action = "issue-implementation"
+	} else if hasAny(labels, cfg.IssuePolicy.CommentOnlyLabels) {
+		result.Action = "issue-investigation"
+	} else {
+		result.Ready = false
+		result.Reasons = append(result.Reasons, "missing implementation or investigation label")
+	}
+	for _, skip := range cfg.IssuePolicy.SkipLabels {
+		if _, ok := labels[skip]; ok {
+			result.Ready = false
+			result.Reasons = append(result.Reasons, "skip label "+skip)
+		}
+	}
+	if len(result.Reasons) == 0 {
+		result.Reasons = append(result.Reasons, "ready")
+	}
+	return result
+}
+
+func pullRequestReferencedIssues(pr queue.PullRequest) []int {
+	values := append(policy.ExtractReferenceIssueNumbers(pr.Title), policy.ExtractReferenceIssueNumbers(pr.Body)...)
+	seen := map[int]struct{}{}
+	out := make([]int, 0, len(values))
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
+
+func pullRequestLikelyNextCommand(prNumber int, checks gh.CheckSummary, threads gh.ThreadSummary, checksAvailable, reviewAvailable bool) string {
+	switch {
+	case threads.HumanUnresolved > 0:
+		return fmt.Sprintf("baton review-threads %d --format toon", prNumber)
+	case checks.Failed > 0:
+		return fmt.Sprintf("baton checks %d --format toon", prNumber)
+	case checks.Pending > 0:
+		return fmt.Sprintf("baton checks %d --format toon", prNumber)
+	case threads.BotUnresolved > 0:
+		return fmt.Sprintf("baton review-threads %d --format toon", prNumber)
+	case !reviewAvailable:
+		return fmt.Sprintf("baton review-threads %d --format toon", prNumber)
+	case !checksAvailable:
+		return fmt.Sprintf("baton checks %d --format toon", prNumber)
+	default:
+		return "baton next --format toon"
+	}
+}
+
+func pullRequestDashboardHelp(prNumber int, checks gh.CheckSummary, threads gh.ThreadSummary) []string {
+	help := []string{
+		fmt.Sprintf("Run `baton checks %d --format toon` for check details.", prNumber),
+		fmt.Sprintf("Run `baton review-threads %d --format toon` for review comments.", prNumber),
+	}
+	if checks.Failed > 0 {
+		help = append(help, "Inspect failed check URLs before editing.")
+	}
+	if threads.HumanUnresolved > 0 {
+		help = append(help, "Stop and ask the user if unresolved human comments require product judgment.")
+	}
+	return help
+}
+
+func stringSet(values []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		set[value] = struct{}{}
+	}
+	return set
+}
+
+func hasAny(labels map[string]struct{}, candidates []string) bool {
+	for _, label := range candidates {
+		if _, ok := labels[label]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func countPullRequests(prs []queue.PullState) pullRequestCounts {

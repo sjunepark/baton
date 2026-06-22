@@ -79,6 +79,9 @@ objects.
   home-relative `path` values and concrete `cd`, release, and prune guidance.
 - `queue`, `prs`, and `checks` support `--fields` for compact TOON field
   selection while JSON remains the full automation contract.
+- `baton pr <number> --json` now returns a PR dashboard with referenced issue
+  numbers, issue label readiness when available, check summary counts,
+  review-thread summary counts, a likely next command, and enrichment warnings.
 - Agent-facing docs now prefer compact `--format toon` reads while keeping
   `--json` documented as the stable automation contract.
 
@@ -474,6 +477,11 @@ Recommended enhancement:
   Validation: `go test ./...` passes.
 - 2026-06-23: Completed AXI-007 field selection by adding `--fields` for
   compact TOON output on `queue`, `prs`, and `checks`. Validation:
+  `go test ./...` passes.
+- 2026-06-23: Completed AXI-011 PR dashboard by enriching
+  `baton pr <number> --json` with referenced issues, optional issue readiness,
+  check summaries, review-thread summaries, likely next command, and warnings
+  for unavailable enrichment while preserving the base PR read. Validation:
   `go test ./...` passes.
 
 ## Keep As-Is

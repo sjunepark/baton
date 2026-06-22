@@ -228,17 +228,23 @@ baton prs --json
 
 ### `baton pr <number>`
 
-Return full state for one PR.
+Return a precomputed dashboard for one PR.
 
-Must include:
+Includes:
 
 - branch/base/head;
-- linked issues;
-- labels;
-- checks;
-- review decision;
-- unresolved review threads;
-- latest bot summaries when available.
+- referenced issue numbers;
+- issue label readiness when Baton config and open issue data are available;
+- check state, count, and summary counts;
+- review-thread count and unresolved human/bot summary counts;
+- likely next command;
+- warnings when optional enrichment cannot be fetched.
+
+Examples:
+
+```sh
+baton pr 12 --json
+```
 
 ### `baton review-threads <number>`
 

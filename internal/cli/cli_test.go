@@ -266,6 +266,64 @@ func TestParseFieldsRejectsUnknownField(t *testing.T) {
 	}
 }
 
+func TestPullRequestDashboardSummaries(t *testing.T) {
+	pr := queue.PullRequest{Number: 42, Title: "Refs #7", Body: "Also refs #8 and refs #7", HeadRef: "agent/42", BaseRef: "agent", CheckState: "pending"}
+	result := buildPullRequestDashboard("example/repo", pr)
+	result.Checks = pullRequestCheckSummary{State: "failure", Count: 2, Summary: gh.CheckSummary{Failed: 1, Pending: 1}}
+	result.ReviewThreads = pullRequestReviewSummary{Count: 3, Summary: gh.ThreadSummary{Total: 3, Unresolved: 2, HumanUnresolved: 1, BotUnresolved: 1}}
+	result.LikelyNextCommand = pullRequestLikelyNextCommand(pr.Number, result.Checks.Summary, result.ReviewThreads.Summary, true, true)
+	result.Help = pullRequestDashboardHelp(pr.Number, result.Checks.Summary, result.ReviewThreads.Summary)
+
+	if result.Kind != "pullRequest" || result.Repo != "example/repo" {
+		t.Fatalf("dashboard identity = %#v", result)
+	}
+	if got := intList(result.ReferencedIssues); got != "7|8" {
+		t.Fatalf("referenced issues = %s, want 7|8", got)
+	}
+	if result.LikelyNextCommand != "baton review-threads 42 --format toon" {
+		t.Fatalf("likely next = %q", result.LikelyNextCommand)
+	}
+	if !strings.Contains(strings.Join(result.Help, "\n"), "unresolved human comments") {
+		t.Fatalf("help = %#v, want human-review guidance", result.Help)
+	}
+}
+
+func TestPullRequestLikelyNextCommandForUnavailableSummaries(t *testing.T) {
+	if got := pullRequestLikelyNextCommand(42, gh.CheckSummary{}, gh.ThreadSummary{}, false, true); got != "baton checks 42 --format toon" {
+		t.Fatalf("missing checks next = %q", got)
+	}
+	if got := pullRequestLikelyNextCommand(42, gh.CheckSummary{}, gh.ThreadSummary{}, true, false); got != "baton review-threads 42 --format toon" {
+		t.Fatalf("missing reviews next = %q", got)
+	}
+	if got := pullRequestLikelyNextCommand(42, gh.CheckSummary{}, gh.ThreadSummary{}, true, true); got != "baton next --format toon" {
+		t.Fatalf("complete summaries next = %q", got)
+	}
+}
+
+func TestBuildIssueReadinessUsesLabels(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.IssuePolicy.ImplementationLabels = []string{"agent:ready-trivial"}
+	cfg.IssuePolicy.CommentOnlyLabels = []string{"agent:needs-investigation"}
+	cfg.IssuePolicy.SkipLabels = []string{"agent:blocked"}
+	readiness := buildIssueReadiness([]int{7, 8, 9}, []queue.Issue{
+		{Number: 7, Labels: []string{"agent:ready-trivial"}},
+		{Number: 8, Labels: []string{"agent:ready-trivial", "agent:blocked"}},
+	}, cfg)
+
+	if len(readiness) != 3 {
+		t.Fatalf("readiness len = %d", len(readiness))
+	}
+	if !readiness[0].Ready || readiness[0].Action != "issue-implementation" {
+		t.Fatalf("ready issue = %#v", readiness[0])
+	}
+	if readiness[1].Ready || !strings.Contains(strings.Join(readiness[1].Reasons, ","), "skip label agent:blocked") {
+		t.Fatalf("blocked issue = %#v", readiness[1])
+	}
+	if readiness[2].Found || readiness[2].Ready {
+		t.Fatalf("missing issue = %#v", readiness[2])
+	}
+}
+
 func TestLeasesFormatTOONEmpty(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := Run([]string{"leases", "--state-root", t.TempDir(), "--format", "toon"}, &stdout, &stderr, "test")
