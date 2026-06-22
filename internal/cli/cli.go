@@ -10,7 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sejunpark/baton/internal/complete"
 	"github.com/sejunpark/baton/internal/config"
+	"github.com/sejunpark/baton/internal/doctor"
 	"github.com/sejunpark/baton/internal/gh"
 	"github.com/sejunpark/baton/internal/git"
 	"github.com/sejunpark/baton/internal/install"
@@ -45,6 +47,8 @@ func Run(args []string, stdout, stderr io.Writer, version string) int {
 		return exitOK
 	case "init":
 		return runInit(args[1:], stdout, stderr)
+	case "doctor":
+		return runDoctor(args[1:], stdout, stderr)
 	case "issue-policy":
 		return runIssuePolicy(args[1:], stdout, stderr)
 	case "pr-policy":
@@ -71,6 +75,8 @@ func Run(args []string, stdout, stderr io.Writer, version string) int {
 		return runLeases(args[1:], stdout, stderr)
 	case "prune":
 		return runPrune(args[1:], stdout, stderr)
+	case "complete":
+		return runComplete(args[1:], stdout, stderr)
 	case "ensure-branch":
 		return runEnsureBranch(args[1:], stdout, stderr)
 	case "labels":
@@ -88,6 +94,7 @@ Usage:
   baton --help
   baton version
   baton init --dry-run|--apply [--yes] [--json]
+  baton doctor [--config <path>] [--json]
   baton issue-policy --body-file <path> [--labels a,b] [--config <path>] [--json]
   baton issue-policy --event <path> [--apply] [--repo owner/name] [--config <path>] [--json]
   baton pr-policy --fixture <path> [--config <path>] [--json]
@@ -104,6 +111,7 @@ Usage:
   baton release --lease <id>|--path <path> [--keep-dirty]
   baton leases --json
   baton prune --dry-run --json
+  baton complete --summary <text> [--lease <id>] [--validation <text>] [--json]
   baton ensure-branch [--apply] [--remote origin] [--base main] [--target agent] [--json]
   baton labels --file <path> [--json]
 
@@ -145,6 +153,34 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 	}
 	for _, change := range plan.Changes {
 		fmt.Fprintf(stdout, "%s %s\n", change.Action, change.Path)
+	}
+	return exitOK
+}
+
+func runDoctor(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	configPath := fs.String("config", "", "policy config path")
+	jsonOut := fs.Bool("json", false, "emit JSON")
+	if err := fs.Parse(args); err != nil {
+		return exitUsage
+	}
+	result := doctor.Run(*configPath)
+	if *jsonOut {
+		if code := writeJSON(stdout, stderr, result); code != exitOK {
+			return code
+		}
+	} else {
+		for _, check := range result.Checks {
+			if check.Message == "" {
+				fmt.Fprintf(stdout, "%s: %s\n", check.Name, check.Status)
+			} else {
+				fmt.Fprintf(stdout, "%s: %s (%s)\n", check.Name, check.Status, check.Message)
+			}
+		}
+	}
+	if result.Failed() {
+		return exitLocalGit
 	}
 	return exitOK
 }
@@ -645,6 +681,29 @@ func runPrune(args []string, stdout, stderr io.Writer) int {
 	for _, record := range plan.Candidates {
 		fmt.Fprintf(stdout, "%s %s\n", record.ID, record.Status)
 	}
+	return exitOK
+}
+
+func runComplete(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("complete", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	leaseID := fs.String("lease", "", "lease id")
+	summary := fs.String("summary", "", "completion summary")
+	validation := fs.String("validation", "", "validation performed")
+	stateRoot := fs.String("state-root", "", "Baton state root")
+	jsonOut := fs.Bool("json", false, "emit JSON")
+	if err := fs.Parse(args); err != nil {
+		return exitUsage
+	}
+	record, err := complete.Write(*stateRoot, *leaseID, *summary, *validation, time.Now().UTC())
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitUsage
+	}
+	if *jsonOut {
+		return writeJSON(stdout, stderr, record)
+	}
+	fmt.Fprintf(stdout, "Recorded completion %s\n", record.ID)
 	return exitOK
 }
 

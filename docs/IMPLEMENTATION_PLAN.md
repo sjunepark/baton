@@ -18,6 +18,8 @@
 - Native worktree leasing is implemented with lease records, branch collision
   protection, dirty release refusal, listing, and prune dry-run. It does not
   yet remove worktrees during prune.
+- `baton doctor` and local-only `baton complete` are implemented. GitHub
+  commenting from `complete` remains intentionally deferred.
 
 ## Phase 0 - Repository Scaffold
 
@@ -248,5 +250,11 @@ Integration, live gated:
   command/JSON references.
 - Validation: skill metadata is present in `skills/baton/SKILL.md`; full repo
   validation remains `go test ./...`.
-- Next slice: live-test against Creo where auth is available, then start Creo
-  migration wiring.
+- Added `baton doctor` readiness checks and local `baton complete` completion
+  metadata recording.
+- Validation: `go test ./...`, `baton doctor --json`, and `baton complete
+  --summary ... --json` pass. `doctor` currently reports expected warnings for
+  missing repo-local Baton config, missing origin remote, and missing
+  `GITHUB_TOKEN`/`GH_TOKEN` in this repository.
+- Next slice: live-test against Creo when GitHub auth is available, then start
+  Creo migration wiring.
