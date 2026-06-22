@@ -96,7 +96,7 @@ func printHelp(w io.Writer) {
 Usage:
   baton --help
   baton version
-  baton init --dry-run|--apply [--yes] [--json]
+  baton init --dry-run|--apply [--profile default] [--yes] [--json]
   baton migrate-config --dry-run|--apply [--from <path>] [--to <path>] [--yes] [--json]
   baton doctor [--config <path>] [--json]
   baton issue-policy --body-file <path> [--labels a,b] [--config <path>] [--json]
@@ -130,6 +130,7 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	dryRun := fs.Bool("dry-run", false, "preview installed files")
 	apply := fs.Bool("apply", false, "write installed files")
+	profile := fs.String("profile", "default", "template profile")
 	yes := fs.Bool("yes", false, "overwrite changed files when applying")
 	jsonOut := fs.Bool("json", false, "emit JSON")
 	if err := fs.Parse(args); err != nil {
@@ -137,6 +138,10 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 	}
 	if *dryRun == *apply {
 		fmt.Fprintln(stderr, "init requires exactly one of --dry-run or --apply")
+		return exitUsage
+	}
+	if *profile != "default" {
+		fmt.Fprintln(stderr, "init currently supports only --profile default")
 		return exitUsage
 	}
 	var (
