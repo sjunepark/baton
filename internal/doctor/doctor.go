@@ -50,10 +50,12 @@ func Run(configPath string) Result {
 	} else {
 		checks = append(checks, Check{Name: "remote", Status: "ok", Message: strings.TrimSpace(out)})
 	}
-	if os.Getenv("GITHUB_TOKEN") == "" && os.Getenv("GH_TOKEN") == "" {
-		checks = append(checks, Check{Name: "github-auth", Status: "warn", Message: "GITHUB_TOKEN or GH_TOKEN is not set"})
-	} else {
+	if os.Getenv("GITHUB_TOKEN") != "" || os.Getenv("GH_TOKEN") != "" {
 		checks = append(checks, Check{Name: "github-auth", Status: "ok"})
+	} else if _, err := exec.Command("gh", "auth", "token").Output(); err == nil {
+		checks = append(checks, Check{Name: "github-auth", Status: "ok", Message: "gh auth token"})
+	} else {
+		checks = append(checks, Check{Name: "github-auth", Status: "warn", Message: "GITHUB_TOKEN, GH_TOKEN, or gh auth token is not available"})
 	}
 	root := filepath.Join(lease.DefaultStateRoot(), "worktrees")
 	if err := os.MkdirAll(root, 0o755); err != nil {

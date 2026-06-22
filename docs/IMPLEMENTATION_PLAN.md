@@ -200,8 +200,8 @@ Integration, live gated:
 
 ## Open Decisions
 
-- Whether to use GitHub CLI for auth fallback or implement token/env auth only
-  in v1.
+- Resolved: Baton uses `GITHUB_TOKEN`/`GH_TOKEN` first and falls back to
+  `gh auth token` when available.
 - Whether to support Treehouse as a v1 backend or defer until native leasing is
   proven.
 - Resolved: `baton complete` records local metadata by default; GitHub comments
@@ -279,4 +279,8 @@ Integration, live gated:
   ref/check fetching; live `baton next --json --repo open-creo/creo` still
   selects issue #5 for investigation because Creo's current staging branch is
   not red.
+- Added GitHub auth fallback through `gh auth token` after env tokens.
+- Validation: `go test ./...`; live Creo `baton doctor --json` reports
+  `github-auth: ok (gh auth token)`, and `baton next --json --repo
+  open-creo/creo` works without `GITHUB_TOKEN`/`GH_TOKEN`.
 - Next slice: start Creo migration wiring.

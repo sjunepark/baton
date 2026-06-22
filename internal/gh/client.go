@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 
@@ -29,7 +30,13 @@ func NewClientFromEnv() (*Client, error) {
 		token = os.Getenv("GH_TOKEN")
 	}
 	if token == "" {
-		return nil, fmt.Errorf("GITHUB_TOKEN or GH_TOKEN is required")
+		out, err := exec.Command("gh", "auth", "token").Output()
+		if err == nil {
+			token = strings.TrimSpace(string(out))
+		}
+	}
+	if token == "" {
+		return nil, fmt.Errorf("GITHUB_TOKEN, GH_TOKEN, or gh auth token is required")
 	}
 	return &Client{baseURL: defaultAPIBase, token: token, httpClient: http.DefaultClient}, nil
 }
