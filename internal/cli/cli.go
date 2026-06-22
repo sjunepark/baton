@@ -70,7 +70,7 @@ Usage:
   baton pr-policy --fixture <path> [--config <path>] [--json]
   baton pr-policy --event <path> [--config <path>] [--json]
   baton sync-labels --dry-run|--apply [--repo owner/name] [--labels-file <path>] [--json]
-  baton ensure-branch --remote-base <sha> [--remote-target <sha>] [--local-target <sha>] [--json]
+  baton ensure-branch [--apply] [--remote origin] [--base main] [--target agent] [--json]
   baton labels --file <path> [--json]
 
 The current implementation is the local deterministic policy/parsing core.
@@ -348,11 +348,12 @@ func runEnsureBranch(args []string, stdout, stderr io.Writer) int {
 	remoteTarget := fs.String("remote-target", "", "remote target SHA")
 	localTarget := fs.String("local-target", "", "local target SHA")
 	localUpstream := fs.String("local-upstream", "", "local target upstream")
+	apply := fs.Bool("apply", false, "run planned git commands")
 	jsonOut := fs.Bool("json", false, "emit JSON")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
-	plan := git.ComputeAgentBranchPlan(git.AgentBranchPlanInput{
+	input := git.AgentBranchPlanInput{
 		Remote:              *remote,
 		BaseBranch:          *base,
 		TargetBranch:        *target,
@@ -360,31 +361,55 @@ func runEnsureBranch(args []string, stdout, stderr io.Writer) int {
 		RemoteTargetSHA:     *remoteTarget,
 		LocalTargetSHA:      *localTarget,
 		LocalTargetUpstream: *localUpstream,
-	})
+	}
+	if *remoteBase == "" && *remoteTarget == "" && *localTarget == "" && *localUpstream == "" {
+		inspected, err := git.InspectAgentBranchRefs(input)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return exitLocalGit
+		}
+		input = inspected
+	}
+	plan := git.ComputeAgentBranchPlan(input)
 	if *jsonOut {
-		return writeJSON(stdout, stderr, plan)
+		if code := writeJSON(stdout, stderr, plan); code != exitOK {
+			return code
+		}
 	}
-	fmt.Fprintln(stdout, "Agent branch plan:")
-	for _, line := range plan.Status {
-		fmt.Fprintf(stdout, "- %s\n", line)
-	}
-	for _, warning := range plan.Warnings {
-		fmt.Fprintf(stdout, "warning: %s\n", warning)
-	}
-	for _, err := range plan.Errors {
-		fmt.Fprintf(stderr, "error: %s\n", err)
+	if !*jsonOut {
+		fmt.Fprintln(stdout, "Agent branch plan:")
+		for _, line := range plan.Status {
+			fmt.Fprintf(stdout, "- %s\n", line)
+		}
+		for _, warning := range plan.Warnings {
+			fmt.Fprintf(stdout, "warning: %s\n", warning)
+		}
+		for _, err := range plan.Errors {
+			fmt.Fprintf(stderr, "error: %s\n", err)
+		}
 	}
 	if len(plan.Errors) > 0 {
 		return exitLocalGit
 	}
 	if len(plan.ApplyCommands) == 0 {
-		fmt.Fprintln(stdout, "No branch setup commands are needed.")
+		if !*jsonOut {
+			fmt.Fprintln(stdout, "No branch setup commands are needed.")
+		}
 		return exitOK
 	}
-	fmt.Fprintln(stdout, "Dry run. Would run:")
-	for _, command := range plan.ApplyCommands {
-		fmt.Fprintf(stdout, "- %s\n", command.Description)
-		fmt.Fprintf(stdout, "  git %s\n", strings.Join(command.Args, " "))
+	if *apply {
+		if err := git.ApplyAgentBranchPlan(plan); err != nil {
+			fmt.Fprintln(stderr, err)
+			return exitLocalGit
+		}
+		return exitOK
+	}
+	if !*jsonOut {
+		fmt.Fprintln(stdout, "Dry run. Would run:")
+		for _, command := range plan.ApplyCommands {
+			fmt.Fprintf(stdout, "- %s\n", command.Description)
+			fmt.Fprintf(stdout, "  git %s\n", strings.Join(command.Args, " "))
+		}
 	}
 	return exitOK
 }

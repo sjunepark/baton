@@ -31,7 +31,14 @@ func ComputeAgentBranchPlan(input AgentBranchPlanInput) AgentBranchPlan {
 	remoteBase := remote + "/" + baseBranch
 	remoteTarget := remote + "/" + targetBranch
 
-	plan := AgentBranchPlan{SchemaVersion: 1, Kind: "agentBranchPlan"}
+	plan := AgentBranchPlan{
+		SchemaVersion: 1,
+		Kind:          "agentBranchPlan",
+		Errors:        []string{},
+		Warnings:      []string{},
+		Status:        []string{},
+		ApplyCommands: []GitCommand{},
+	}
 	if input.RemoteBaseSHA == "" {
 		plan.Errors = append(plan.Errors, "Remote base branch "+remoteBase+" was not found.")
 		return plan

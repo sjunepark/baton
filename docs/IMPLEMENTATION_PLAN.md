@@ -12,8 +12,7 @@
   the standard target-repo template set with overwrite protection.
 - GitHub API foundations are implemented for issue-policy apply, PR policy
   issue/commit enrichment, and label sync.
-- Queue inspection, `ensure-branch --apply`, and worktree leasing are not
-  implemented yet.
+- Queue inspection and worktree leasing are not implemented yet.
 
 ## Phase 0 - Repository Scaffold
 
@@ -72,17 +71,13 @@ Tasks:
 - [x] Implement `baton init --dry-run`.
 - [x] Implement `baton init --apply`.
 - [x] Implement `baton sync-labels`.
-- Implement `baton ensure-branch`.
+- [x] Implement `baton ensure-branch`.
 
 Acceptance:
 
 - [x] A test repo can be initialized.
 - [x] Dry-run output is understandable.
 - [x] Existing files are not overwritten without explicit confirmation.
-
-Remaining:
-
-- Wire `baton ensure-branch --apply` to real non-destructive git commands.
 
 ## Phase 3 - Read-Only Triage
 
@@ -214,5 +209,10 @@ Integration, live gated:
   `pr-policy --event` issue/commit enrichment, and `sync-labels`.
 - Validation: `go test ./...` covers GitHub client request sequencing, commit
   pagination cap detection, label sync planning, and existing policy parity.
-- Next slice: wire real `ensure-branch --apply`, then start read-only queue
-  inspection (`queue`, `prs`, `pr`, checks, review threads, `next`).
+- Added real `ensure-branch` git ref inspection and explicit `--apply` execution
+  using the tested non-destructive branch planner.
+- Validation: `go test ./...` covers a temp local repo plus bare remote where
+  Baton publishes `agent` from `origin/main`; `go run ./cmd/baton
+  ensure-branch --remote-base <sha> --json` passes.
+- Next slice: start read-only queue inspection (`queue`, `prs`, `pr`, checks,
+  review threads, `next`).
