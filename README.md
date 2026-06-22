@@ -21,16 +21,15 @@ Implemented:
 - `doctor`, `complete`, `migrate-config`, `sync-labels`, and `ensure-branch`;
 - a bundled Codex skill in `skills/baton`.
 
-Remaining migration work depends on publishing or otherwise configuring a
-trusted Baton install path for consuming GitHub Actions workflows. The default
-template command is:
+The default generated GitHub Actions install command uses the published module
+path:
 
 ```sh
 go install github.com/sjunepark/baton/cmd/baton@v0.1.3
 ```
 
-That path must resolve from GitHub Actions before a consuming repository points
-policy workflows at Baton.
+Use `baton init --go-install` or `baton init --install-command` to pin a
+different trusted source for a consuming repository.
 
 ## Quick Start
 

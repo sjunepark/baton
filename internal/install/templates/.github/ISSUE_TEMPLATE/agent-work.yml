@@ -7,13 +7,12 @@ body:
     id: work_kind
     attributes:
       label: Work kind
-      description: Pick the closest routing kind. Use Investigation until a bug is confirmed.
+      description: Pick the closest routing kind. Use Question when the kind is unclear.
       options:
         - Bug
         - Documentation
         - Enhancement
         - Question
-        - Investigation
     validations:
       required: true
   - type: dropdown

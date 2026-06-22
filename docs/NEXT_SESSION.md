@@ -3,32 +3,29 @@
 ## Suggested Opening Prompt
 
 ```text
-We are in /Users/sejunpark/IT/baton. This repo is planning-only so far.
-Read AGENTS.md, README.md, ARCHITECTURE.md, docs/REQUIREMENTS.md, and
-docs/IMPLEMENTATION_PLAN.md. Then implement Phase 0 and the first useful part
-of Phase 1 for Baton, a Go CLI that extracts the GitHub issue/PR policy workflow
-from /Users/sejunpark/IT/creo. Keep the first slice small, testable, and do not
-migrate Creo yet.
+We are in /Users/sejunpark/IT/baton. Read AGENTS.md, README.md,
+ARCHITECTURE.md, docs/REQUIREMENTS.md, and docs/IMPLEMENTATION_PLAN.md. Continue
+from the implemented Baton CLI and keep docs, tests, templates, and the bundled
+skill aligned with the current command surface. Run focused validation before
+finishing, usually `go test ./...`.
 ```
 
-## Recommended First Slice
+## Recommended Next Slice
 
-1. Initialize the Go module.
-2. Add a minimal `baton` CLI with `--help` and `version`.
-3. Add internal package scaffolding for config and policy.
-4. Port only pure issue-section parsing first.
-5. Add tests from small inline fixtures.
+1. Inspect the requested area and current command behavior before editing docs.
+2. Keep generated templates, `docs/CONFIG_SPEC.md`, and `config.DefaultConfig`
+   in sync.
+3. Update `skills/baton` references when command usage or JSON contracts change.
+4. Run `go test ./...` after code, template, or contract changes.
 
-Do not start with GitHub API calls or worktree leasing. The highest-value first
-proof is pure policy parity because it can be tested without side effects.
+Avoid relying on the old Creo scripts unless checking parity for behavior Baton
+does not already cover with Go tests.
 
 ## Context To Preserve
 
-- The source behavior lives in `/Users/sejunpark/IT/creo/scripts/github/`.
-- The target installed config should eventually become `.github/baton.yml`.
-- Legacy Creo config `.github/agent-issue-policy.yml` should remain readable
-  during migration.
-- Baton should be Go-first.
-- Baton should include a bundled Codex skill later under `skills/baton/`.
-- Automation work must eventually happen only inside Baton-managed leases.
-
+- Baton is Go-first and ships a bundled skill under `skills/baton/`.
+- Target repositories use `.github/baton.yml`; legacy
+  `.github/agent-issue-policy.yml` remains readable for migration.
+- Automation work must happen only inside Baton-managed leases.
+- Mutating GitHub or git commands need dry-run/planner coverage or explicit
+  apply/confirmation gates.

@@ -131,7 +131,8 @@ Required for v1:
 - `issue_policy.skip_labels`
 - `issue_policy.required_sections`
 
-Optional fields should have documented defaults.
+Optional fields use the defaults shown in the top-level shape unless a command
+documents a narrower bootstrap behavior.
 
 ## Legacy Mapping
 
@@ -170,4 +171,3 @@ Creo `.github/agent-issue-policy.yml` maps as:
 
 Policy enforcement should fail when no target repo config exists, except for
 commands explicitly intended to bootstrap config.
-

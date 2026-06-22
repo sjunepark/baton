@@ -2,10 +2,12 @@
 
 ## Current State
 
-- This repository is in planning/spec mode.
-- Do not add a Go module, executable code, GitHub workflows, or generated
-  templates until explicitly asked to begin implementation.
-- Keep documentation implementation-ready and avoid speculative product scope.
+- This repository contains the implemented Baton Go CLI, embedded install
+  templates, tests, and bundled Codex skill.
+- Keep documentation aligned with the implemented CLI and avoid speculative
+  product scope.
+- Treat the source behavior from Creo as historical reference material, not as
+  the current source of truth when Baton code and tests already cover behavior.
 
 ## Implementation Defaults
 
@@ -34,8 +36,7 @@
 
 ## Source References
 
-The first implementation should extract behavior from
-`/Users/sejunpark/IT/creo`:
+The initial implementation extracted behavior from `/Users/sejunpark/IT/creo`:
 
 - `.github/ISSUE_WORKFLOW.md`
 - `.github/agent-issue-policy.yml`
@@ -49,11 +50,10 @@ The first implementation should extract behavior from
 - `scripts/github/ensure-agent-branch.mjs`
 - `tests/scripts/github-*.test.ts`
 
-Use those files as behavior references, not as long-term source layout.
+Use those files as behavior references only when checking migration parity or
+investigating a behavior gap.
 
 ## Validation Expectations
-
-Once implementation begins:
 
 - Add table-driven unit tests for policy parsing and decisions.
 - Add tests for GitHub event fixtures.
@@ -61,4 +61,3 @@ Once implementation begins:
 - Add integration tests only behind explicit env gates for live GitHub calls.
 - Every command that mutates GitHub or git state must have a dry-run path or a
   pure planner that can be tested without side effects.
-

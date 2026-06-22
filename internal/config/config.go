@@ -276,7 +276,7 @@ func DefaultConfig() Config {
 				"acceptance_criteria": "Acceptance criteria",
 				"non_goals":           "Non-goals / constraints",
 				"validation_hints":    "Validation hints",
-				"notes_constraints":   "Notes",
+				"notes":               "Notes",
 			},
 			WorkKindLabels: map[string]string{
 				"Bug":           "bug",

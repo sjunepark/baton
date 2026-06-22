@@ -106,16 +106,16 @@ GitHub state + repo config
 6. Codex validates, pushes/comments, and calls `baton complete` or
    `baton release`.
 
-## Planned Code Map
+## Code Map
 
 ```text
 cmd/baton/
-  main.go
+  main.go: CLI entrypoint
 
 internal/config/
   load and validate baton policy config
 
-internal/github/
+internal/gh/
   typed GitHub REST/GraphQL client and fixtures
 
 internal/policy/
@@ -130,11 +130,11 @@ internal/git/
 internal/lease/
   lease records, acquisition, release, stale detection
 
-internal/render/
-  JSON and text output adapters
+internal/install/
+  embedded target-repo templates and init planning
 
-templates/
-  installable target-repo files
+internal/doctor/, internal/complete/, internal/labels/
+  readiness checks, completion metadata, and label manifest sync
 
 skills/baton/
   Codex skill package

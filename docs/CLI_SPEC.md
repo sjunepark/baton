@@ -16,7 +16,7 @@ Automation-facing commands must support:
 --repo <owner/name>
 ```
 
-Mutating commands must use one of:
+Mutating plan/apply commands must use one of:
 
 ```sh
 --apply
@@ -24,6 +24,8 @@ Mutating commands must use one of:
 ```
 
 depending on whether they apply a computed plan or confirm destructive cleanup.
+Lease acquire/release commands are explicit state transitions and must still
+return structured JSON for automation.
 
 ## Exit Codes
 
@@ -41,12 +43,14 @@ depending on whether they apply a computed plan or confirm destructive cleanup.
 
 Create or preview target-repo files.
 
-Planned flags:
+Implemented flags:
 
 ```sh
 baton init --dry-run
 baton init --apply
 baton init --profile default
+baton init --go-install github.com/sjunepark/baton/cmd/baton@v0.1.3
+baton init --install-command '<trusted install command>'
 ```
 
 Must create or update, with explicit user confirmation:
@@ -72,6 +76,18 @@ Checks:
 - staging branch state is known;
 - labels are present or diffable;
 - worktree root is writable.
+
+### `baton migrate-config`
+
+Convert a legacy `.github/agent-issue-policy.yml` into `.github/baton.yml`.
+
+Examples:
+
+```sh
+baton migrate-config --dry-run
+baton migrate-config --apply
+baton migrate-config --apply --yes
+```
 
 ### `baton sync-labels`
 
@@ -305,7 +321,7 @@ explicit cleanup command is used.
 
 Record local completion metadata and optionally comment on GitHub.
 
-This command should be designed after the first PR follow-up flow is working.
+GitHub comments require explicit `--comment --repo owner/name --issue N|--pr N`.
 
 ## Human Output
 

@@ -118,21 +118,15 @@ The workflow files should call Baton, not copied scripts.
 
 ## Compatibility Strategy
 
-Phase 1:
+Completed compatibility path:
 
 - Baton can read `.github/agent-issue-policy.yml` directly.
-- Creo can switch workflows to `baton issue-policy` and `baton pr-policy`
-  without renaming config.
-
-Phase 2:
-
-- Run `baton migrate-config` or `baton init --migrate` to produce
+- Creo can run `baton issue-policy` and `baton pr-policy` without renaming
+  config.
+- Run `baton migrate-config` to produce
   `.github/baton.yml`.
-- Keep the old file until automation has run successfully at least once.
-
-Phase 3:
-
-- Remove repo-local JS scripts and tests after Go parity exists.
+- Keep the old file until automation has run successfully at least once, then
+  remove repo-local policy scripts and tests after Go parity is proven.
 
 ## Creo Migration Checklist
 
@@ -155,4 +149,3 @@ Phase 3:
   internals.
 - `baton init` should not overwrite user-edited files without showing a diff or
   requiring explicit confirmation.
-

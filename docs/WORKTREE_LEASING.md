@@ -137,5 +137,5 @@ baton lease shell --lease <id>
 baton lease exec --lease <id> -- <command>
 ```
 
-The first implementation can keep execution outside Baton and simply return the
-lease path to Codex.
+The current implementation keeps execution outside Baton and returns the lease
+path to Codex.

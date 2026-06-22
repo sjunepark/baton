@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sjunepark/baton/internal/config"
+	"gopkg.in/yaml.v3"
 )
 
 func TestPreviewPlansTemplateCreation(t *testing.T) {
@@ -94,4 +97,35 @@ func TestApplyWithOptionsRendersInstallCommand(t *testing.T) {
 	if !strings.Contains(text, "curl -fsSL https://example.invalid/baton.sh | sh\n          baton version") {
 		t.Fatalf("workflow did not render install command with indentation:\n%s", text)
 	}
+}
+
+func TestIssueTemplateWorkKindsAreMappedInDefaultConfig(t *testing.T) {
+	content, err := templateContent(".github/ISSUE_TEMPLATE/agent-work.yml", Options{}.withDefaults())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var issueTemplate struct {
+		Body []struct {
+			ID         string `yaml:"id"`
+			Attributes struct {
+				Options []string `yaml:"options"`
+			} `yaml:"attributes"`
+		} `yaml:"body"`
+	}
+	if err := yaml.Unmarshal(content, &issueTemplate); err != nil {
+		t.Fatal(err)
+	}
+	defaults := config.DefaultConfig()
+	for _, field := range issueTemplate.Body {
+		if field.ID != "work_kind" {
+			continue
+		}
+		for _, option := range field.Attributes.Options {
+			if defaults.IssuePolicy.WorkKindLabels[option] == "" {
+				t.Fatalf("work kind option %q has no default label mapping", option)
+			}
+		}
+		return
+	}
+	t.Fatal("work_kind field not found in issue template")
 }
