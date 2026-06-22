@@ -95,7 +95,11 @@ func BuildSnapshotWithBranchHealth(repo string, cfg config.Config, issues []Issu
 
 	issueStates := make([]IssueState, 0, len(issues))
 	for _, issue := range issues {
-		state := IssueState{Issue: issue, Eligible: true, Reasons: []string{}, LinkedPRs: prsByIssue[issue.Number]}
+		linkedPRs := prsByIssue[issue.Number]
+		if linkedPRs == nil {
+			linkedPRs = []int{}
+		}
+		state := IssueState{Issue: issue, Eligible: true, Reasons: []string{}, LinkedPRs: linkedPRs}
 		labels := stringSet(issue.Labels)
 		if hasAny(labels, cfg.IssuePolicy.ImplementationLabels) {
 			state.Action = "issue-implementation"

@@ -29,6 +29,9 @@ func TestBuildSnapshotEligibility(t *testing.T) {
 	if !snapshot.Issues[3].Eligible || snapshot.Issues[3].Action != "issue-investigation" {
 		t.Fatalf("investigation issue should be eligible: %#v", snapshot.Issues[3])
 	}
+	if snapshot.Issues[3].LinkedPRs == nil || len(snapshot.Issues[3].LinkedPRs) != 0 {
+		t.Fatalf("empty linked PRs should be an empty array, got %#v", snapshot.Issues[3].LinkedPRs)
+	}
 }
 
 func TestRecommendNextPrefersPRFollowup(t *testing.T) {

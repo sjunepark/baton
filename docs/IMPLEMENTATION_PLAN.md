@@ -303,5 +303,8 @@ Integration, live gated:
   including multi-line commands rendered safely into workflow YAML.
 - Validation: `go test ./...` covers custom multi-line install command
   rendering.
+- Hardened queue JSON so empty `linkedPrs` is emitted as `[]` instead of
+  `null`.
+- Validation: `go test ./...` covers the empty-array contract.
 - Next slice: publish/configure a trusted Baton install path, then start Creo
   migration wiring.
