@@ -6,26 +6,30 @@ description: Use the Baton CLI to run reusable GitHub issue/PR agent workflows, 
 # Baton
 
 Baton provides deterministic GitHub, git, policy, queue, and worktree facts.
-Use Baton JSON for state and use your judgment for code changes.
+Use Baton compact output for agent context, Baton JSON for automation
+contracts, and your judgment for code changes.
 
 ## Core Rules
 
-- Run `baton next --json` before selecting unattended work.
+- Run `baton home --format toon` or `baton doctor --format toon` to establish
+  local Baton context.
+- Run `baton next --format toon` before selecting unattended work.
 - Handle exactly one Baton-selected unit per automation run.
 - Acquire a lease before editing files: `baton lease ... --json`.
 - Work only inside the returned lease `path`.
 - Never mutate the user's primary checkout for automation work.
 - Never merge unless the user explicitly asks.
-- Prefer Baton JSON over manual GitHub browsing for issues, PRs, checks, and
-  review threads.
+- Prefer Baton compact or JSON output over manual GitHub browsing for issues,
+  PRs, checks, and review threads.
 - Stop and report on auth failures, lease conflicts, ambiguous scope, human
   product/security/schema decisions, or dirty lease release conflicts.
 
 ## Workflow
 
-1. If readiness is uncertain, run `baton doctor` when available; otherwise run
-   the narrow command needed for the current task.
-2. Run `baton next --json`.
+1. If readiness is uncertain, run `baton home --format toon` or
+   `baton doctor --format toon`; otherwise run the narrow command needed for
+   the current task.
+2. Run `baton next --format toon`.
 3. If the action is `none` or `digest`, report the summary and stop.
 4. Acquire a lease for the selected action.
 5. `cd` to the lease path and read that repo's `AGENTS.md`.
@@ -39,7 +43,8 @@ Use Baton JSON for state and use your judgment for code changes.
 
 - Inspect the PR with `baton pr <number> --json`.
 - Fix failing required checks before review nits.
-- Inspect review threads with `baton review-threads <number> --json`.
+- Inspect checks with `baton checks <number> --format toon`.
+- Inspect review threads with `baton review-threads <number> --format toon`.
 - Human unresolved review threads outrank bot comments and may require stopping.
 - Push fixes to the existing PR branch. Do not open a new PR.
 

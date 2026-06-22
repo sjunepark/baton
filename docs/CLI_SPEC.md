@@ -8,13 +8,22 @@ Binary name:
 baton
 ```
 
-Automation-facing commands must support:
+Automation-facing commands must support stable JSON:
 
 ```sh
 --json
 --config <path>
 --repo <owner/name>
 ```
+
+Read-heavy commands also support:
+
+```sh
+--format text|json|toon
+```
+
+`--json` is a compatibility alias for `--format json` on commands that support
+both. TOON output is for compact agent consumption.
 
 Mutating plan/apply commands must use one of:
 
@@ -38,6 +47,18 @@ return structured JSON for automation.
 - `6`: local git/worktree error.
 
 ## Core Commands
+
+### `baton home`
+
+Show a local Baton dashboard without failing on missing config, auth, or remote
+state.
+
+Examples:
+
+```sh
+baton home --format toon
+baton home --json
+```
 
 ### `baton init`
 
@@ -65,6 +86,13 @@ Must create or update, with explicit user confirmation:
 ### `baton doctor`
 
 Check local and remote readiness.
+
+Examples:
+
+```sh
+baton doctor --format toon
+baton doctor --json
+```
 
 Checks:
 
@@ -176,6 +204,7 @@ Return open issues and why each is eligible or skipped.
 Example:
 
 ```sh
+baton queue --format toon
 baton queue --json
 ```
 
@@ -186,6 +215,7 @@ Return open agent PRs with checks and review state summary.
 Example:
 
 ```sh
+baton prs --format toon
 baton prs --json
 ```
 
@@ -217,6 +247,13 @@ Must include:
 - bodies;
 - whether Baton classifies it as human, known bot, or unknown bot.
 
+Examples:
+
+```sh
+baton review-threads 12 --format toon
+baton review-threads 12 --full --json
+```
+
 ### `baton checks <number>`
 
 Return PR checks grouped by status.
@@ -230,6 +267,13 @@ Must identify:
 - detail URLs;
 - workflow/job names.
 
+Examples:
+
+```sh
+baton checks 12 --format toon
+baton checks 12 --json
+```
+
 ### `baton next`
 
 Return one recommended next unit of work.
@@ -237,6 +281,7 @@ Return one recommended next unit of work.
 Example:
 
 ```sh
+baton next --format toon
 baton next --json
 ```
 

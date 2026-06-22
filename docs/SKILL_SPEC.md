@@ -25,9 +25,11 @@ description: Use the Baton CLI to run reusable GitHub issue/PR agent workflows, 
 
 The skill must instruct Codex to:
 
-- Run `baton doctor` when repository readiness is uncertain.
-- Run `baton next --json` before selecting work.
-- Prefer Baton JSON over manual GitHub browsing for queue state.
+- Run `baton home --format toon` or `baton doctor --format toon` when
+  repository readiness is uncertain.
+- Run `baton next --format toon` before selecting work.
+- Prefer Baton compact output or JSON over manual GitHub browsing for queue
+  state.
 - Acquire a lease before any file edits.
 - Work only inside the leased path.
 - Handle exactly one unit of work per automation run.
@@ -42,7 +44,7 @@ The skill must instruct Codex to:
 
 ### General Automation
 
-1. Run `baton next --json`.
+1. Run `baton next --format toon`.
 2. If action is `none` or `digest`, report the summary and stop.
 3. Run `baton lease` with the selected action.
 4. Change to the lease path.
@@ -56,7 +58,8 @@ The skill must instruct Codex to:
 
 1. Run `baton pr <number> --json` or use data returned by `baton next`.
 2. Fix failing checks before bot nits.
-3. Read unresolved review threads with `baton review-threads <number> --json`.
+3. Read unresolved review threads with
+   `baton review-threads <number> --format toon`.
 4. Human unresolved threads block auto-merge and outrank bot comments.
 5. Apply safe fixes only.
 6. Push to the existing PR branch.
@@ -119,4 +122,3 @@ that needs follow-up, acquire a lease for its branch, fix failing checks or
 blocking review feedback, validate, push to the existing branch, comment with
 results, release the lease when clean, and stop. Do not merge.
 ```
-

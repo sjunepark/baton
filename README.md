@@ -16,7 +16,8 @@ Implemented:
 - issue and PR policy behavior extracted from the original reference workflow;
 - GitHub workflow, issue template, label, and config installation templates;
 - GitHub issue/PR/check/review-thread queue inspection;
-- `baton next --json` for one recommended automation action;
+- `baton home --format toon` and `baton next --format toon` for compact agent
+  context and one recommended automation action;
 - native worktree leasing with release and prune safety gates;
 - `doctor`, `complete`, `migrate-config`, `sync-labels`, and `ensure-branch`;
 - a bundled Codex skill in `skills/baton`.
@@ -38,7 +39,8 @@ Build or run locally:
 ```sh
 go test ./...
 go run ./cmd/baton --help
-go run ./cmd/baton doctor --json
+go run ./cmd/baton home --format toon
+go run ./cmd/baton doctor --format toon
 ```
 
 Preview installation files for a target repository:
@@ -62,10 +64,13 @@ baton init --apply --install-command 'go install github.com/sjunepark/baton/cmd/
 Inspect a repository queue:
 
 ```sh
-baton queue --json --repo owner/name
-baton prs --json --repo owner/name
-baton next --json --repo owner/name
+baton queue --format toon --repo owner/name
+baton prs --format toon --repo owner/name
+baton next --format toon --repo owner/name
 ```
+
+Use `--json` instead of `--format toon` when a script needs the stable
+automation contract.
 
 Acquire and release an isolated worktree:
 

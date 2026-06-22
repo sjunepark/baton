@@ -73,6 +73,8 @@ objects.
   commands `home`, `doctor`, `next`, `queue`, `prs`, `checks`, and
   `review-threads` support `--format toon|json|text` with `--json` preserved as
   a compatibility alias.
+- Agent-facing docs now prefer compact `--format toon` reads while keeping
+  `--json` documented as the stable automation contract.
 
 ## AXI Scorecard
 
@@ -412,9 +414,9 @@ Recommended enhancement:
      `checks`, and `review-threads`.
    - [x] Add golden tests for stable formatting.
 
-6. [ ] Update agent-facing docs:
-   - Revise `skills/baton/SKILL.md` and references.
-   - Update README examples to show compact agent output where appropriate,
+6. [x] Update agent-facing docs:
+   - [x] Revise `skills/baton/SKILL.md` and references.
+   - [x] Update README examples to show compact agent output where appropriate,
      while keeping `--json` examples for automation compatibility.
 
 ## Progress Log
@@ -454,6 +456,9 @@ Recommended enhancement:
   tests. Validation: `go test ./...` passes; a built `cmd/baton` binary verifies
   `home --format toon`, `doctor --format toon`, and structured format-conflict
   errors.
+- 2026-06-23: Completed agent-facing docs by updating the bundled Baton skill,
+  skill references, README examples, CLI spec, and skill spec to prefer compact
+  `--format toon` reads while preserving `--json` for automation contracts.
 
 ## Keep As-Is
 

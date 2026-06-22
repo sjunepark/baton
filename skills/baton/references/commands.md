@@ -1,14 +1,19 @@
 # Baton Commands
 
-Use `--json` for automation-facing reads.
+Use `--format toon` for compact agent-facing reads. Use `--json` for stable
+automation contracts and mutating command results.
 
-- `baton next --json`: select one recommended unit.
-- `baton queue --json`: inspect eligible and skipped issues.
-- `baton prs --json`: list open staging PRs.
+- `baton home --format toon`: show local Baton context without failing on
+  missing config or auth.
+- `baton doctor --format toon`: check local readiness.
+- `baton next --format toon`: select one recommended unit.
+- `baton queue --format toon`: inspect eligible and skipped issues.
+- `baton prs --format toon`: list open staging PRs.
 - `baton pr <number> --json`: inspect one PR.
-- `baton checks <number> --json`: inspect check rollup.
-- `baton review-threads <number> --json`: inspect resolved/outdated review
-  threads and author kinds.
+- `baton checks <number> --format toon`: inspect check rollup.
+- `baton review-threads <number> --format toon`: inspect resolved/outdated
+  review threads, author kinds, and truncation metadata. Add `--full` when the
+  bounded body preview is insufficient.
 - `baton lease --purpose <purpose> --branch <ref> --repo owner/name --json`:
   lease an existing PR branch.
 - `baton lease --purpose <purpose> --base <ref> --new-branch <ref> --repo

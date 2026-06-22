@@ -5,6 +5,8 @@ Common fields:
 - `schemaVersion`: stable contract version.
 - `kind`: result type.
 - `repo`: GitHub `owner/name` when available.
+- `count`, `counts`, or `summary`: precomputed totals for agent triage.
+- `help`: concrete next commands or stop-condition guidance.
 
 `nextAction`:
 
@@ -31,7 +33,11 @@ Common fields:
 
 `reviewThreads`:
 
+- `summary.unresolved`: unresolved thread count.
+- `summary.humanUnresolved`: unresolved threads with human comments.
 - `threads[].isResolved`: whether the thread is resolved.
 - `threads[].isOutdated`: whether GitHub marks the thread outdated.
 - `threads[].comments[].authorKind`: `human`, `codex`, `coderabbit`,
   `greptile`, `bot`, or `unknown`.
+- `threads[].comments[].bodyTruncated`: whether the body was bounded for
+  output. Use `fullCommand` when more body context is required.
