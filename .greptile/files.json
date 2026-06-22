@@ -1,0 +1,36 @@
+{
+  "files": [
+    {
+      "path": "AGENTS.md",
+      "description": "Repository safety gates, implementation defaults, and validation expectations."
+    },
+    {
+      "path": "README.md",
+      "description": "Project overview, current status, and primary command examples."
+    },
+    {
+      "path": "ARCHITECTURE.md",
+      "description": "System shape, module responsibilities, and cross-cutting invariants."
+    },
+    {
+      "path": "docs/REQUIREMENTS.md",
+      "description": "Product and safety requirements for Baton."
+    },
+    {
+      "path": "docs/CLI_SPEC.md",
+      "description": "Command surface and JSON contract."
+    },
+    {
+      "path": "docs/CONFIG_SPEC.md",
+      "description": "Reusable policy configuration contract."
+    },
+    {
+      "path": "docs/WORKTREE_LEASING.md",
+      "description": "Automation isolation and worktree lease safety model."
+    },
+    {
+      "path": "docs/SKILL_SPEC.md",
+      "description": "Companion Codex skill responsibilities and boundaries."
+    }
+  ]
+}

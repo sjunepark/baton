@@ -1,0 +1,53 @@
+{
+  "strictness": 2,
+  "commentTypes": ["logic", "syntax", "style", "info"],
+  "triggerOnUpdates": true,
+  "statusCheck": true,
+  "updateExistingSummaryComment": true,
+  "fixWithAI": false,
+  "instructions": "Baton is a safety-sensitive Go CLI plus bundled Codex skill for reusable GitHub issue and PR agent workflows. Deterministic policy, git, GitHub, queue, install, and lease logic belongs in the CLI; agent judgment belongs in the skill. Reviews should prioritize correctness, explicit error handling, dry-run or pure planning paths for mutations, and preservation of target repository policy as the source of truth.",
+  "rules": [
+    {
+      "id": "primary-checkout-safety",
+      "rule": "Flag automation paths that can mutate a user's primary checkout. Repository mutation should happen only through a Baton worktree lease unless the code is explicitly read-only.",
+      "scope": ["internal/**", "cmd/**", ".github/workflows/**", "skills/**"],
+      "severity": "high"
+    },
+    {
+      "id": "mutations-have-dry-run-or-planner",
+      "rule": "Every command that mutates GitHub or git state should expose a dry-run path or pure planner that can be tested without side effects.",
+      "scope": ["internal/**", "cmd/**", ".github/workflows/**", "skills/**"],
+      "severity": "high"
+    },
+    {
+      "id": "worktree-lifecycle-safety",
+      "rule": "Flag worktree deletion, reset, pruning, or cleanup unless Baton proves the candidate is managed, idle, clean, and safe before the lifecycle operation.",
+      "scope": ["internal/lease/**", "internal/git/**", "internal/queue/**", "cmd/**", ".github/workflows/**", "skills/**"],
+      "severity": "high"
+    },
+    {
+      "id": "pr-merge-consent",
+      "rule": "Flag PR merge behavior unless the code or skill guidance requires an explicit user merge request and verifies the target repository policy allows the merge.",
+      "scope": ["internal/gh/**", "internal/queue/**", "cmd/**", ".github/workflows/**", "skills/**"],
+      "severity": "high"
+    },
+    {
+      "id": "trusted-actions-code",
+      "rule": "GitHub Actions policy workflows must run trusted Baton code, not code modified by an untrusted PR.",
+      "scope": [".github/workflows/**", "internal/install/**", "skills/**"],
+      "severity": "high"
+    },
+    {
+      "id": "json-first-command-contracts",
+      "rule": "Command behavior should be driven by structured result objects and JSON-first contracts. Human text output can wrap those same results, but must not become the source of truth.",
+      "scope": ["internal/**", "cmd/**"],
+      "severity": "medium"
+    },
+    {
+      "id": "table-driven-policy-tests",
+      "rule": "Policy parsing and decision logic should have focused table-driven tests that cover GitHub event fixtures, edge cases, and denied unsafe states.",
+      "scope": ["internal/policy/**", "internal/config/**", "internal/gh/**", "internal/git/**", "internal/lease/**", "internal/queue/**"],
+      "severity": "medium"
+    }
+  ]
+}
