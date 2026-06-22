@@ -150,7 +150,7 @@ Tasks:
 - [x] Create `skills/baton/SKILL.md`.
 - [x] Add concise command and JSON references only if needed.
 - [x] Validate skill metadata.
-- [ ] Test the skill manually on Creo queue inspection.
+- [x] Test the skill manually on Creo queue inspection.
 
 Acceptance:
 
@@ -325,5 +325,9 @@ Live integration env gates:
   check-rollup fetch, review-thread fetch, branch-health fetch, and queue reads.
 - Validation: default `go test ./...` skips live tests cleanly; read-only live
   subset against `open-creo/creo` passes for branch health and queue fetch.
+- Manually validated the Baton skill's read-only triage workflow against Creo:
+  `doctor --json` is clean, `queue --json` reports branch health success and
+  eligible investigation issues, `prs --json` reports no open staging PRs, and
+  `next --json` selects issue #5 for investigation.
 - Next slice: publish/configure a trusted Baton install path, then start Creo
   migration wiring.
