@@ -46,6 +46,15 @@ The safest path is additive: keep the current JSON contracts stable, then add an
 AXI output layer and richer summaries around the existing internal result
 objects.
 
+## Current State
+
+- `docs/OUTPUT_SPEC.md` now defines the additive output contract for JSON
+  compatibility, TOON/compact output, structured errors, counts, truncation, and
+  `help[]` fields.
+- The home/no-args decision is recorded there: ship `baton home` first, then
+  change no-args to that home view after tests and docs are in place.
+- No CLI implementation changes have been made for this AXI plan yet.
+
 ## AXI Scorecard
 
 | AXI principle | Current fit | Possible fix or enhancement |
@@ -357,37 +366,43 @@ Recommended enhancement:
 
 ## Suggested Implementation Plan
 
-1. Define the interface contract:
+1. [x] Define the interface contract:
    - Add a short `docs/OUTPUT_SPEC.md` covering JSON compatibility, TOON or
      compact format, structured errors, counts, truncation, and help arrays.
    - Decide whether no-args `baton` changes immediately or whether `baton home`
      ships first.
 
-2. Centralize CLI rendering:
+2. [ ] Centralize CLI rendering:
    - Introduce a result envelope or renderer helper in `internal/cli`.
    - Preserve existing JSON structs and tests.
    - Add structured error mapping.
 
-3. Add low-risk AXI metadata:
+3. [ ] Add low-risk AXI metadata:
    - `count` and `counts` fields.
    - `help[]` fields.
    - explicit empty-state text.
    - subcommand help with exit 0.
 
-4. Add truncation:
+4. [ ] Add truncation:
    - Start with `review-threads`.
    - Add `--full` tests.
    - Then extend to PR body/config-like dry-run content.
 
-5. Add compact/TOON output:
+5. [ ] Add compact/TOON output:
    - Start with read-only commands: `home`, `doctor`, `next`, `queue`, `prs`,
      `checks`, and `review-threads`.
    - Add golden tests for stable formatting.
 
-6. Update agent-facing docs:
+6. [ ] Update agent-facing docs:
    - Revise `skills/baton/SKILL.md` and references.
    - Update README examples to show compact agent output where appropriate,
      while keeping `--json` examples for automation compatibility.
+
+## Progress Log
+
+- 2026-06-23: Completed the interface-contract slice by adding
+  `docs/OUTPUT_SPEC.md` and recording the `baton home` before no-args-home
+  decision. Validation: `go test ./...` passes.
 
 ## Keep As-Is
 
