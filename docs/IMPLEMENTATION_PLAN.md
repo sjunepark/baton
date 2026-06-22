@@ -111,6 +111,10 @@ Acceptance:
 
 Remaining:
 
+- Publish Baton at a GitHub module path or provide an equivalent trusted binary
+  install path before changing Creo workflows. This local Baton checkout has no
+  configured Git remote, so the current template `go install` path is not yet
+  usable in GitHub Actions.
 - Live-validate PR follow-up precedence against Creo when an open agent PR
   exists.
 
@@ -153,7 +157,8 @@ Acceptance:
 
 Remaining:
 
-- Live-test the skill against Creo after GitHub auth/queue validation.
+- Live-test the skill in a fresh Codex session against Creo after Baton has a
+  usable install path.
 
 ## Phase 6 - Creo Migration
 
@@ -202,12 +207,11 @@ Integration, live gated:
 
 - Resolved: Baton uses `GITHUB_TOKEN`/`GH_TOKEN` first and falls back to
   `gh auth token` when available.
-- Whether to support Treehouse as a v1 backend or defer until native leasing is
-  proven.
+- Resolved: defer Treehouse until native leasing is proven in real automation.
 - Resolved: `baton complete` records local metadata by default; GitHub comments
   are opt-in with `--comment --repo owner/name --issue N|--pr N`.
-- Whether Baton should manage GitHub Project fields or leave Projects as a
-  human scheduling view in v1.
+- Resolved: leave GitHub Projects as a human scheduling view in v1; Baton uses
+  issues, PRs, labels, checks, reviews, and local leases as its policy surface.
 
 ## Progress Log
 
@@ -283,4 +287,10 @@ Integration, live gated:
 - Validation: `go test ./...`; live Creo `baton doctor --json` reports
   `github-auth: ok (gh auth token)`, and `baton next --json --repo
   open-creo/creo` works without `GITHUB_TOKEN`/`GH_TOKEN`.
-- Next slice: start Creo migration wiring.
+- Updated the Baton skill command reference for config migration and explicit
+  completion comments.
+- Recorded Phase 6 prerequisite: this local Baton checkout has no Git remote or
+  published install path, so changing Creo GitHub Actions now would create a
+  broken `go install` step.
+- Next slice: publish/configure a trusted Baton install path, then start Creo
+  migration wiring.

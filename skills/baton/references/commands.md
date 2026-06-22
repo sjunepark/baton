@@ -20,6 +20,11 @@ Use `--json` for automation-facing reads.
   and policy comments in GitHub Actions.
 - `baton pr-policy --event "$GITHUB_EVENT_PATH"`: check PR policy in GitHub
   Actions.
+- `baton migrate-config --dry-run|--apply`: convert legacy
+  `.github/agent-issue-policy.yml` into `.github/baton.yml`.
+- `baton complete --summary <text> --comment --repo owner/name --issue N|--pr N`:
+  record completion metadata and optionally post an explicit GitHub timeline
+  comment.
 
 Mutating commands require explicit `--apply`, `--yes`, or a lease/release
 operation. Do not infer permission to merge from any Baton output.
