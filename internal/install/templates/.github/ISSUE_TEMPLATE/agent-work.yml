@@ -1,3 +1,4 @@
+# Managed by Baton. Edit in this repository when your issue workflow changes.
 name: Agent-readable work item
 description: Structured work item for human maintainers and LLM agents.
 title: '[Work]: '

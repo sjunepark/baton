@@ -1,3 +1,5 @@
+# Managed by Baton. Edit in this repository when your policy changes, then run
+# baton sync-labels --dry-run before applying label updates.
 labels:
   - name: 'agent:ready-trivial'
     color: '0E8A16'

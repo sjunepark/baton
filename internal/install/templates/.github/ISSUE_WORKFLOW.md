@@ -1,5 +1,7 @@
 # GitHub Issue Workflow
 
+Managed by Baton. Edit in this repository when your issue workflow changes.
+
 This repository uses structured GitHub issues for a Baton-managed,
 agent-readable workflow. GitHub Issues are the operational queue; labels are
 derived from form fields where possible and define what agents may do.

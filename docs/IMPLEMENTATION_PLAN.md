@@ -31,6 +31,8 @@
   path required before consuming repositories switch workflows to Baton.
 - Read-only queue and PR inspection commands now document and accept explicit
   `--config` paths, matching the automation command contract.
+- Installed target-repo templates now state that they are Baton-managed and
+  editable in the consuming repository.
 
 ## Phase 0 - Repository Scaffold
 
@@ -339,5 +341,7 @@ Live integration env gates:
 - Added `--config` support to `pr`, `checks`, and `review-threads` read-only
   commands with CLI regression coverage for bad explicit config paths; aligned
   help text for `queue`, `prs`, and `next`.
+- Added managed-but-editable notes to every installed target-repo template with
+  regression coverage across the embedded template set.
 - Next slice: publish/configure a trusted Baton install path, then start Creo
   migration wiring.

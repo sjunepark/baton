@@ -41,6 +41,21 @@ func TestApplyWritesTemplatesAndRefusesOverwrite(t *testing.T) {
 	}
 }
 
+func TestTemplatesSayManagedButEditable(t *testing.T) {
+	for _, path := range templatePaths() {
+		t.Run(path, func(t *testing.T) {
+			content, err := templateContent(path, Options{}.withDefaults())
+			if err != nil {
+				t.Fatal(err)
+			}
+			text := string(content)
+			if !strings.Contains(text, "Managed by Baton") || !strings.Contains(text, "Edit") {
+				t.Fatalf("%s missing managed/editable marker:\n%s", path, text)
+			}
+		})
+	}
+}
+
 func TestApplyWithOptionsRendersGoInstallTarget(t *testing.T) {
 	root := t.TempDir()
 	if _, err := ApplyWithOptions(root, false, Options{GoInstall: "github.com/open-creo/baton/cmd/baton@v1.2.3"}); err != nil {
