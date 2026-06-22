@@ -202,9 +202,18 @@ Integration, local:
 
 Integration, live gated:
 
-- GitHub issue label read/write in a test repo;
-- PR review-thread fetch in a test repo;
-- check rollup fetch in a test repo.
+- [x] GitHub issue label read/write in a test repo;
+- [x] PR review-thread fetch in a test repo;
+- [x] check rollup fetch in a test repo.
+
+Live integration env gates:
+
+- Set `BATON_LIVE_GITHUB=1` and `BATON_LIVE_GITHUB_REPO=owner/name`.
+- Set `BATON_LIVE_GITHUB_WRITE=1`, `BATON_LIVE_GITHUB_ISSUE=<number>`, and
+  optionally `BATON_LIVE_GITHUB_LABEL=<label>` for issue label write tests.
+- Set `BATON_LIVE_GITHUB_PR=<number>` for PR check/review-thread tests.
+- Set `BATON_LIVE_GITHUB_BRANCH=<branch>` for branch health tests; defaults to
+  `agent`.
 
 ## Open Decisions
 
@@ -312,5 +321,9 @@ Integration, live gated:
 - Added `baton lease --repo` while preserving `--repo-name` as a compatibility
   alias for lease metadata.
 - Validation: `go test ./...` passes.
+- Added live-gated GitHub integration tests for issue label read/write,
+  check-rollup fetch, review-thread fetch, branch-health fetch, and queue reads.
+- Validation: default `go test ./...` skips live tests cleanly; read-only live
+  subset against `open-creo/creo` passes for branch health and queue fetch.
 - Next slice: publish/configure a trusted Baton install path, then start Creo
   migration wiring.

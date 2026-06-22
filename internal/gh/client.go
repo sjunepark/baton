@@ -104,17 +104,25 @@ func (c *Client) ApplyIssueDecision(repo string, issueNumber int, decision polic
 		return nil
 	}
 	if len(decision.LabelsToAdd) > 0 {
-		if err := c.postJSON(fmt.Sprintf("/repos/%s/issues/%d/labels", repo, issueNumber), map[string]any{"labels": decision.LabelsToAdd}, nil); err != nil {
+		if err := c.AddIssueLabels(repo, issueNumber, decision.LabelsToAdd); err != nil {
 			return err
 		}
 	}
 	for _, label := range decision.LabelsToRemove {
-		path := fmt.Sprintf("/repos/%s/issues/%d/labels/%s", repo, issueNumber, url.PathEscape(label))
-		if err := c.requestNoBody(http.MethodDelete, path, nil, true); err != nil {
+		if err := c.RemoveIssueLabel(repo, issueNumber, label); err != nil {
 			return err
 		}
 	}
 	return c.applyPolicyComment(repo, issueNumber, decision.PolicyCommentBody, marker)
+}
+
+func (c *Client) AddIssueLabels(repo string, issueNumber int, labelNames []string) error {
+	return c.postJSON(fmt.Sprintf("/repos/%s/issues/%d/labels", repo, issueNumber), map[string]any{"labels": labelNames}, nil)
+}
+
+func (c *Client) RemoveIssueLabel(repo string, issueNumber int, label string) error {
+	path := fmt.Sprintf("/repos/%s/issues/%d/labels/%s", repo, issueNumber, url.PathEscape(label))
+	return c.requestNoBody(http.MethodDelete, path, nil, true)
 }
 
 func (c *Client) applyPolicyComment(repo string, issueNumber int, commentBody *string, marker string) error {
