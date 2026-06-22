@@ -12,7 +12,10 @@
   the standard target-repo template set with overwrite protection.
 - GitHub API foundations are implemented for issue-policy apply, PR policy
   issue/commit enrichment, and label sync.
-- Queue inspection and worktree leasing are not implemented yet.
+- Read-only queue inspection is implemented with GitHub issue/PR/check/review
+  fetching and a pure next-action classifier. Live GitHub validation is still
+  needed against Creo.
+- Worktree leasing is not implemented yet.
 
 ## Phase 0 - Repository Scaffold
 
@@ -85,22 +88,28 @@ Goal: make Baton able to tell Codex what needs attention.
 
 Tasks:
 
-- Implement GitHub auth/repo resolution.
-- Implement open issue listing and eligibility reasons.
-- Implement open PR listing for staging branch.
-- Implement check rollup fetching.
-- Implement review-thread GraphQL fetching.
-- Implement `baton queue --json`.
-- Implement `baton prs --json`.
-- Implement `baton pr <number> --json`.
-- Implement `baton next --json`.
+- [x] Implement GitHub auth/repo resolution.
+- [x] Implement open issue listing and eligibility reasons.
+- [x] Implement open PR listing for staging branch.
+- [x] Implement check rollup fetching.
+- [x] Implement review-thread GraphQL fetching.
+- [x] Implement `baton queue --json`.
+- [x] Implement `baton prs --json`.
+- [x] Implement `baton pr <number> --json`.
+- [x] Implement `baton next --json`.
 
 Acceptance:
 
-- In Creo, Baton identifies open PR follow-up before issue intake.
-- Baton can show resolved vs unresolved Greptile/CodeRabbit/human threads.
-- Baton can report failing checks with detail URLs.
-- `next` explains skipped eligible issues that already have active PRs.
+- [ ] In Creo, Baton identifies open PR follow-up before issue intake.
+- [x] Baton can show resolved vs unresolved review threads.
+- [x] Baton can report failing checks with detail URLs.
+- [x] `next` explains skipped eligible issues that already have active PRs.
+
+Remaining:
+
+- Live-validate queue and next-action behavior against Creo with GitHub auth.
+- Improve author classification into human, Codex, CodeRabbit, Greptile, and
+  unknown bot where GitHub exposes enough identity data.
 
 ## Phase 4 - Worktree Leasing
 
@@ -214,5 +223,9 @@ Integration, live gated:
 - Validation: `go test ./...` covers a temp local repo plus bare remote where
   Baton publishes `agent` from `origin/main`; `go run ./cmd/baton
   ensure-branch --remote-base <sha> --json` passes.
-- Next slice: start read-only queue inspection (`queue`, `prs`, `pr`, checks,
-  review threads, `next`).
+- Added read-only GitHub issue/PR/check/review-thread fetching, queue
+  eligibility classification, and `next` recommendation.
+- Validation: `go test ./...` covers queue classification and existing GitHub
+  client behavior; `go run ./cmd/baton --help` passes. Live GitHub validation
+  remains pending.
+- Next slice: implement native worktree leasing.

@@ -15,6 +15,7 @@ import (
 	"github.com/sejunpark/baton/internal/install"
 	"github.com/sejunpark/baton/internal/labels"
 	"github.com/sejunpark/baton/internal/policy"
+	"github.com/sejunpark/baton/internal/queue"
 )
 
 const (
@@ -48,6 +49,18 @@ func Run(args []string, stdout, stderr io.Writer, version string) int {
 		return runPRPolicy(args[1:], stdout, stderr)
 	case "sync-labels":
 		return runSyncLabels(args[1:], stdout, stderr)
+	case "queue":
+		return runQueue(args[1:], stdout, stderr)
+	case "prs":
+		return runPRs(args[1:], stdout, stderr)
+	case "pr":
+		return runPR(args[1:], stdout, stderr)
+	case "checks":
+		return runChecks(args[1:], stdout, stderr)
+	case "review-threads":
+		return runReviewThreads(args[1:], stdout, stderr)
+	case "next":
+		return runNext(args[1:], stdout, stderr)
 	case "ensure-branch":
 		return runEnsureBranch(args[1:], stdout, stderr)
 	case "labels":
@@ -70,12 +83,18 @@ Usage:
   baton pr-policy --fixture <path> [--config <path>] [--json]
   baton pr-policy --event <path> [--config <path>] [--json]
   baton sync-labels --dry-run|--apply [--repo owner/name] [--labels-file <path>] [--json]
+  baton queue --json [--repo owner/name]
+  baton prs --json [--repo owner/name]
+  baton pr <number> --json [--repo owner/name]
+  baton checks <number> --json [--repo owner/name]
+  baton review-threads <number> --json [--repo owner/name]
+  baton next --json [--repo owner/name]
   baton ensure-branch [--apply] [--remote origin] [--base main] [--target agent] [--json]
   baton labels --file <path> [--json]
 
-The current implementation is the local deterministic policy/parsing core.
-GitHub writes, queue inspection, and worktree leasing are implemented in later
-phases.
+The current implementation includes policy checks, install planning, GitHub
+label/policy writes, read-only queue inspection, and branch setup. Worktree
+leasing is implemented in a later phase.
 `)
 }
 
@@ -338,6 +357,158 @@ func runSyncLabels(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
+func runQueue(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("queue", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	repoFlag := fs.String("repo", "", "GitHub repository owner/name")
+	configPath := fs.String("config", "", "policy config path")
+	jsonOut := fs.Bool("json", false, "emit JSON")
+	if err := fs.Parse(args); err != nil {
+		return exitUsage
+	}
+	snapshot, code := fetchQueueSnapshot(*repoFlag, *configPath, false, stderr)
+	if code != exitOK {
+		return code
+	}
+	if *jsonOut {
+		return writeJSON(stdout, stderr, snapshot)
+	}
+	for _, issue := range snapshot.Issues {
+		fmt.Fprintf(stdout, "#%d eligible=%v %s\n", issue.Issue.Number, issue.Eligible, strings.Join(issue.Reasons, ", "))
+	}
+	return exitOK
+}
+
+func runPRs(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("prs", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	repoFlag := fs.String("repo", "", "GitHub repository owner/name")
+	configPath := fs.String("config", "", "policy config path")
+	jsonOut := fs.Bool("json", false, "emit JSON")
+	if err := fs.Parse(args); err != nil {
+		return exitUsage
+	}
+	snapshot, code := fetchQueueSnapshot(*repoFlag, *configPath, true, stderr)
+	if code != exitOK {
+		return code
+	}
+	if *jsonOut {
+		return writeJSON(stdout, stderr, struct {
+			SchemaVersion int               `json:"schemaVersion"`
+			Kind          string            `json:"kind"`
+			Repo          string            `json:"repo"`
+			PullRequests  []queue.PullState `json:"pullRequests"`
+		}{SchemaVersion: 1, Kind: "pullRequests", Repo: snapshot.Repo, PullRequests: snapshot.PullRequests})
+	}
+	for _, pr := range snapshot.PullRequests {
+		fmt.Fprintf(stdout, "#%d %s checks=%s\n", pr.PullRequest.Number, pr.PullRequest.HeadRef, pr.PullRequest.CheckState)
+	}
+	return exitOK
+}
+
+func runPR(args []string, stdout, stderr io.Writer) int {
+	number, flags, code := parseNumberCommand("pr", args, stderr)
+	if code != exitOK {
+		return code
+	}
+	repo, client, code := githubClientForRepo(flags.repo, stderr)
+	if code != exitOK {
+		return code
+	}
+	pr, err := client.GetPullRequest(repo, number)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitGitHub
+	}
+	checks, err := client.GetCheckRollup(repo, pr)
+	if err == nil {
+		pr.CheckState = checks.State
+	}
+	if flags.json {
+		return writeJSON(stdout, stderr, struct {
+			SchemaVersion int               `json:"schemaVersion"`
+			Kind          string            `json:"kind"`
+			Repo          string            `json:"repo"`
+			PullRequest   queue.PullRequest `json:"pullRequest"`
+		}{SchemaVersion: 1, Kind: "pullRequest", Repo: repo, PullRequest: pr})
+	}
+	fmt.Fprintf(stdout, "#%d %s -> %s checks=%s\n", pr.Number, pr.HeadRef, pr.BaseRef, pr.CheckState)
+	return exitOK
+}
+
+func runChecks(args []string, stdout, stderr io.Writer) int {
+	number, flags, code := parseNumberCommand("checks", args, stderr)
+	if code != exitOK {
+		return code
+	}
+	repo, client, code := githubClientForRepo(flags.repo, stderr)
+	if code != exitOK {
+		return code
+	}
+	pr, err := client.GetPullRequest(repo, number)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitGitHub
+	}
+	rollup, err := client.GetCheckRollup(repo, pr)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitGitHub
+	}
+	if flags.json {
+		return writeJSON(stdout, stderr, rollup)
+	}
+	fmt.Fprintf(stdout, "PR #%d checks: %s\n", number, rollup.State)
+	for _, check := range rollup.Checks {
+		fmt.Fprintf(stdout, "- %s %s %s\n", check.Name, check.Status, check.Conclusion)
+	}
+	return exitOK
+}
+
+func runReviewThreads(args []string, stdout, stderr io.Writer) int {
+	number, flags, code := parseNumberCommand("review-threads", args, stderr)
+	if code != exitOK {
+		return code
+	}
+	repo, client, code := githubClientForRepo(flags.repo, stderr)
+	if code != exitOK {
+		return code
+	}
+	threads, err := client.GetReviewThreads(repo, number)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitGitHub
+	}
+	if flags.json {
+		return writeJSON(stdout, stderr, threads)
+	}
+	for _, thread := range threads.Threads {
+		fmt.Fprintf(stdout, "%s:%d resolved=%v outdated=%v\n", thread.Path, thread.Line, thread.IsResolved, thread.IsOutdated)
+	}
+	return exitOK
+}
+
+func runNext(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("next", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	repoFlag := fs.String("repo", "", "GitHub repository owner/name")
+	configPath := fs.String("config", "", "policy config path")
+	jsonOut := fs.Bool("json", false, "emit JSON")
+	if err := fs.Parse(args); err != nil {
+		return exitUsage
+	}
+	snapshot, code := fetchQueueSnapshot(*repoFlag, *configPath, true, stderr)
+	if code != exitOK {
+		return code
+	}
+	next := queue.RecommendNext(snapshot)
+	if *jsonOut {
+		return writeJSON(stdout, stderr, next)
+	}
+	fmt.Fprintf(stdout, "Next action: %s\nReason: %s\n", next.Action, next.Reason)
+	return exitOK
+}
+
 func runEnsureBranch(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("ensure-branch", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -459,6 +630,78 @@ func applyIssueDecisionIfRequested(apply bool, eventPath, repoFlag, eventRepo st
 		return exitGitHub
 	}
 	return exitOK
+}
+
+type numberFlags struct {
+	repo string
+	json bool
+}
+
+func parseNumberCommand(name string, args []string, stderr io.Writer) (int, numberFlags, int) {
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		fmt.Fprintf(stderr, "%s requires a number\n", name)
+		return 0, numberFlags{}, exitUsage
+	}
+	number, err := gh.IssueNumberFromString(args[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "%s number: %v\n", name, err)
+		return 0, numberFlags{}, exitUsage
+	}
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	repoFlag := fs.String("repo", "", "GitHub repository owner/name")
+	jsonOut := fs.Bool("json", false, "emit JSON")
+	if err := fs.Parse(args[1:]); err != nil {
+		return 0, numberFlags{}, exitUsage
+	}
+	return number, numberFlags{repo: *repoFlag, json: *jsonOut}, exitOK
+}
+
+func fetchQueueSnapshot(repoFlag, configPath string, includeChecks bool, stderr io.Writer) (queue.Snapshot, int) {
+	cfg, err := loadConfig(configPath)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return queue.Snapshot{}, exitConfig
+	}
+	repo, client, code := githubClientForRepo(repoFlag, stderr)
+	if code != exitOK {
+		return queue.Snapshot{}, code
+	}
+	issues, err := client.ListOpenIssues(repo)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return queue.Snapshot{}, exitGitHub
+	}
+	prs, err := client.ListOpenPullRequests(repo, cfg.Repository.StagingBranch)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return queue.Snapshot{}, exitGitHub
+	}
+	if includeChecks {
+		for i := range prs {
+			rollup, err := client.GetCheckRollup(repo, prs[i])
+			if err != nil {
+				fmt.Fprintln(stderr, err)
+				return queue.Snapshot{}, exitGitHub
+			}
+			prs[i].CheckState = rollup.State
+		}
+	}
+	return queue.BuildSnapshot(repo, cfg, issues, prs), exitOK
+}
+
+func githubClientForRepo(repoFlag string, stderr io.Writer) (string, *gh.Client, int) {
+	repo, err := gh.RepoFromEnvOrFlag(repoFlag)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return "", nil, exitUsage
+	}
+	client, err := gh.NewClientFromEnv()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return "", nil, exitAuth
+	}
+	return repo, client, exitOK
 }
 
 func loadConfig(path string) (config.Config, error) {

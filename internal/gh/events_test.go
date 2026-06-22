@@ -39,3 +39,19 @@ func TestParsePullRequestEvent(t *testing.T) {
 		t.Fatalf("pr = %#v", pr)
 	}
 }
+
+func TestClassifyAuthor(t *testing.T) {
+	tests := map[string]string{
+		"sejunpark":         "human",
+		"coderabbitai[bot]": "coderabbit",
+		"greptile-app":      "greptile",
+		"codex-bot":         "codex",
+		"actions[bot]":      "bot",
+		"":                  "unknown",
+	}
+	for login, want := range tests {
+		if got := classifyAuthor(login); got != want {
+			t.Fatalf("classifyAuthor(%q) = %q, want %q", login, got, want)
+		}
+	}
+}
