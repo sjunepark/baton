@@ -96,7 +96,7 @@ func printHelp(w io.Writer) {
 Usage:
   baton --help
   baton version
-  baton init --dry-run|--apply [--profile default] [--go-install module@version] [--yes] [--json]
+  baton init --dry-run|--apply [--profile default] [--go-install module@version|--install-command <cmd>] [--yes] [--json]
   baton migrate-config --dry-run|--apply [--from <path>] [--to <path>] [--yes] [--json]
   baton doctor [--config <path>] [--json]
   baton issue-policy --body-file <path> [--labels a,b] [--config <path>] [--json]
@@ -132,6 +132,7 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 	apply := fs.Bool("apply", false, "write installed files")
 	profile := fs.String("profile", "default", "template profile")
 	goInstall := fs.String("go-install", "", "Go install target for Baton in generated workflows")
+	installCommand := fs.String("install-command", "", "full Baton install command for generated workflows")
 	yes := fs.Bool("yes", false, "overwrite changed files when applying")
 	jsonOut := fs.Bool("json", false, "emit JSON")
 	if err := fs.Parse(args); err != nil {
@@ -145,7 +146,11 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "init currently supports only --profile default")
 		return exitUsage
 	}
-	options := install.Options{GoInstall: *goInstall}
+	if *goInstall != "" && *installCommand != "" {
+		fmt.Fprintln(stderr, "init accepts only one of --go-install or --install-command")
+		return exitUsage
+	}
+	options := install.Options{GoInstall: *goInstall, InstallCommand: *installCommand}
 	var (
 		plan install.Plan
 		err  error

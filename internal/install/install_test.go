@@ -55,3 +55,19 @@ func TestApplyWithOptionsRendersGoInstallTarget(t *testing.T) {
 		t.Fatalf("workflow did not use custom install target:\n%s", text)
 	}
 }
+
+func TestApplyWithOptionsRendersInstallCommand(t *testing.T) {
+	root := t.TempDir()
+	command := "curl -fsSL https://example.invalid/baton.sh | sh\nbaton version"
+	if _, err := ApplyWithOptions(root, false, Options{InstallCommand: command}); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(filepath.Join(root, ".github", "workflows", "pr-policy.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	if !strings.Contains(text, "curl -fsSL https://example.invalid/baton.sh | sh\n          baton version") {
+		t.Fatalf("workflow did not render install command with indentation:\n%s", text)
+	}
+}

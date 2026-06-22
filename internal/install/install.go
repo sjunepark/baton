@@ -24,10 +24,12 @@ type FileChange struct {
 }
 
 type Options struct {
-	GoInstall string
+	GoInstall      string
+	InstallCommand string
 }
 
 const defaultGoInstall = "github.com/sejunpark/baton/cmd/baton@latest"
+const installCommandPlaceholder = "__BATON_INSTALL_COMMAND__"
 
 func Preview(root string) (Plan, error) {
 	return PreviewWithOptions(root, Options{})
@@ -111,12 +113,22 @@ func templateContent(path string, options Options) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []byte(strings.ReplaceAll(string(content), defaultGoInstall, options.GoInstall)), nil
+	rendered := strings.ReplaceAll(string(content), defaultGoInstall, options.GoInstall)
+	rendered = strings.ReplaceAll(rendered, installCommandPlaceholder, indentInstallCommand(options.InstallCommand))
+	return []byte(rendered), nil
 }
 
 func (options Options) withDefaults() Options {
 	if options.GoInstall == "" {
 		options.GoInstall = defaultGoInstall
 	}
+	if options.InstallCommand == "" {
+		options.InstallCommand = "go install " + options.GoInstall
+	}
 	return options
+}
+
+func indentInstallCommand(command string) string {
+	lines := strings.Split(strings.TrimRight(command, "\n"), "\n")
+	return strings.Join(lines, "\n          ")
 }

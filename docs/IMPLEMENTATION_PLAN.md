@@ -25,7 +25,8 @@
   `--comment`.
 - Legacy Creo config migration is implemented with `baton migrate-config`.
 - Install templates can render a caller-provided trusted Baton install target
-  with `baton init --go-install`.
+  with `baton init --go-install` or a full command with
+  `baton init --install-command`.
 
 ## Phase 0 - Repository Scaffold
 
@@ -298,5 +299,9 @@ Integration, live gated:
   trusted Baton module/version instead of the default placeholder path.
 - Validation: `go test ./...` covers rendering the custom install target into
   generated workflow files.
+- Added `baton init --install-command` for a full trusted Baton install command,
+  including multi-line commands rendered safely into workflow YAML.
+- Validation: `go test ./...` covers custom multi-line install command
+  rendering.
 - Next slice: publish/configure a trusted Baton install path, then start Creo
   migration wiring.

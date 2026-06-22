@@ -19,7 +19,8 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Baton
-        run: go install github.com/sejunpark/baton/cmd/baton@latest
+        run: |
+          __BATON_INSTALL_COMMAND__
 
       - name: Apply issue policy labels
         run: baton issue-policy --event "$GITHUB_EVENT_PATH" --apply

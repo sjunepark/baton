@@ -29,7 +29,8 @@ jobs:
           persist-credentials: false
 
       - name: Install Baton
-        run: go install github.com/sejunpark/baton/cmd/baton@latest
+        run: |
+          __BATON_INSTALL_COMMAND__
 
       - name: Check PR policy
         run: baton pr-policy --event "$GITHUB_EVENT_PATH"
