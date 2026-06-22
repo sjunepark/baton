@@ -50,6 +50,22 @@ func TestRecommendNextPrefersPRFollowup(t *testing.T) {
 	}
 }
 
+func TestRecommendNextPrefersSuccessfulPRFollowupBeforeIssue(t *testing.T) {
+	snapshot := Snapshot{
+		SchemaVersion: 1,
+		Kind:          "queueSnapshot",
+		Repo:          "open-creo/creo",
+		Issues:        []IssueState{{Issue: Issue{Number: 1, URL: "https://example/1"}, Eligible: true, Action: "issue-implementation"}},
+		PullRequests: []PullState{{
+			PullRequest: PullRequest{Number: 10, URL: "https://example/pr/10", BaseRef: "main", HeadRef: "agent", CheckState: "success"},
+		}},
+	}
+	next := RecommendNext(snapshot)
+	if next.Action != "pr-followup" || next.Reason != "ready-for-review" || next.PR == nil || next.PR.Number != 10 {
+		t.Fatalf("next = %#v", next)
+	}
+}
+
 func TestRecommendNextPrefersBranchHealthBeforeIssue(t *testing.T) {
 	snapshot := Snapshot{
 		SchemaVersion: 1,

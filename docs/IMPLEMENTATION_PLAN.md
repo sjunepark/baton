@@ -13,10 +13,10 @@
 - GitHub API foundations are implemented for issue-policy apply, PR policy
   issue/commit enrichment, and label sync.
 - Read-only queue inspection is implemented with GitHub issue/PR/check/review
-  fetching, staging branch health, and a pure next-action classifier. Live
-  GitHub validation against Creo succeeds for `doctor`, `queue`, `prs`, and
-  `next`; the current Creo queue has no open PR follow-up case to validate that
-  ordering live.
+  fetching, staging branch health, promotion PR discovery, and a pure
+  next-action classifier. Live GitHub validation against Creo succeeds for
+  `doctor`, `queue`, `prs`, and `next`, including open PR follow-up before
+  issue intake.
 - Native worktree leasing is implemented with lease records, branch collision
   protection, dirty release refusal, listing, prune dry-run, and conservative
   prune cleanup behind `--yes`.
@@ -27,7 +27,7 @@
 - Install templates can render a caller-provided trusted Baton install target
   with `baton init --go-install` or a full command with
   `baton init --install-command`.
-- The trusted module path `github.com/sjunepark/baton/cmd/baton@v0.1.2` is
+- The trusted module path `github.com/sjunepark/baton/cmd/baton@v0.1.3` is
   published and validated with `go install`.
 - Generated workflows set up Go and install Baton into a runner-temp bin
   directory that is added to `GITHUB_PATH`.
@@ -121,15 +121,10 @@ Tasks:
 
 Acceptance:
 
-- [ ] In Creo, Baton identifies open PR follow-up before issue intake.
+- [x] In Creo, Baton identifies open PR follow-up before issue intake.
 - [x] Baton can show resolved vs unresolved review threads.
 - [x] Baton can report failing checks with detail URLs.
 - [x] `next` explains skipped eligible issues that already have active PRs.
-
-Remaining:
-
-- Live-validate PR follow-up precedence against Creo when an open agent PR
-  exists.
 
 ## Phase 4 - Worktree Leasing
 
@@ -183,7 +178,7 @@ Tasks:
 - [x] Point Creo workflows to Baton commands.
 - [x] Run policy checks in CI.
 - [x] Update Codex automations to invoke Baton.
-- [ ] Add PR follow-up automation.
+- [x] Add PR follow-up automation.
 - [ ] Remove old JS scripts after trial success.
 
 Acceptance:
@@ -191,7 +186,7 @@ Acceptance:
 - [ ] Creo issue policy still applies labels correctly from the live issue
   event workflow.
 - [x] Creo PR policy still fails/passes as before.
-- [ ] Existing open PRs are discoverable by `baton next`.
+- [x] Existing open PRs are discoverable by `baton next`.
 - [ ] Codex automations operate in Baton leases.
 
 ## Validation Matrix
@@ -370,5 +365,11 @@ Live integration env gates:
   Windows smoke failures on the default branch before the staged `agent`
   fixes are promoted; the promotion PR is clean and green. Live issue-event
   workflow validation and old JS script removal remain pending.
-- Next slice: add/validate PR follow-up automation and live issue-policy event
-  behavior before removing legacy Creo scripts.
+- Added promotion PR discovery and green-check PR follow-up handling to
+  `queue`, `prs`, and `next`.
+- Validation: `go test ./...`; live `prs --json --repo open-creo/creo`
+  reports promotion PR #9 (`agent` -> `main`) with `checkState: success`, and
+  live `next --json --repo open-creo/creo` returns `pr-followup` for PR #9
+  with reason `ready-for-review` before issue intake.
+- Next slice: live issue-policy event behavior and Baton lease use from a
+  fresh automation session before removing legacy Creo scripts.

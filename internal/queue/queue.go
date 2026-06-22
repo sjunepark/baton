@@ -142,11 +142,18 @@ func RecommendNext(snapshot Snapshot) NextAction {
 	}
 	for _, pr := range snapshot.PullRequests {
 		state := pr.PullRequest.CheckState
-		if state == "failure" || state == "pending" {
-			reason := "failing-checks"
-			if state == "pending" {
-				reason = "pending-checks"
-			}
+		reason := "ready-for-review"
+		switch state {
+		case "failure":
+			reason = "failing-checks"
+		case "pending":
+			reason = "pending-checks"
+		case "success":
+			reason = "ready-for-review"
+		default:
+			reason = "open-pr"
+		}
+		if state == "failure" || state == "pending" || state == "success" || state == "" || state == "unknown" {
 			return NextAction{
 				SchemaVersion: 1,
 				Kind:          "nextAction",

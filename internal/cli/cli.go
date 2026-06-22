@@ -1039,6 +1039,18 @@ func fetchQueueSnapshot(repoFlag, configPath string, includeChecks bool, stderr 
 		fmt.Fprintln(stderr, err)
 		return queue.Snapshot{}, exitGitHub
 	}
+	if cfg.Repository.BaseBranch != "" && cfg.Repository.BaseBranch != cfg.Repository.StagingBranch {
+		promotionPRs, err := client.ListOpenPullRequests(repo, cfg.Repository.BaseBranch)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return queue.Snapshot{}, exitGitHub
+		}
+		for _, pr := range promotionPRs {
+			if pr.HeadRef == cfg.Repository.StagingBranch {
+				prs = append(prs, pr)
+			}
+		}
+	}
 	if includeChecks {
 		for i := range prs {
 			rollup, err := client.GetCheckRollup(repo, prs[i])
