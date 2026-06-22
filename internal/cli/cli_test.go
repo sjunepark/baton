@@ -43,6 +43,17 @@ func TestNumberedReadCommandsValidateExplicitConfig(t *testing.T) {
 	}
 }
 
+func TestWriteJSONIsCompact(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := writeJSON(&stdout, &stderr, map[string]any{"kind": "example", "items": []int{1, 2}})
+	if code != exitOK {
+		t.Fatalf("writeJSON exit = %d; stderr=%s", code, stderr.String())
+	}
+	if got := stdout.String(); got != `{"items":[1,2],"kind":"example"}`+"\n" {
+		t.Fatalf("json = %q, want compact object", got)
+	}
+}
+
 func TestSubcommandHelpExitsZeroOnStdout(t *testing.T) {
 	commands := [][]string{
 		{"queue", "--help"},

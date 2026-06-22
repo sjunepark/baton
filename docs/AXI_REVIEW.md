@@ -51,6 +51,7 @@ objects.
 - `docs/OUTPUT_SPEC.md` now defines the additive output contract for JSON
   compatibility, TOON/compact output, structured errors, counts, truncation, and
   `help[]` fields.
+- `--json` and `--format json` now emit compact JSON by default.
 - The home/no-args decision is recorded there: ship `baton home` first, then
   change no-args to that home view after tests and docs are in place.
 - `internal/cli` now routes JSON success output and post-parse JSON-mode errors
@@ -482,6 +483,9 @@ Recommended enhancement:
   `baton pr <number> --json` with referenced issues, optional issue readiness,
   check summaries, review-thread summaries, likely next command, and warnings
   for unavailable enrichment while preserving the base PR read. Validation:
+  `go test ./...` passes.
+- 2026-06-23: Completed compact JSON output by making the shared JSON renderer
+  emit unindented JSON by default, matching `docs/OUTPUT_SPEC.md`. Validation:
   `go test ./...` passes.
 
 ## Keep As-Is

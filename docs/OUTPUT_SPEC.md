@@ -34,8 +34,8 @@ Default format rules:
   tests covering structured errors and text output.
 - Read-heavy commands may gain compact text defaults only after their JSON and
   TOON contracts are covered by golden tests.
-- `--format json` should emit compact JSON by default once the renderer is
-  centralized. Add `--pretty` if pretty-printed JSON remains useful for humans.
+- `--format json` emits compact JSON by default. Add `--pretty` later only if
+  pretty-printed JSON proves useful enough for humans.
 
 ## TOON Contract
 

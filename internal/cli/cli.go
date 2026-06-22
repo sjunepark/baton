@@ -2527,7 +2527,6 @@ func defaultErrorHint(code int, message string) string {
 func writeJSON(stdout, stderr io.Writer, value any) int {
 	encoder := json.NewEncoder(stdout)
 	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(value); err != nil {
 		fmt.Fprintf(stderr, "encode JSON: %v\n", err)
 		return exitUsage
