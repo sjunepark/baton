@@ -110,8 +110,8 @@ Usage:
   baton checks <number> --json [--repo owner/name]
   baton review-threads <number> --json [--repo owner/name]
   baton next --json [--repo owner/name]
-  baton lease --purpose <purpose> --branch <ref> --json
-  baton lease --purpose <purpose> --base <ref> --new-branch <ref> --json
+  baton lease --purpose <purpose> --branch <ref> [--repo owner/name] --json
+  baton lease --purpose <purpose> --base <ref> --new-branch <ref> [--repo owner/name] --json
   baton release --lease <id>|--path <path> [--keep-dirty]
   baton leases --json
   baton prune --dry-run|--yes --json
@@ -657,7 +657,8 @@ func runLease(args []string, stdout, stderr io.Writer) int {
 	branch := fs.String("branch", "", "existing branch/ref")
 	base := fs.String("base", "", "base ref for new branch")
 	newBranch := fs.String("new-branch", "", "new branch name")
-	repo := fs.String("repo-name", "", "repository name for lease metadata")
+	repo := fs.String("repo", "", "repository owner/name for lease metadata")
+	repoName := fs.String("repo-name", "", "repository name for lease metadata")
 	stateRoot := fs.String("state-root", "", "Baton state root")
 	jsonOut := fs.Bool("json", false, "emit JSON")
 	if err := fs.Parse(args); err != nil {
@@ -669,7 +670,7 @@ func runLease(args []string, stdout, stderr io.Writer) int {
 		BaseRef:   *base,
 		HeadRef:   *branch,
 		NewBranch: *newBranch,
-		Repo:      *repo,
+		Repo:      firstNonEmpty(*repo, *repoName),
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)

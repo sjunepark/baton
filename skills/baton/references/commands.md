@@ -9,10 +9,10 @@ Use `--json` for automation-facing reads.
 - `baton checks <number> --json`: inspect check rollup.
 - `baton review-threads <number> --json`: inspect resolved/outdated review
   threads and author kinds.
-- `baton lease --purpose <purpose> --branch <ref> --json`: lease an existing
-  PR branch.
-- `baton lease --purpose <purpose> --base <ref> --new-branch <ref> --json`:
-  create and lease a new work branch.
+- `baton lease --purpose <purpose> --branch <ref> --repo owner/name --json`:
+  lease an existing PR branch.
+- `baton lease --purpose <purpose> --base <ref> --new-branch <ref> --repo
+  owner/name --json`: create and lease a new work branch.
 - `baton release --lease <id> --json`: release a clean lease.
 - `baton release --lease <id> --keep-dirty --json`: retain/release dirty state
   only when reporting it is acceptable.

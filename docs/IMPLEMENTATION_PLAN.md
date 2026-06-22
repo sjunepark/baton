@@ -309,5 +309,8 @@ Integration, live gated:
 - Corrected the Go module and default workflow install path to
   `github.com/sjunepark/baton`, matching the authenticated GitHub owner.
 - Validation: `go test ./...` passes after the module/import rewrite.
+- Added `baton lease --repo` while preserving `--repo-name` as a compatibility
+  alias for lease metadata.
+- Validation: `go test ./...` passes.
 - Next slice: publish/configure a trusted Baton install path, then start Creo
   migration wiring.
