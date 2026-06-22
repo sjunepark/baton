@@ -106,9 +106,9 @@ Usage:
   baton sync-labels --dry-run|--apply [--repo owner/name] [--labels-file <path>] [--json]
   baton queue --json [--repo owner/name]
   baton prs --json [--repo owner/name]
-  baton pr <number> --json [--repo owner/name]
-  baton checks <number> --json [--repo owner/name]
-  baton review-threads <number> --json [--repo owner/name]
+  baton pr <number> --json [--repo owner/name] [--config <path>]
+  baton checks <number> --json [--repo owner/name] [--config <path>]
+  baton review-threads <number> --json [--repo owner/name] [--config <path>]
   baton next --json [--repo owner/name]
   baton lease --purpose <purpose> --branch <ref> [--repo owner/name] --json
   baton lease --purpose <purpose> --base <ref> --new-branch <ref> [--repo owner/name] --json
@@ -552,6 +552,9 @@ func runPR(args []string, stdout, stderr io.Writer) int {
 	if code != exitOK {
 		return code
 	}
+	if code := validateOptionalConfig(flags.config, stderr); code != exitOK {
+		return code
+	}
 	repo, client, code := githubClientForRepo(flags.repo, stderr)
 	if code != exitOK {
 		return code
@@ -582,6 +585,9 @@ func runChecks(args []string, stdout, stderr io.Writer) int {
 	if code != exitOK {
 		return code
 	}
+	if code := validateOptionalConfig(flags.config, stderr); code != exitOK {
+		return code
+	}
 	repo, client, code := githubClientForRepo(flags.repo, stderr)
 	if code != exitOK {
 		return code
@@ -609,6 +615,9 @@ func runChecks(args []string, stdout, stderr io.Writer) int {
 func runReviewThreads(args []string, stdout, stderr io.Writer) int {
 	number, flags, code := parseNumberCommand("review-threads", args, stderr)
 	if code != exitOK {
+		return code
+	}
+	if code := validateOptionalConfig(flags.config, stderr); code != exitOK {
 		return code
 	}
 	repo, client, code := githubClientForRepo(flags.repo, stderr)
@@ -967,8 +976,9 @@ func applyIssueDecisionIfRequested(apply bool, eventPath, repoFlag, eventRepo st
 }
 
 type numberFlags struct {
-	repo string
-	json bool
+	repo   string
+	config string
+	json   bool
 }
 
 func parseNumberCommand(name string, args []string, stderr io.Writer) (int, numberFlags, int) {
@@ -984,11 +994,23 @@ func parseNumberCommand(name string, args []string, stderr io.Writer) (int, numb
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	repoFlag := fs.String("repo", "", "GitHub repository owner/name")
+	configPath := fs.String("config", "", "policy config path")
 	jsonOut := fs.Bool("json", false, "emit JSON")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 0, numberFlags{}, exitUsage
 	}
-	return number, numberFlags{repo: *repoFlag, json: *jsonOut}, exitOK
+	return number, numberFlags{repo: *repoFlag, config: *configPath, json: *jsonOut}, exitOK
+}
+
+func validateOptionalConfig(path string, stderr io.Writer) int {
+	if path == "" {
+		return exitOK
+	}
+	if _, err := loadConfig(path); err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitConfig
+	}
+	return exitOK
 }
 
 func fetchQueueSnapshot(repoFlag, configPath string, includeChecks bool, stderr io.Writer) (queue.Snapshot, int) {
