@@ -204,6 +204,18 @@ func TestTOONRenderersStable(t *testing.T) {
 	}
 
 	stdout.Reset()
+	writeQueueTOONFields(&stdout, snapshot, []string{"number", "title", "action", "reasons"})
+	if !strings.Contains(stdout.String(), "issues[1]:\n  - number=7 title=Fix flaky test action=issue-implementation reasons=eligible\n") {
+		t.Fatalf("queue fields toon = %q", stdout.String())
+	}
+
+	stdout.Reset()
+	writePRsTOONFields(&stdout, buildPullRequestsResult("example/repo", []queue.PullState{{PullRequest: queue.PullRequest{Number: 8, Title: "Update docs", HeadRef: "agent-work/8", CheckState: "success"}}}), []string{"number", "title", "headRef", "checkState"})
+	if !strings.Contains(stdout.String(), "pullRequests[1]:\n  - number=8 title=Update docs headRef=agent-work/8 checkState=success\n") {
+		t.Fatalf("prs fields toon = %q", stdout.String())
+	}
+
+	stdout.Reset()
 	writeNextTOON(&stdout, queue.NextAction{SchemaVersion: 1, Kind: "nextAction", Repo: "example/repo", Action: "none", Reason: "empty", Instructions: []string{"Inspect queue."}})
 	if !strings.Contains(stdout.String(), "kind: nextAction\n") || !strings.Contains(stdout.String(), "instructions[1]:\n  - Inspect queue.\n") {
 		t.Fatalf("next toon = %q", stdout.String())
@@ -213,6 +225,12 @@ func TestTOONRenderersStable(t *testing.T) {
 	writeChecksTOON(&stdout, gh.CheckRollup{SchemaVersion: 1, Kind: "checkRollup", Repo: "example/repo", PRNumber: 4, State: "failure", Count: 1, Summary: gh.CheckSummary{Failed: 1}, Checks: []gh.CheckState{{Name: "unit", Status: "completed", Conclusion: "failure"}}})
 	if !strings.Contains(stdout.String(), "summary.failed: 1\n") || !strings.Contains(stdout.String(), "checks[1]:\n  - name=unit status=completed conclusion=failure\n") {
 		t.Fatalf("checks toon = %q", stdout.String())
+	}
+
+	stdout.Reset()
+	writeChecksTOONFields(&stdout, gh.CheckRollup{SchemaVersion: 1, Kind: "checkRollup", Repo: "example/repo", PRNumber: 4, State: "failure", Count: 1, Checks: []gh.CheckState{{Name: "unit", Status: "completed", Conclusion: "failure", URL: "https://example/check"}}}, []string{"name", "state", "url"})
+	if !strings.Contains(stdout.String(), "checks[1]:\n  - name=unit state=failure url=https://example/check\n") {
+		t.Fatalf("checks fields toon = %q", stdout.String())
 	}
 
 	stdout.Reset()
@@ -238,6 +256,13 @@ func TestTOONRenderersStable(t *testing.T) {
 	writeLeasesTOON(&stdout, buildLeasesResult([]lease.Record{record}))
 	if !strings.Contains(stdout.String(), "counts.active: 1\n") || !strings.Contains(stdout.String(), "leases[1]:\n  - id=lease-1 status=active path=~/work/repo purpose=issue-1 headRef=agent-work/1\n") {
 		t.Fatalf("leases toon = %q", stdout.String())
+	}
+}
+
+func TestParseFieldsRejectsUnknownField(t *testing.T) {
+	_, err := parseFields("number,nope", queueFieldSet())
+	if err == nil || !strings.Contains(err.Error(), `unknown field "nope"`) {
+		t.Fatalf("err = %v, want unknown field", err)
 	}
 }
 

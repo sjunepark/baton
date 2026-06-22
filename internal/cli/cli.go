@@ -359,10 +359,10 @@ Usage:
   baton pr-policy --fixture <path> [--config <path>] [--json]
   baton pr-policy --event <path> [--config <path>] [--json]
   baton sync-labels --dry-run|--apply [--repo owner/name] [--labels-file <path>] [--json]
-  baton queue [--repo owner/name] [--config <path>] [--format text|json|toon] [--json]
-  baton prs [--repo owner/name] [--config <path>] [--format text|json|toon] [--json]
+  baton queue [--repo owner/name] [--config <path>] [--fields a,b] [--format text|json|toon] [--json]
+  baton prs [--repo owner/name] [--config <path>] [--fields a,b] [--format text|json|toon] [--json]
   baton pr <number> --json [--repo owner/name] [--config <path>]
-  baton checks <number> [--repo owner/name] [--config <path>] [--format text|json|toon] [--json]
+  baton checks <number> [--repo owner/name] [--config <path>] [--fields a,b] [--format text|json|toon] [--json]
   baton review-threads <number> [--repo owner/name] [--config <path>] [--full] [--body-limit <chars>] [--format text|json|toon] [--json]
   baton next [--repo owner/name] [--config <path>] [--format text|json|toon] [--json]
   baton lease --purpose <purpose> --branch <ref> [--repo owner/name] [--format text|json|toon] [--json]
@@ -445,16 +445,16 @@ var commandHelps = map[string]commandHelp{
 	},
 	"queue": {
 		Purpose:  "List open issues with Baton eligibility and linked PR state.",
-		Usage:    "baton queue [--repo owner/name] [--config <path>] [--format text|json|toon] [--json]",
-		Flags:    []string{"--repo: GitHub repository owner/name", "--config: policy config path", "--format: output format text, json, or toon", "--json: emit structured JSON"},
-		Examples: []string{"baton queue --format toon", "baton queue --repo owner/name --config .github/baton.yml --json"},
+		Usage:    "baton queue [--repo owner/name] [--config <path>] [--fields a,b] [--format text|json|toon] [--json]",
+		Flags:    []string{"--repo: GitHub repository owner/name", "--config: policy config path", "--fields: compact fields, for example number,title,action,reasons", "--format: output format text, json, or toon", "--json: emit structured JSON"},
+		Examples: []string{"baton queue --format toon", "baton queue --fields number,title,action,reasons --format toon", "baton queue --repo owner/name --config .github/baton.yml --json"},
 		Related:  []string{"baton next --json", "baton prs --json", "baton lease --purpose <purpose> --base <ref> --new-branch <ref> --json"},
 	},
 	"prs": {
 		Purpose:  "List open pull requests relevant to Baton queue work.",
-		Usage:    "baton prs [--repo owner/name] [--config <path>] [--format text|json|toon] [--json]",
-		Flags:    []string{"--repo: GitHub repository owner/name", "--config: policy config path", "--format: output format text, json, or toon", "--json: emit structured JSON"},
-		Examples: []string{"baton prs --format toon"},
+		Usage:    "baton prs [--repo owner/name] [--config <path>] [--fields a,b] [--format text|json|toon] [--json]",
+		Flags:    []string{"--repo: GitHub repository owner/name", "--config: policy config path", "--fields: compact fields, for example number,title,headRef,checkState", "--format: output format text, json, or toon", "--json: emit structured JSON"},
+		Examples: []string{"baton prs --format toon", "baton prs --fields number,title,headRef,checkState --format toon"},
 		Related:  []string{"baton pr <number> --json", "baton checks <number> --json", "baton review-threads <number> --json"},
 	},
 	"pr": {
@@ -466,9 +466,9 @@ var commandHelps = map[string]commandHelp{
 	},
 	"checks": {
 		Purpose:  "Show check rollup state for a pull request.",
-		Usage:    "baton checks <number> [--repo owner/name] [--config <path>] [--format text|json|toon] [--json]",
-		Flags:    []string{"--repo: GitHub repository owner/name", "--config: policy config path", "--format: output format text, json, or toon", "--json: emit structured JSON"},
-		Examples: []string{"baton checks 12 --format toon"},
+		Usage:    "baton checks <number> [--repo owner/name] [--config <path>] [--fields a,b] [--format text|json|toon] [--json]",
+		Flags:    []string{"--repo: GitHub repository owner/name", "--config: policy config path", "--fields: compact fields, for example name,state,url", "--format: output format text, json, or toon", "--json: emit structured JSON"},
+		Examples: []string{"baton checks 12 --format toon", "baton checks 12 --fields name,state,url --format toon"},
 		Related:  []string{"baton pr <number> --json"},
 	},
 	"review-threads": {
@@ -948,6 +948,7 @@ func runQueue(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	repoFlag := fs.String("repo", "", "GitHub repository owner/name")
 	configPath := fs.String("config", "", "policy config path")
+	fieldsFlag := fs.String("fields", "", "compact fields")
 	formats := addFormatFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
@@ -964,7 +965,11 @@ func runQueue(args []string, stdout, stderr io.Writer) int {
 		return out.JSON(snapshot)
 	}
 	if format == formatTOON {
-		return writeQueueTOON(stdout, snapshot)
+		fields, err := parseFields(*fieldsFlag, queueFieldSet())
+		if err != nil {
+			return out.Error(exitUsage, err, "")
+		}
+		return writeQueueTOONFields(stdout, snapshot, fields)
 	}
 	if len(snapshot.Issues) == 0 {
 		fmt.Fprintln(stdout, "issues[0]:")
@@ -982,6 +987,7 @@ func runPRs(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	repoFlag := fs.String("repo", "", "GitHub repository owner/name")
 	configPath := fs.String("config", "", "policy config path")
+	fieldsFlag := fs.String("fields", "", "compact fields")
 	formats := addFormatFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
@@ -999,7 +1005,11 @@ func runPRs(args []string, stdout, stderr io.Writer) int {
 		return out.JSON(result)
 	}
 	if format == formatTOON {
-		return writePRsTOON(stdout, result)
+		fields, err := parseFields(*fieldsFlag, prFieldSet())
+		if err != nil {
+			return out.Error(exitUsage, err, "")
+		}
+		return writePRsTOONFields(stdout, result, fields)
 	}
 	if len(result.PullRequests) == 0 {
 		fmt.Fprintln(stdout, "pullRequests[0]:")
@@ -1070,7 +1080,7 @@ func runChecks(args []string, stdout, stderr io.Writer) int {
 		return out.JSON(rollup)
 	}
 	if flags.format == formatTOON {
-		return writeChecksTOON(stdout, rollup)
+		return writeChecksTOONFields(stdout, rollup, flags.fields)
 	}
 	fmt.Fprintf(stdout, "PR #%d checks: %s\n", number, rollup.State)
 	if len(rollup.Checks) == 0 {
@@ -1491,6 +1501,7 @@ type numberFlags struct {
 	config    string
 	json      bool
 	format    outputFormat
+	fields    []string
 	full      bool
 	bodyLimit int
 }
@@ -1510,6 +1521,10 @@ func parseNumberCommand(name string, args []string, stdout, stderr io.Writer) (i
 	repoFlag := fs.String("repo", "", "GitHub repository owner/name")
 	configPath := fs.String("config", "", "policy config path")
 	formats := addFormatFlags(fs)
+	fieldsFlag := ""
+	if name == "checks" {
+		fs.StringVar(&fieldsFlag, "fields", "", "compact fields")
+	}
 	full := false
 	bodyLimit := defaultReviewThreadBodyLimit
 	if name == "review-threads" {
@@ -1524,7 +1539,16 @@ func parseNumberCommand(name string, args []string, stdout, stderr io.Writer) (i
 		out := newFormatRenderer(stdout, stderr, fallbackFormat(formats))
 		return 0, numberFlags{json: rawFormat == formatJSON, format: fallbackFormat(formats)}, out.Error(exitUsage, err, "")
 	}
-	return number, numberFlags{repo: *repoFlag, config: *configPath, json: format == formatJSON, format: format, full: full, bodyLimit: bodyLimit}, exitOK
+	fields := []string(nil)
+	if name == "checks" {
+		parsed, err := parseFields(fieldsFlag, checkFieldSet())
+		if err != nil {
+			out := newFormatRenderer(stdout, stderr, format)
+			return 0, numberFlags{json: format == formatJSON, format: format}, out.Error(exitUsage, err, "")
+		}
+		fields = parsed
+	}
+	return number, numberFlags{repo: *repoFlag, config: *configPath, json: format == formatJSON, format: format, fields: fields, full: full, bodyLimit: bodyLimit}, exitOK
 }
 
 func validateOptionalConfig(path string, out renderer) int {
@@ -1832,6 +1856,13 @@ func writeDoctorTOON(w io.Writer, result doctor.Result) int {
 }
 
 func writeQueueTOON(w io.Writer, snapshot queue.Snapshot) int {
+	return writeQueueTOONFields(w, snapshot, nil)
+}
+
+func writeQueueTOONFields(w io.Writer, snapshot queue.Snapshot, fields []string) int {
+	if len(fields) == 0 {
+		fields = []string{"number", "eligible", "action", "title", "reasons"}
+	}
 	fmt.Fprintln(w, "kind: queueSnapshot")
 	fmt.Fprintf(w, "schemaVersion: %d\n", snapshot.SchemaVersion)
 	fmt.Fprintf(w, "repo: %s\n", snapshot.Repo)
@@ -1844,13 +1875,20 @@ func writeQueueTOON(w io.Writer, snapshot queue.Snapshot) int {
 	}
 	fmt.Fprintf(w, "issues[%d]:\n", len(snapshot.Issues))
 	for _, issue := range snapshot.Issues {
-		fmt.Fprintf(w, "  - number=%d eligible=%v action=%s title=%s reasons=%s\n", issue.Issue.Number, issue.Eligible, issue.Action, oneLine(issue.Issue.Title), strings.Join(issue.Reasons, "|"))
+		fmt.Fprintf(w, "  - %s\n", strings.Join(queueFieldValues(issue, fields), " "))
 	}
 	writeHelpLines(w, snapshot.Help)
 	return exitOK
 }
 
 func writePRsTOON(w io.Writer, result pullRequestsResult) int {
+	return writePRsTOONFields(w, result, nil)
+}
+
+func writePRsTOONFields(w io.Writer, result pullRequestsResult, fields []string) int {
+	if len(fields) == 0 {
+		fields = []string{"number", "headRef", "baseRef", "checkState", "title"}
+	}
 	fmt.Fprintln(w, "kind: pullRequests")
 	fmt.Fprintf(w, "schemaVersion: %d\n", result.SchemaVersion)
 	fmt.Fprintf(w, "repo: %s\n", result.Repo)
@@ -1861,13 +1899,20 @@ func writePRsTOON(w io.Writer, result pullRequestsResult) int {
 	fmt.Fprintf(w, "counts.unknown: %d\n", result.Counts.Unknown)
 	fmt.Fprintf(w, "pullRequests[%d]:\n", len(result.PullRequests))
 	for _, pr := range result.PullRequests {
-		fmt.Fprintf(w, "  - number=%d headRef=%s baseRef=%s checkState=%s title=%s\n", pr.PullRequest.Number, pr.PullRequest.HeadRef, pr.PullRequest.BaseRef, pr.PullRequest.CheckState, oneLine(pr.PullRequest.Title))
+		fmt.Fprintf(w, "  - %s\n", strings.Join(prFieldValues(pr, fields), " "))
 	}
 	writeHelpLines(w, result.Help)
 	return exitOK
 }
 
 func writeChecksTOON(w io.Writer, rollup gh.CheckRollup) int {
+	return writeChecksTOONFields(w, rollup, nil)
+}
+
+func writeChecksTOONFields(w io.Writer, rollup gh.CheckRollup, fields []string) int {
+	if len(fields) == 0 {
+		fields = []string{"name", "status", "conclusion"}
+	}
 	fmt.Fprintln(w, "kind: checkRollup")
 	fmt.Fprintf(w, "schemaVersion: %d\n", rollup.SchemaVersion)
 	fmt.Fprintf(w, "repo: %s\n", rollup.Repo)
@@ -1882,7 +1927,7 @@ func writeChecksTOON(w io.Writer, rollup gh.CheckRollup) int {
 	fmt.Fprintf(w, "summary.unknown: %d\n", rollup.Summary.Unknown)
 	fmt.Fprintf(w, "checks[%d]:\n", len(rollup.Checks))
 	for _, check := range rollup.Checks {
-		fmt.Fprintf(w, "  - name=%s status=%s conclusion=%s\n", oneLine(check.Name), check.Status, check.Conclusion)
+		fmt.Fprintf(w, "  - %s\n", strings.Join(checkFieldValues(check, fields), " "))
 	}
 	writeHelpLines(w, rollup.Help)
 	return exitOK
@@ -1970,6 +2015,116 @@ func writeHelpLines(w io.Writer, help []string) {
 	for _, item := range help {
 		fmt.Fprintf(w, "  - %s\n", oneLine(item))
 	}
+}
+
+func parseFields(value string, allowed map[string]struct{}) ([]string, error) {
+	if strings.TrimSpace(value) == "" {
+		return nil, nil
+	}
+	fields := []string{}
+	for _, part := range strings.Split(value, ",") {
+		field := strings.TrimSpace(part)
+		if field == "" {
+			continue
+		}
+		if _, ok := allowed[field]; !ok {
+			return nil, fmt.Errorf("unknown field %q", field)
+		}
+		fields = append(fields, field)
+	}
+	return fields, nil
+}
+
+func queueFieldSet() map[string]struct{} {
+	return fieldSet("number", "title", "eligible", "action", "reasons", "linkedPrs")
+}
+
+func prFieldSet() map[string]struct{} {
+	return fieldSet("number", "title", "headRef", "baseRef", "checkState", "referencedIssues")
+}
+
+func checkFieldSet() map[string]struct{} {
+	return fieldSet("name", "state", "status", "conclusion", "url")
+}
+
+func fieldSet(fields ...string) map[string]struct{} {
+	set := make(map[string]struct{}, len(fields))
+	for _, field := range fields {
+		set[field] = struct{}{}
+	}
+	return set
+}
+
+func queueFieldValues(issue queue.IssueState, fields []string) []string {
+	values := make([]string, 0, len(fields))
+	for _, field := range fields {
+		switch field {
+		case "number":
+			values = append(values, fmt.Sprintf("number=%d", issue.Issue.Number))
+		case "title":
+			values = append(values, "title="+oneLine(issue.Issue.Title))
+		case "eligible":
+			values = append(values, fmt.Sprintf("eligible=%v", issue.Eligible))
+		case "action":
+			values = append(values, "action="+issue.Action)
+		case "reasons":
+			values = append(values, "reasons="+strings.Join(issue.Reasons, "|"))
+		case "linkedPrs":
+			values = append(values, "linkedPrs="+intList(issue.LinkedPRs))
+		}
+	}
+	return values
+}
+
+func prFieldValues(pr queue.PullState, fields []string) []string {
+	values := make([]string, 0, len(fields))
+	for _, field := range fields {
+		switch field {
+		case "number":
+			values = append(values, fmt.Sprintf("number=%d", pr.PullRequest.Number))
+		case "title":
+			values = append(values, "title="+oneLine(pr.PullRequest.Title))
+		case "headRef":
+			values = append(values, "headRef="+pr.PullRequest.HeadRef)
+		case "baseRef":
+			values = append(values, "baseRef="+pr.PullRequest.BaseRef)
+		case "checkState":
+			values = append(values, "checkState="+pr.PullRequest.CheckState)
+		case "referencedIssues":
+			values = append(values, "referencedIssues="+intList(pr.ReferencedIssues))
+		}
+	}
+	return values
+}
+
+func checkFieldValues(check gh.CheckState, fields []string) []string {
+	values := make([]string, 0, len(fields))
+	for _, field := range fields {
+		switch field {
+		case "name":
+			values = append(values, "name="+oneLine(check.Name))
+		case "state":
+			values = append(values, "state="+firstNonEmpty(check.Conclusion, check.Status))
+		case "status":
+			values = append(values, "status="+check.Status)
+		case "conclusion":
+			values = append(values, "conclusion="+check.Conclusion)
+		case "url":
+			values = append(values, "url="+check.URL)
+		}
+	}
+	return values
+}
+
+func intList(values []int) string {
+	if len(values) == 0 {
+		return "[]"
+	}
+	parts := make([]string, 0, len(values))
+	for _, value := range values {
+		parts = append(parts, fmt.Sprintf("%d", value))
+	}
+	return strings.Join(parts, "|")
 }
 
 func oneLine(value string) string {

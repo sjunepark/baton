@@ -210,6 +210,7 @@ Example:
 
 ```sh
 baton queue --format toon
+baton queue --fields number,title,action,reasons --format toon
 baton queue --json
 ```
 
@@ -221,6 +222,7 @@ Example:
 
 ```sh
 baton prs --format toon
+baton prs --fields number,title,headRef,checkState --format toon
 baton prs --json
 ```
 
@@ -276,6 +278,7 @@ Examples:
 
 ```sh
 baton checks 12 --format toon
+baton checks 12 --fields name,state,url --format toon
 baton checks 12 --json
 ```
 
