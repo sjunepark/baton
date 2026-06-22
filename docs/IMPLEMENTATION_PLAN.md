@@ -27,6 +27,8 @@
 - Install templates can render a caller-provided trusted Baton install target
   with `baton init --go-install` or a full command with
   `baton init --install-command`.
+- The README now reflects the implemented CLI and documents the trusted install
+  path required before consuming repositories switch workflows to Baton.
 
 ## Phase 0 - Repository Scaffold
 
@@ -329,5 +331,8 @@ Live integration env gates:
   `doctor --json` is clean, `queue --json` reports branch health success and
   eligible investigation issues, `prs --json` reports no open staging PRs, and
   `next --json` selects issue #5 for investigation.
+- Updated the README from planning-only language to current operator guidance,
+  including local validation, target-repo initialization, queue inspection,
+  leasing, and the trusted install path prerequisite for GitHub Actions.
 - Next slice: publish/configure a trusted Baton install path, then start Creo
   migration wiring.
