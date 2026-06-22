@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -38,9 +39,22 @@ const (
 )
 
 type renderer struct {
-	stdout     io.Writer
-	stderr     io.Writer
-	structured bool
+	stdout io.Writer
+	stderr io.Writer
+	format outputFormat
+}
+
+type outputFormat string
+
+const (
+	formatText outputFormat = "text"
+	formatJSON outputFormat = "json"
+	formatTOON outputFormat = "toon"
+)
+
+type formatFlags struct {
+	json   *bool
+	format *string
 }
 
 type errorResult struct {
@@ -115,8 +129,89 @@ type completionResult struct {
 	CreatedAt           time.Time `json:"createdAt"`
 }
 
+type homeResult struct {
+	SchemaVersion int        `json:"schemaVersion"`
+	Kind          string     `json:"kind"`
+	Bin           string     `json:"bin"`
+	Description   string     `json:"description"`
+	Repo          string     `json:"repo"`
+	Config        string     `json:"config"`
+	Auth          string     `json:"auth"`
+	Leases        homeLeases `json:"leases"`
+	Next          string     `json:"next"`
+	Help          []string   `json:"help"`
+}
+
+type homeLeases struct {
+	Active int `json:"active"`
+	Total  int `json:"total"`
+}
+
 func newRenderer(stdout, stderr io.Writer, structured bool) renderer {
-	return renderer{stdout: stdout, stderr: stderr, structured: structured}
+	if structured {
+		return renderer{stdout: stdout, stderr: stderr, format: formatJSON}
+	}
+	return renderer{stdout: stdout, stderr: stderr, format: formatText}
+}
+
+func newFormatRenderer(stdout, stderr io.Writer, format outputFormat) renderer {
+	return renderer{stdout: stdout, stderr: stderr, format: format}
+}
+
+func addFormatFlags(fs *flag.FlagSet) formatFlags {
+	return formatFlags{
+		json:   fs.Bool("json", false, "emit JSON"),
+		format: fs.String("format", "", "output format: text, json, or toon"),
+	}
+}
+
+func resolveFormat(flags formatFlags) (outputFormat, error) {
+	if flags.format == nil || strings.TrimSpace(*flags.format) == "" {
+		if flags.json != nil && *flags.json {
+			return formatJSON, nil
+		}
+		return formatText, nil
+	}
+	value := outputFormat(strings.ToLower(strings.TrimSpace(*flags.format)))
+	switch value {
+	case formatText, formatJSON, formatTOON:
+	default:
+		return "", fmt.Errorf("--format must be one of text, json, or toon")
+	}
+	if flags.json != nil && *flags.json && value != formatJSON {
+		return "", fmt.Errorf("--json cannot be combined with --format %s", value)
+	}
+	return value, nil
+}
+
+func rendererFromFormatFlags(stdout, stderr io.Writer, flags formatFlags) (renderer, outputFormat, int) {
+	format, err := resolveFormat(flags)
+	if err == nil {
+		return newFormatRenderer(stdout, stderr, format), format, exitOK
+	}
+	out := newFormatRenderer(stdout, stderr, fallbackFormat(flags))
+	return out, formatText, out.Error(exitUsage, err, "")
+}
+
+func fallbackFormat(flags formatFlags) outputFormat {
+	if flags.json != nil && *flags.json {
+		return formatJSON
+	}
+	if flags.format == nil {
+		return formatText
+	}
+	switch outputFormat(strings.ToLower(strings.TrimSpace(*flags.format))) {
+	case formatJSON:
+		return formatJSON
+	case formatTOON:
+		return formatTOON
+	default:
+		return formatText
+	}
+}
+
+func (r renderer) Structured() bool {
+	return r.format == formatJSON || r.format == formatTOON
 }
 
 func (r renderer) JSON(value any) int {
@@ -131,7 +226,7 @@ func (r renderer) Error(code int, err error, hint string) int {
 }
 
 func (r renderer) ErrorMessage(code int, message, hint string) int {
-	if !r.structured {
+	if !r.Structured() {
 		fmt.Fprintln(r.stderr, message)
 		return code
 	}
@@ -144,9 +239,25 @@ func (r renderer) ErrorMessage(code int, message, hint string) int {
 		Hint:          firstNonEmpty(hint, defaultErrorHint(code, message)),
 		Retryable:     errorRetryable(code),
 	}
+	if r.format == formatTOON {
+		return r.TOONError(result, code)
+	}
 	if writeCode := r.JSON(result); writeCode != exitOK {
 		return writeCode
 	}
+	return code
+}
+
+func (r renderer) TOONError(result errorResult, code int) int {
+	fmt.Fprintln(r.stdout, "kind: error")
+	fmt.Fprintf(r.stdout, "schemaVersion: %d\n", result.SchemaVersion)
+	fmt.Fprintf(r.stdout, "category: %s\n", result.Category)
+	fmt.Fprintf(r.stdout, "exitCode: %d\n", result.ExitCode)
+	fmt.Fprintf(r.stdout, "message: %s\n", result.Message)
+	if result.Hint != "" {
+		fmt.Fprintf(r.stdout, "hint: %s\n", result.Hint)
+	}
+	fmt.Fprintf(r.stdout, "retryable: %v\n", result.Retryable)
 	return code
 }
 
@@ -184,6 +295,8 @@ func Run(args []string, stdout, stderr io.Writer, version string) int {
 	case "version":
 		fmt.Fprintln(stdout, version)
 		return exitOK
+	case "home":
+		return runHome(args[1:], stdout, stderr)
 	case "init":
 		return runInit(args[1:], stdout, stderr)
 	case "migrate-config":
@@ -234,20 +347,21 @@ func printHelp(w io.Writer) {
 Usage:
   baton --help
   baton version
+  baton home [--format text|json|toon] [--json]
   baton init --dry-run|--apply [--profile default] [--go-install module@version|--install-command <cmd>] [--yes] [--json]
   baton migrate-config --dry-run|--apply [--from <path>] [--to <path>] [--yes] [--full] [--body-limit <chars>] [--json]
-  baton doctor [--config <path>] [--json]
+  baton doctor [--config <path>] [--format text|json|toon] [--json]
   baton issue-policy --body-file <path> [--labels a,b] [--config <path>] [--json]
   baton issue-policy --event <path> [--apply] [--repo owner/name] [--config <path>] [--json]
   baton pr-policy --fixture <path> [--config <path>] [--json]
   baton pr-policy --event <path> [--config <path>] [--json]
   baton sync-labels --dry-run|--apply [--repo owner/name] [--labels-file <path>] [--json]
-  baton queue --json [--repo owner/name] [--config <path>]
-  baton prs --json [--repo owner/name] [--config <path>]
+  baton queue [--repo owner/name] [--config <path>] [--format text|json|toon] [--json]
+  baton prs [--repo owner/name] [--config <path>] [--format text|json|toon] [--json]
   baton pr <number> --json [--repo owner/name] [--config <path>]
-  baton checks <number> --json [--repo owner/name] [--config <path>]
-  baton review-threads <number> --json [--repo owner/name] [--config <path>]
-  baton next --json [--repo owner/name] [--config <path>]
+  baton checks <number> [--repo owner/name] [--config <path>] [--format text|json|toon] [--json]
+  baton review-threads <number> [--repo owner/name] [--config <path>] [--full] [--body-limit <chars>] [--format text|json|toon] [--json]
+  baton next [--repo owner/name] [--config <path>] [--format text|json|toon] [--json]
   baton lease --purpose <purpose> --branch <ref> [--repo owner/name] --json
   baton lease --purpose <purpose> --base <ref> --new-branch <ref> [--repo owner/name] --json
   baton release --lease <id>|--path <path> [--keep-dirty]
@@ -277,6 +391,13 @@ var commandHelps = map[string]commandHelp{
 		Usage:    "baton version",
 		Examples: []string{"baton version"},
 	},
+	"home": {
+		Purpose:  "Show a compact local Baton session dashboard.",
+		Usage:    "baton home [--format text|json|toon] [--json]",
+		Flags:    []string{"--format: output format text, json, or toon", "--json: emit structured JSON"},
+		Examples: []string{"baton home --format toon", "baton home --json"},
+		Related:  []string{"baton doctor --format toon", "baton next --format toon"},
+	},
 	"init": {
 		Purpose:  "Preview or install Baton repository automation files.",
 		Usage:    "baton init --dry-run|--apply [--profile default] [--go-install module@version|--install-command <cmd>] [--yes] [--json]",
@@ -293,9 +414,9 @@ var commandHelps = map[string]commandHelp{
 	},
 	"doctor": {
 		Purpose:  "Check local Baton prerequisites and repository readiness.",
-		Usage:    "baton doctor [--config <path>] [--json]",
-		Flags:    []string{"--config: policy config path", "--json: emit structured JSON"},
-		Examples: []string{"baton doctor --json", "baton doctor --config .github/baton.yml --json"},
+		Usage:    "baton doctor [--config <path>] [--format text|json|toon] [--json]",
+		Flags:    []string{"--config: policy config path", "--format: output format text, json, or toon", "--json: emit structured JSON"},
+		Examples: []string{"baton doctor --format toon", "baton doctor --config .github/baton.yml --json"},
 		Related:  []string{"baton init --dry-run --json", "baton queue --json"},
 	},
 	"issue-policy": {
@@ -321,16 +442,16 @@ var commandHelps = map[string]commandHelp{
 	},
 	"queue": {
 		Purpose:  "List open issues with Baton eligibility and linked PR state.",
-		Usage:    "baton queue [--repo owner/name] [--config <path>] [--json]",
-		Flags:    []string{"--repo: GitHub repository owner/name", "--config: policy config path", "--json: emit structured JSON"},
-		Examples: []string{"baton queue --json", "baton queue --repo owner/name --config .github/baton.yml --json"},
+		Usage:    "baton queue [--repo owner/name] [--config <path>] [--format text|json|toon] [--json]",
+		Flags:    []string{"--repo: GitHub repository owner/name", "--config: policy config path", "--format: output format text, json, or toon", "--json: emit structured JSON"},
+		Examples: []string{"baton queue --format toon", "baton queue --repo owner/name --config .github/baton.yml --json"},
 		Related:  []string{"baton next --json", "baton prs --json", "baton lease --purpose <purpose> --base <ref> --new-branch <ref> --json"},
 	},
 	"prs": {
 		Purpose:  "List open pull requests relevant to Baton queue work.",
-		Usage:    "baton prs [--repo owner/name] [--config <path>] [--json]",
-		Flags:    []string{"--repo: GitHub repository owner/name", "--config: policy config path", "--json: emit structured JSON"},
-		Examples: []string{"baton prs --json"},
+		Usage:    "baton prs [--repo owner/name] [--config <path>] [--format text|json|toon] [--json]",
+		Flags:    []string{"--repo: GitHub repository owner/name", "--config: policy config path", "--format: output format text, json, or toon", "--json: emit structured JSON"},
+		Examples: []string{"baton prs --format toon"},
 		Related:  []string{"baton pr <number> --json", "baton checks <number> --json", "baton review-threads <number> --json"},
 	},
 	"pr": {
@@ -342,23 +463,23 @@ var commandHelps = map[string]commandHelp{
 	},
 	"checks": {
 		Purpose:  "Show check rollup state for a pull request.",
-		Usage:    "baton checks <number> [--repo owner/name] [--config <path>] [--json]",
-		Flags:    []string{"--repo: GitHub repository owner/name", "--config: policy config path", "--json: emit structured JSON"},
-		Examples: []string{"baton checks 12 --json"},
+		Usage:    "baton checks <number> [--repo owner/name] [--config <path>] [--format text|json|toon] [--json]",
+		Flags:    []string{"--repo: GitHub repository owner/name", "--config: policy config path", "--format: output format text, json, or toon", "--json: emit structured JSON"},
+		Examples: []string{"baton checks 12 --format toon"},
 		Related:  []string{"baton pr <number> --json"},
 	},
 	"review-threads": {
 		Purpose:  "Show pull request review threads and unresolved summary.",
-		Usage:    "baton review-threads <number> [--repo owner/name] [--config <path>] [--full] [--body-limit <chars>] [--json]",
-		Flags:    []string{"--repo: GitHub repository owner/name", "--config: policy config path", "--full: include full comment bodies", "--body-limit: maximum default comment body characters", "--json: emit structured JSON"},
-		Examples: []string{"baton review-threads 12 --json", "baton review-threads 12 --full --json"},
+		Usage:    "baton review-threads <number> [--repo owner/name] [--config <path>] [--full] [--body-limit <chars>] [--format text|json|toon] [--json]",
+		Flags:    []string{"--repo: GitHub repository owner/name", "--config: policy config path", "--full: include full comment bodies", "--body-limit: maximum default comment body characters", "--format: output format text, json, or toon", "--json: emit structured JSON"},
+		Examples: []string{"baton review-threads 12 --format toon", "baton review-threads 12 --full --json"},
 		Related:  []string{"baton pr <number> --json", "baton checks <number> --json"},
 	},
 	"next": {
 		Purpose:  "Recommend the next Baton action from queue and PR state.",
-		Usage:    "baton next [--repo owner/name] [--config <path>] [--json]",
-		Flags:    []string{"--repo: GitHub repository owner/name", "--config: policy config path", "--json: emit structured JSON"},
-		Examples: []string{"baton next --json"},
+		Usage:    "baton next [--repo owner/name] [--config <path>] [--format text|json|toon] [--json]",
+		Flags:    []string{"--repo: GitHub repository owner/name", "--config: policy config path", "--format: output format text, json, or toon", "--json: emit structured JSON"},
+		Examples: []string{"baton next --format toon"},
 		Related:  []string{"baton queue --json", "baton lease --purpose <purpose> --base <ref> --new-branch <ref> --json"},
 	},
 	"lease": {
@@ -433,6 +554,29 @@ func printHelpList(w io.Writer, title string, values []string) {
 	fmt.Fprintf(w, "\n%s:\n", title)
 	for _, value := range values {
 		fmt.Fprintf(w, "  %s\n", value)
+	}
+}
+
+func runHome(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("home", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	formats := addFormatFlags(fs)
+	stateRoot := fs.String("state-root", "", "Baton state root")
+	if err := fs.Parse(args); err != nil {
+		return exitUsage
+	}
+	out, format, code := rendererFromFormatFlags(stdout, stderr, formats)
+	if code != exitOK {
+		return code
+	}
+	result := buildHomeResult(*stateRoot)
+	switch format {
+	case formatJSON:
+		return out.JSON(result)
+	case formatTOON:
+		return writeHomeTOON(stdout, result)
+	default:
+		return writeHomeText(stdout, result)
 	}
 }
 
@@ -551,14 +695,21 @@ func runDoctor(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	configPath := fs.String("config", "", "policy config path")
-	jsonOut := fs.Bool("json", false, "emit JSON")
+	formats := addFormatFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
-	out := newRenderer(stdout, stderr, *jsonOut)
+	out, format, code := rendererFromFormatFlags(stdout, stderr, formats)
+	if code != exitOK {
+		return code
+	}
 	result := doctor.Run(*configPath)
-	if *jsonOut {
+	if format == formatJSON {
 		if code := out.JSON(result); code != exitOK {
+			return code
+		}
+	} else if format == formatTOON {
+		if code := writeDoctorTOON(stdout, result); code != exitOK {
 			return code
 		}
 	} else {
@@ -794,17 +945,23 @@ func runQueue(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	repoFlag := fs.String("repo", "", "GitHub repository owner/name")
 	configPath := fs.String("config", "", "policy config path")
-	jsonOut := fs.Bool("json", false, "emit JSON")
+	formats := addFormatFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
-	out := newRenderer(stdout, stderr, *jsonOut)
+	out, format, code := rendererFromFormatFlags(stdout, stderr, formats)
+	if code != exitOK {
+		return code
+	}
 	snapshot, code := fetchQueueSnapshot(*repoFlag, *configPath, false, out)
 	if code != exitOK {
 		return code
 	}
-	if *jsonOut {
+	if format == formatJSON {
 		return out.JSON(snapshot)
+	}
+	if format == formatTOON {
+		return writeQueueTOON(stdout, snapshot)
 	}
 	if len(snapshot.Issues) == 0 {
 		fmt.Fprintln(stdout, "issues[0]:")
@@ -822,18 +979,24 @@ func runPRs(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	repoFlag := fs.String("repo", "", "GitHub repository owner/name")
 	configPath := fs.String("config", "", "policy config path")
-	jsonOut := fs.Bool("json", false, "emit JSON")
+	formats := addFormatFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
-	out := newRenderer(stdout, stderr, *jsonOut)
+	out, format, code := rendererFromFormatFlags(stdout, stderr, formats)
+	if code != exitOK {
+		return code
+	}
 	snapshot, code := fetchQueueSnapshot(*repoFlag, *configPath, true, out)
 	if code != exitOK {
 		return code
 	}
 	result := buildPullRequestsResult(snapshot.Repo, snapshot.PullRequests)
-	if *jsonOut {
+	if format == formatJSON {
 		return out.JSON(result)
+	}
+	if format == formatTOON {
+		return writePRsTOON(stdout, result)
 	}
 	if len(result.PullRequests) == 0 {
 		fmt.Fprintln(stdout, "pullRequests[0]:")
@@ -881,7 +1044,7 @@ func runPR(args []string, stdout, stderr io.Writer) int {
 
 func runChecks(args []string, stdout, stderr io.Writer) int {
 	number, flags, code := parseNumberCommand("checks", args, stdout, stderr)
-	out := newRenderer(stdout, stderr, flags.json)
+	out := newFormatRenderer(stdout, stderr, flags.format)
 	if code != exitOK {
 		return code
 	}
@@ -900,8 +1063,11 @@ func runChecks(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return out.Error(exitGitHub, err, "")
 	}
-	if flags.json {
+	if flags.format == formatJSON {
 		return out.JSON(rollup)
+	}
+	if flags.format == formatTOON {
+		return writeChecksTOON(stdout, rollup)
 	}
 	fmt.Fprintf(stdout, "PR #%d checks: %s\n", number, rollup.State)
 	if len(rollup.Checks) == 0 {
@@ -916,7 +1082,7 @@ func runChecks(args []string, stdout, stderr io.Writer) int {
 
 func runReviewThreads(args []string, stdout, stderr io.Writer) int {
 	number, flags, code := parseNumberCommand("review-threads", args, stdout, stderr)
-	out := newRenderer(stdout, stderr, flags.json)
+	out := newFormatRenderer(stdout, stderr, flags.format)
 	if code != exitOK {
 		return code
 	}
@@ -935,8 +1101,11 @@ func runReviewThreads(args []string, stdout, stderr io.Writer) int {
 		return out.Error(exitGitHub, err, "")
 	}
 	threads = truncateReviewThreadBodies(threads, flags.bodyLimit, flags.full)
-	if flags.json {
+	if flags.format == formatJSON {
 		return out.JSON(threads)
+	}
+	if flags.format == formatTOON {
+		return writeReviewThreadsTOON(stdout, threads)
 	}
 	if len(threads.Threads) == 0 {
 		fmt.Fprintln(stdout, "reviewThreads[0]:")
@@ -954,18 +1123,24 @@ func runNext(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	repoFlag := fs.String("repo", "", "GitHub repository owner/name")
 	configPath := fs.String("config", "", "policy config path")
-	jsonOut := fs.Bool("json", false, "emit JSON")
+	formats := addFormatFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
-	out := newRenderer(stdout, stderr, *jsonOut)
+	out, format, code := rendererFromFormatFlags(stdout, stderr, formats)
+	if code != exitOK {
+		return code
+	}
 	snapshot, code := fetchQueueSnapshot(*repoFlag, *configPath, true, out)
 	if code != exitOK {
 		return code
 	}
 	next := queue.RecommendNext(snapshot)
-	if *jsonOut {
+	if format == formatJSON {
 		return out.JSON(next)
+	}
+	if format == formatTOON {
+		return writeNextTOON(stdout, next)
 	}
 	fmt.Fprintf(stdout, "Next action: %s\nReason: %s\n", next.Action, next.Reason)
 	return exitOK
@@ -1030,7 +1205,7 @@ func runRelease(args []string, stdout, stderr io.Writer) int {
 		result, err = manager.ReleaseByPath(*path, *keepDirty)
 	}
 	if err != nil {
-		if result.Dirty && !out.structured {
+		if result.Dirty && !out.Structured() {
 			out.JSON(result)
 		}
 		return out.Error(exitLocalGit, err, "")
@@ -1300,25 +1475,26 @@ type numberFlags struct {
 	repo      string
 	config    string
 	json      bool
+	format    outputFormat
 	full      bool
 	bodyLimit int
 }
 
 func parseNumberCommand(name string, args []string, stdout, stderr io.Writer) (int, numberFlags, int) {
-	structured := hasFlag(args, "json")
-	out := newRenderer(stdout, stderr, structured)
+	rawFormat := outputFormatFromArgs(args)
+	out := newFormatRenderer(stdout, stderr, rawFormat)
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
-		return 0, numberFlags{json: structured}, out.ErrorMessage(exitUsage, fmt.Sprintf("%s requires a number", name), fmt.Sprintf("Run `baton %s <number> --json`.", name))
+		return 0, numberFlags{json: rawFormat == formatJSON, format: rawFormat}, out.ErrorMessage(exitUsage, fmt.Sprintf("%s requires a number", name), fmt.Sprintf("Run `baton %s <number> --json`.", name))
 	}
 	number, err := gh.IssueNumberFromString(args[0])
 	if err != nil {
-		return 0, numberFlags{json: structured}, out.ErrorMessage(exitUsage, fmt.Sprintf("%s number: %v", name, err), "")
+		return 0, numberFlags{json: rawFormat == formatJSON, format: rawFormat}, out.ErrorMessage(exitUsage, fmt.Sprintf("%s number: %v", name, err), "")
 	}
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	repoFlag := fs.String("repo", "", "GitHub repository owner/name")
 	configPath := fs.String("config", "", "policy config path")
-	jsonOut := fs.Bool("json", false, "emit JSON")
+	formats := addFormatFlags(fs)
 	full := false
 	bodyLimit := defaultReviewThreadBodyLimit
 	if name == "review-threads" {
@@ -1326,9 +1502,14 @@ func parseNumberCommand(name string, args []string, stdout, stderr io.Writer) (i
 		fs.IntVar(&bodyLimit, "body-limit", defaultReviewThreadBodyLimit, "maximum default comment body characters")
 	}
 	if err := fs.Parse(args[1:]); err != nil {
-		return 0, numberFlags{json: structured}, out.Error(exitUsage, err, "")
+		return 0, numberFlags{json: rawFormat == formatJSON, format: rawFormat}, out.Error(exitUsage, err, "")
 	}
-	return number, numberFlags{repo: *repoFlag, config: *configPath, json: *jsonOut, full: full, bodyLimit: bodyLimit}, exitOK
+	format, err := resolveFormat(formats)
+	if err != nil {
+		out := newFormatRenderer(stdout, stderr, fallbackFormat(formats))
+		return 0, numberFlags{json: rawFormat == formatJSON, format: fallbackFormat(formats)}, out.Error(exitUsage, err, "")
+	}
+	return number, numberFlags{repo: *repoFlag, config: *configPath, json: format == formatJSON, format: format, full: full, bodyLimit: bodyLimit}, exitOK
 }
 
 func validateOptionalConfig(path string, out renderer) int {
@@ -1443,6 +1624,308 @@ func hasFlag(args []string, name string) bool {
 		}
 	}
 	return false
+}
+
+func outputFormatFromArgs(args []string) outputFormat {
+	if hasFlag(args, "json") {
+		return formatJSON
+	}
+	for i, arg := range args {
+		if strings.HasPrefix(arg, "--format=") {
+			value := strings.TrimPrefix(arg, "--format=")
+			if value == string(formatJSON) {
+				return formatJSON
+			}
+			if value == string(formatTOON) {
+				return formatTOON
+			}
+			return formatText
+		}
+		if arg == "--format" && i+1 < len(args) {
+			value := args[i+1]
+			if value == string(formatJSON) {
+				return formatJSON
+			}
+			if value == string(formatTOON) {
+				return formatTOON
+			}
+			return formatText
+		}
+	}
+	return formatText
+}
+
+func buildHomeResult(stateRoot string) homeResult {
+	cfgStatus := "missing (.github/baton.yml)"
+	if _, err := config.LoadForRepo("."); err == nil {
+		cfgStatus = "ok"
+	} else if !errors.Is(err, config.ErrConfigNotFound) {
+		cfgStatus = "invalid (" + err.Error() + ")"
+	}
+	records, err := lease.NewManager(stateRoot).List()
+	leases := homeLeases{}
+	if err == nil {
+		leases.Total = len(records)
+		for _, record := range records {
+			if record.Status == "active" {
+				leases.Active++
+			}
+		}
+	}
+	next := "run `baton next --format toon`"
+	if !strings.HasPrefix(cfgStatus, "ok") {
+		next = "unavailable (" + cfgStatus + ")"
+	}
+	return homeResult{
+		SchemaVersion: schemaVersionV1,
+		Kind:          "home",
+		Bin:           homeRelative(os.Args[0]),
+		Description:   "Coordinate GitHub issue/PR agent workflows for this repository",
+		Repo:          localRepoName(),
+		Config:        cfgStatus,
+		Auth:          localAuthStatus(),
+		Leases:        leases,
+		Next:          next,
+		Help: []string{
+			"Run `baton init --dry-run --format toon`.",
+			"Run `baton doctor --format toon`.",
+			"Run `baton --help`.",
+		},
+	}
+}
+
+func localRepoName() string {
+	if repo := strings.TrimSpace(os.Getenv("GITHUB_REPOSITORY")); repo != "" {
+		return repo
+	}
+	remote, err := localGitOutput("remote", "get-url", "origin")
+	if err == nil {
+		if repo := repoNameFromRemote(strings.TrimSpace(remote)); repo != "" {
+			return repo
+		}
+	}
+	root, err := localGitOutput("rev-parse", "--show-toplevel")
+	if err != nil {
+		return "unknown"
+	}
+	return filepath.Base(strings.TrimSpace(root))
+}
+
+func localAuthStatus() string {
+	if os.Getenv("GITHUB_TOKEN") != "" || os.Getenv("GH_TOKEN") != "" {
+		return "ok (token env)"
+	}
+	if _, err := exec.Command("gh", "auth", "token").Output(); err == nil {
+		return "ok (gh auth token)"
+	}
+	return "missing"
+}
+
+func localGitOutput(args ...string) (string, error) {
+	out, err := exec.Command("git", args...).CombinedOutput()
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
+func repoNameFromRemote(remote string) string {
+	remote = strings.TrimSuffix(remote, ".git")
+	if strings.HasPrefix(remote, "git@") {
+		if idx := strings.Index(remote, ":"); idx >= 0 {
+			return strings.TrimPrefix(remote[idx+1:], "/")
+		}
+	}
+	if strings.HasPrefix(remote, "https://") || strings.HasPrefix(remote, "http://") {
+		parts := strings.Split(remote, "/")
+		if len(parts) >= 2 {
+			return parts[len(parts)-2] + "/" + parts[len(parts)-1]
+		}
+	}
+	if strings.Count(remote, "/") == 1 {
+		return remote
+	}
+	return ""
+}
+
+func homeRelative(path string) string {
+	if path == "" {
+		return path
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return abs
+	}
+	rel, err := filepath.Rel(home, abs)
+	if err == nil && rel != "." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) && rel != ".." {
+		return filepath.Join("~", rel)
+	}
+	if abs == home {
+		return "~"
+	}
+	return abs
+}
+
+func writeHomeText(w io.Writer, result homeResult) int {
+	fmt.Fprintf(w, "bin: %s\n", result.Bin)
+	fmt.Fprintf(w, "description: %s\n", result.Description)
+	fmt.Fprintf(w, "repo: %s\n", result.Repo)
+	fmt.Fprintf(w, "config: %s\n", result.Config)
+	fmt.Fprintf(w, "auth: %s\n", result.Auth)
+	fmt.Fprintf(w, "leases: %d active, %d total\n", result.Leases.Active, result.Leases.Total)
+	fmt.Fprintf(w, "next: %s\n", result.Next)
+	writeHelpLines(w, result.Help)
+	return exitOK
+}
+
+func writeHomeTOON(w io.Writer, result homeResult) int {
+	fmt.Fprintln(w, "kind: home")
+	fmt.Fprintf(w, "schemaVersion: %d\n", result.SchemaVersion)
+	fmt.Fprintf(w, "bin: %s\n", result.Bin)
+	fmt.Fprintf(w, "description: %s\n", result.Description)
+	fmt.Fprintf(w, "repo: %s\n", result.Repo)
+	fmt.Fprintf(w, "config: %s\n", result.Config)
+	fmt.Fprintf(w, "auth: %s\n", result.Auth)
+	fmt.Fprintf(w, "leases.active: %d\n", result.Leases.Active)
+	fmt.Fprintf(w, "leases.total: %d\n", result.Leases.Total)
+	fmt.Fprintf(w, "next: %s\n", result.Next)
+	writeHelpLines(w, result.Help)
+	return exitOK
+}
+
+func writeDoctorTOON(w io.Writer, result doctor.Result) int {
+	fmt.Fprintln(w, "kind: doctor")
+	fmt.Fprintf(w, "schemaVersion: %d\n", result.SchemaVersion)
+	fmt.Fprintf(w, "readyState: %s\n", result.ReadyState)
+	fmt.Fprintf(w, "counts.ok: %d\n", result.Counts.OK)
+	fmt.Fprintf(w, "counts.warn: %d\n", result.Counts.Warn)
+	fmt.Fprintf(w, "counts.fail: %d\n", result.Counts.Fail)
+	fmt.Fprintf(w, "checks[%d]:\n", len(result.Checks))
+	for _, check := range result.Checks {
+		line := fmt.Sprintf("  - name=%s status=%s", check.Name, check.Status)
+		if check.Message != "" {
+			line += " message=" + oneLine(check.Message)
+		}
+		fmt.Fprintln(w, line)
+	}
+	writeHelpLines(w, result.Help)
+	return exitOK
+}
+
+func writeQueueTOON(w io.Writer, snapshot queue.Snapshot) int {
+	fmt.Fprintln(w, "kind: queueSnapshot")
+	fmt.Fprintf(w, "schemaVersion: %d\n", snapshot.SchemaVersion)
+	fmt.Fprintf(w, "repo: %s\n", snapshot.Repo)
+	fmt.Fprintf(w, "counts.totalIssues: %d\n", snapshot.Counts.TotalIssues)
+	fmt.Fprintf(w, "counts.eligibleIssues: %d\n", snapshot.Counts.EligibleIssues)
+	fmt.Fprintf(w, "counts.skippedIssues: %d\n", snapshot.Counts.SkippedIssues)
+	fmt.Fprintf(w, "counts.openPullRequests: %d\n", snapshot.Counts.OpenPullRequests)
+	if snapshot.Counts.BranchHealthState != "" {
+		fmt.Fprintf(w, "counts.branchHealthState: %s\n", snapshot.Counts.BranchHealthState)
+	}
+	fmt.Fprintf(w, "issues[%d]:\n", len(snapshot.Issues))
+	for _, issue := range snapshot.Issues {
+		fmt.Fprintf(w, "  - number=%d eligible=%v action=%s title=%s reasons=%s\n", issue.Issue.Number, issue.Eligible, issue.Action, oneLine(issue.Issue.Title), strings.Join(issue.Reasons, "|"))
+	}
+	writeHelpLines(w, snapshot.Help)
+	return exitOK
+}
+
+func writePRsTOON(w io.Writer, result pullRequestsResult) int {
+	fmt.Fprintln(w, "kind: pullRequests")
+	fmt.Fprintf(w, "schemaVersion: %d\n", result.SchemaVersion)
+	fmt.Fprintf(w, "repo: %s\n", result.Repo)
+	fmt.Fprintf(w, "count: %d\n", result.Count)
+	fmt.Fprintf(w, "counts.success: %d\n", result.Counts.Success)
+	fmt.Fprintf(w, "counts.failure: %d\n", result.Counts.Failure)
+	fmt.Fprintf(w, "counts.pending: %d\n", result.Counts.Pending)
+	fmt.Fprintf(w, "counts.unknown: %d\n", result.Counts.Unknown)
+	fmt.Fprintf(w, "pullRequests[%d]:\n", len(result.PullRequests))
+	for _, pr := range result.PullRequests {
+		fmt.Fprintf(w, "  - number=%d headRef=%s baseRef=%s checkState=%s title=%s\n", pr.PullRequest.Number, pr.PullRequest.HeadRef, pr.PullRequest.BaseRef, pr.PullRequest.CheckState, oneLine(pr.PullRequest.Title))
+	}
+	writeHelpLines(w, result.Help)
+	return exitOK
+}
+
+func writeChecksTOON(w io.Writer, rollup gh.CheckRollup) int {
+	fmt.Fprintln(w, "kind: checkRollup")
+	fmt.Fprintf(w, "schemaVersion: %d\n", rollup.SchemaVersion)
+	fmt.Fprintf(w, "repo: %s\n", rollup.Repo)
+	fmt.Fprintf(w, "prNumber: %d\n", rollup.PRNumber)
+	fmt.Fprintf(w, "state: %s\n", rollup.State)
+	fmt.Fprintf(w, "count: %d\n", rollup.Count)
+	fmt.Fprintf(w, "summary.passed: %d\n", rollup.Summary.Passed)
+	fmt.Fprintf(w, "summary.failed: %d\n", rollup.Summary.Failed)
+	fmt.Fprintf(w, "summary.pending: %d\n", rollup.Summary.Pending)
+	fmt.Fprintf(w, "summary.skipped: %d\n", rollup.Summary.Skipped)
+	fmt.Fprintf(w, "summary.cancelled: %d\n", rollup.Summary.Cancelled)
+	fmt.Fprintf(w, "summary.unknown: %d\n", rollup.Summary.Unknown)
+	fmt.Fprintf(w, "checks[%d]:\n", len(rollup.Checks))
+	for _, check := range rollup.Checks {
+		fmt.Fprintf(w, "  - name=%s status=%s conclusion=%s\n", oneLine(check.Name), check.Status, check.Conclusion)
+	}
+	writeHelpLines(w, rollup.Help)
+	return exitOK
+}
+
+func writeReviewThreadsTOON(w io.Writer, result gh.ReviewThreadResult) int {
+	fmt.Fprintln(w, "kind: reviewThreads")
+	fmt.Fprintf(w, "schemaVersion: %d\n", result.SchemaVersion)
+	fmt.Fprintf(w, "repo: %s\n", result.Repo)
+	fmt.Fprintf(w, "prNumber: %d\n", result.PRNumber)
+	fmt.Fprintf(w, "count: %d\n", result.Count)
+	fmt.Fprintf(w, "summary.total: %d\n", result.Summary.Total)
+	fmt.Fprintf(w, "summary.unresolved: %d\n", result.Summary.Unresolved)
+	fmt.Fprintf(w, "summary.humanUnresolved: %d\n", result.Summary.HumanUnresolved)
+	fmt.Fprintf(w, "summary.botUnresolved: %d\n", result.Summary.BotUnresolved)
+	fmt.Fprintf(w, "summary.outdated: %d\n", result.Summary.Outdated)
+	fmt.Fprintf(w, "threads[%d]:\n", len(result.Threads))
+	for _, thread := range result.Threads {
+		fmt.Fprintf(w, "  - path=%s line=%d resolved=%v outdated=%v comments=%d\n", thread.Path, thread.Line, thread.IsResolved, thread.IsOutdated, len(thread.Comments))
+	}
+	writeHelpLines(w, result.Help)
+	return exitOK
+}
+
+func writeNextTOON(w io.Writer, next queue.NextAction) int {
+	fmt.Fprintln(w, "kind: nextAction")
+	fmt.Fprintf(w, "schemaVersion: %d\n", next.SchemaVersion)
+	fmt.Fprintf(w, "repo: %s\n", next.Repo)
+	fmt.Fprintf(w, "action: %s\n", next.Action)
+	fmt.Fprintf(w, "reason: %s\n", next.Reason)
+	if next.PR != nil {
+		fmt.Fprintf(w, "pr.number: %d\n", next.PR.Number)
+		fmt.Fprintf(w, "pr.headRef: %s\n", next.PR.HeadRef)
+		fmt.Fprintf(w, "pr.baseRef: %s\n", next.PR.BaseRef)
+	}
+	if next.Issue != nil {
+		fmt.Fprintf(w, "issue.number: %d\n", next.Issue.Number)
+	}
+	fmt.Fprintf(w, "blockedItems[%d]:\n", len(next.BlockedItems))
+	for _, item := range next.BlockedItems {
+		fmt.Fprintf(w, "  - %s\n", oneLine(item))
+	}
+	fmt.Fprintf(w, "instructions[%d]:\n", len(next.Instructions))
+	for _, instruction := range next.Instructions {
+		fmt.Fprintf(w, "  - %s\n", oneLine(instruction))
+	}
+	return exitOK
+}
+
+func writeHelpLines(w io.Writer, help []string) {
+	fmt.Fprintf(w, "help[%d]:\n", len(help))
+	for _, item := range help {
+		fmt.Fprintf(w, "  - %s\n", oneLine(item))
+	}
+}
+
+func oneLine(value string) string {
+	return strings.Join(strings.Fields(value), " ")
 }
 
 func buildPullRequestsResult(repo string, prs []queue.PullState) pullRequestsResult {

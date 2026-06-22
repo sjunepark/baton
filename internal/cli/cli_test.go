@@ -9,7 +9,9 @@ import (
 	"testing"
 
 	"github.com/sjunepark/baton/internal/config"
+	"github.com/sjunepark/baton/internal/doctor"
 	"github.com/sjunepark/baton/internal/gh"
+	"github.com/sjunepark/baton/internal/queue"
 )
 
 func TestNumberedReadCommandsValidateExplicitConfig(t *testing.T) {
@@ -79,6 +81,121 @@ func TestUnknownSubcommandHelpReturnsUsage(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), `unknown command "missing"`) {
 		t.Fatalf("stderr = %q, want unknown command", stderr.String())
+	}
+}
+
+func TestHomeFormatTOON(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"home", "--state-root", t.TempDir(), "--format", "toon"}, &stdout, &stderr, "test")
+	if code != exitOK {
+		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitOK, stdout.String(), stderr.String())
+	}
+	if stderr.String() != "" {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+	output := stdout.String()
+	for _, want := range []string{"kind: home", "schemaVersion: 1", "leases.active:", "help[3]:"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("home toon = %q, want %q", output, want)
+		}
+	}
+}
+
+func TestDoctorFormatTOON(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"doctor", "--format", "toon"}, &stdout, &stderr, "test")
+	if code != exitOK && code != exitLocalGit {
+		t.Fatalf("Run exit = %d, want ok or local git; stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	if stderr.String() != "" {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+	output := stdout.String()
+	for _, want := range []string{"kind: doctor", "readyState:", "counts.ok:", "checks["} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("doctor toon = %q, want %q", output, want)
+		}
+	}
+}
+
+func TestFormatConflictReturnsStructuredError(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"doctor", "--json", "--format", "toon"}, &stdout, &stderr, "test")
+	if code != exitUsage {
+		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitUsage, stdout.String(), stderr.String())
+	}
+	if stderr.String() != "" {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+	result := decodeErrorResult(t, stdout.String())
+	if result.Category != "usage" || !strings.Contains(result.Message, "--json cannot be combined") {
+		t.Fatalf("error result = %#v", result)
+	}
+}
+
+func TestNumberedCommandMissingNumberHonorsTOONFormat(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"checks", "--format", "toon"}, &stdout, &stderr, "test")
+	if code != exitUsage {
+		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitUsage, stdout.String(), stderr.String())
+	}
+	if stderr.String() != "" {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "kind: error\n") || !strings.Contains(stdout.String(), "category: usage\n") {
+		t.Fatalf("stdout = %q, want TOON error", stdout.String())
+	}
+}
+
+func TestTOONRenderersStable(t *testing.T) {
+	var stdout bytes.Buffer
+	snapshot := queue.Snapshot{
+		SchemaVersion: 1,
+		Kind:          "queueSnapshot",
+		Repo:          "example/repo",
+		Counts:        queue.SnapshotCounts{TotalIssues: 1, EligibleIssues: 1, OpenPullRequests: 0},
+		Issues: []queue.IssueState{{
+			Issue:    queue.Issue{Number: 7, Title: "Fix flaky test"},
+			Eligible: true,
+			Action:   "issue-implementation",
+			Reasons:  []string{"eligible"},
+		}},
+		Help: []string{"Run `baton next --format toon`."},
+	}
+	writeQueueTOON(&stdout, snapshot)
+	wantQueue := "kind: queueSnapshot\nschemaVersion: 1\nrepo: example/repo\ncounts.totalIssues: 1\ncounts.eligibleIssues: 1\ncounts.skippedIssues: 0\ncounts.openPullRequests: 0\nissues[1]:\n  - number=7 eligible=true action=issue-implementation title=Fix flaky test reasons=eligible\nhelp[1]:\n  - Run `baton next --format toon`.\n"
+	if stdout.String() != wantQueue {
+		t.Fatalf("queue toon = %q\nwant %q", stdout.String(), wantQueue)
+	}
+
+	stdout.Reset()
+	writePRsTOON(&stdout, buildPullRequestsResult("example/repo", []queue.PullState{{PullRequest: queue.PullRequest{Number: 8, Title: "Update docs", HeadRef: "agent-work/8", BaseRef: "agent", CheckState: "success"}}}))
+	if !strings.Contains(stdout.String(), "kind: pullRequests\n") || !strings.Contains(stdout.String(), "pullRequests[1]:\n  - number=8 headRef=agent-work/8 baseRef=agent checkState=success title=Update docs\n") {
+		t.Fatalf("prs toon = %q", stdout.String())
+	}
+
+	stdout.Reset()
+	writeNextTOON(&stdout, queue.NextAction{SchemaVersion: 1, Kind: "nextAction", Repo: "example/repo", Action: "none", Reason: "empty", Instructions: []string{"Inspect queue."}})
+	if !strings.Contains(stdout.String(), "kind: nextAction\n") || !strings.Contains(stdout.String(), "instructions[1]:\n  - Inspect queue.\n") {
+		t.Fatalf("next toon = %q", stdout.String())
+	}
+
+	stdout.Reset()
+	writeChecksTOON(&stdout, gh.CheckRollup{SchemaVersion: 1, Kind: "checkRollup", Repo: "example/repo", PRNumber: 4, State: "failure", Count: 1, Summary: gh.CheckSummary{Failed: 1}, Checks: []gh.CheckState{{Name: "unit", Status: "completed", Conclusion: "failure"}}})
+	if !strings.Contains(stdout.String(), "summary.failed: 1\n") || !strings.Contains(stdout.String(), "checks[1]:\n  - name=unit status=completed conclusion=failure\n") {
+		t.Fatalf("checks toon = %q", stdout.String())
+	}
+
+	stdout.Reset()
+	writeReviewThreadsTOON(&stdout, gh.ReviewThreadResult{SchemaVersion: 1, Kind: "reviewThreads", Repo: "example/repo", PRNumber: 4, Count: 1, Summary: gh.ThreadSummary{Total: 1, Unresolved: 1}, Threads: []gh.ReviewThread{{Path: "main.go", Line: 12, Comments: []gh.ReviewComment{{Body: "fix"}}}}})
+	if !strings.Contains(stdout.String(), "summary.unresolved: 1\n") || !strings.Contains(stdout.String(), "threads[1]:\n  - path=main.go line=12 resolved=false outdated=false comments=1\n") {
+		t.Fatalf("review threads toon = %q", stdout.String())
+	}
+
+	stdout.Reset()
+	writeDoctorTOON(&stdout, doctor.Result{SchemaVersion: 1, Kind: "doctor", ReadyState: "ready", Counts: doctor.Counts{OK: 1}, Checks: []doctor.Check{{Name: "git", Status: "ok"}}})
+	if !strings.Contains(stdout.String(), "kind: doctor\n") || !strings.Contains(stdout.String(), "checks[1]:\n  - name=git status=ok\n") {
+		t.Fatalf("doctor toon = %q", stdout.String())
 	}
 }
 

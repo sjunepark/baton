@@ -69,6 +69,10 @@ objects.
   user-supplied long text by default and expose full-output escape hatches. The
   current `pr` JSON output does not expose PR bodies, so there is no PR body
   field to truncate yet.
+- `baton home` now ships as the content-first dashboard, and the read-heavy
+  commands `home`, `doctor`, `next`, `queue`, `prs`, `checks`, and
+  `review-threads` support `--format toon|json|text` with `--json` preserved as
+  a compatibility alias.
 
 ## AXI Scorecard
 
@@ -403,10 +407,10 @@ Recommended enhancement:
    - [x] Add `--full` tests.
    - [x] Then extend to PR body/config-like dry-run content.
 
-5. [ ] Add compact/TOON output:
-   - Start with read-only commands: `home`, `doctor`, `next`, `queue`, `prs`,
+5. [x] Add compact/TOON output:
+   - [x] Start with read-only commands: `home`, `doctor`, `next`, `queue`, `prs`,
      `checks`, and `review-threads`.
-   - Add golden tests for stable formatting.
+   - [x] Add golden tests for stable formatting.
 
 6. [ ] Update agent-facing docs:
    - Revise `skills/baton/SKILL.md` and references.
@@ -444,6 +448,12 @@ Recommended enhancement:
   noting that PR bodies are not currently exposed in JSON. Validation:
   `go test ./...` passes; a built `cmd/baton` binary verifies migration and
   completion help/output metadata.
+- 2026-06-23: Completed compact/TOON output by adding `baton home`, shared
+  `--format text|json|toon` parsing for the read-heavy commands, TOON renderers
+  for home/doctor/next/queue/prs/checks/review-threads, and stable renderer
+  tests. Validation: `go test ./...` passes; a built `cmd/baton` binary verifies
+  `home --format toon`, `doctor --format toon`, and structured format-conflict
+  errors.
 
 ## Keep As-Is
 
