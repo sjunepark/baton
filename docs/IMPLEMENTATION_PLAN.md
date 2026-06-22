@@ -15,7 +15,9 @@
 - Read-only queue inspection is implemented with GitHub issue/PR/check/review
   fetching and a pure next-action classifier. Live GitHub validation is still
   needed against Creo.
-- Worktree leasing is not implemented yet.
+- Native worktree leasing is implemented with lease records, branch collision
+  protection, dirty release refusal, listing, and prune dry-run. It does not
+  yet remove worktrees during prune.
 
 ## Phase 0 - Repository Scaffold
 
@@ -117,19 +119,23 @@ Goal: prevent overlapping automations from sharing one checkout.
 
 Tasks:
 
-- Implement native worktree lease backend.
-- Implement lease records.
-- Implement acquire/release/list/prune dry-run.
-- Add dirty and in-use detection.
-- Add branch collision checks.
-- Return lease JSON for Codex.
+- [x] Implement native worktree lease backend.
+- [x] Implement lease records.
+- [x] Implement acquire/release/list/prune dry-run.
+- [x] Add dirty and in-use detection.
+- [x] Add branch collision checks.
+- [x] Return lease JSON for Codex.
 
 Acceptance:
 
-- Two concurrent attempts to lease the same branch cannot both succeed.
-- Dirty managed worktrees are not reused.
-- Release refuses dirty worktrees by default.
-- User's original checkout branch is never changed.
+- [x] Two concurrent attempts to lease the same branch cannot both succeed.
+- [x] Dirty managed worktrees are not reused.
+- [x] Release refuses dirty worktrees by default.
+- [x] User's original checkout branch is never changed.
+
+Remaining:
+
+- Implement actual prune cleanup behind `--yes`; current prune is dry-run only.
 
 ## Phase 5 - Skill Package
 
@@ -228,4 +234,10 @@ Integration, live gated:
 - Validation: `go test ./...` covers queue classification and existing GitHub
   client behavior; `go run ./cmd/baton --help` passes. Live GitHub validation
   remains pending.
-- Next slice: implement native worktree leasing.
+- Added native worktree lease acquire/release/list/prune-dry-run with persisted
+  JSON records, branch ownership checks, acquire locking, and dirty release
+  refusal.
+- Validation: `go test ./...` covers lease acquisition into a temp git worktree,
+  branch collision refusal, dirty release refusal, keep-dirty release, and prune
+  dry-run candidates.
+- Next slice: create the bundled Baton Codex skill package.

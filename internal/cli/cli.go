@@ -8,12 +8,14 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/sejunpark/baton/internal/config"
 	"github.com/sejunpark/baton/internal/gh"
 	"github.com/sejunpark/baton/internal/git"
 	"github.com/sejunpark/baton/internal/install"
 	"github.com/sejunpark/baton/internal/labels"
+	"github.com/sejunpark/baton/internal/lease"
 	"github.com/sejunpark/baton/internal/policy"
 	"github.com/sejunpark/baton/internal/queue"
 )
@@ -61,6 +63,14 @@ func Run(args []string, stdout, stderr io.Writer, version string) int {
 		return runReviewThreads(args[1:], stdout, stderr)
 	case "next":
 		return runNext(args[1:], stdout, stderr)
+	case "lease":
+		return runLease(args[1:], stdout, stderr)
+	case "release":
+		return runRelease(args[1:], stdout, stderr)
+	case "leases":
+		return runLeases(args[1:], stdout, stderr)
+	case "prune":
+		return runPrune(args[1:], stdout, stderr)
 	case "ensure-branch":
 		return runEnsureBranch(args[1:], stdout, stderr)
 	case "labels":
@@ -89,12 +99,17 @@ Usage:
   baton checks <number> --json [--repo owner/name]
   baton review-threads <number> --json [--repo owner/name]
   baton next --json [--repo owner/name]
+  baton lease --purpose <purpose> --branch <ref> --json
+  baton lease --purpose <purpose> --base <ref> --new-branch <ref> --json
+  baton release --lease <id>|--path <path> [--keep-dirty]
+  baton leases --json
+  baton prune --dry-run --json
   baton ensure-branch [--apply] [--remote origin] [--base main] [--target agent] [--json]
   baton labels --file <path> [--json]
 
 The current implementation includes policy checks, install planning, GitHub
-label/policy writes, read-only queue inspection, and branch setup. Worktree
-leasing is implemented in a later phase.
+label/policy writes, read-only queue inspection, branch setup, and native
+worktree leases.
 `)
 }
 
@@ -506,6 +521,130 @@ func runNext(args []string, stdout, stderr io.Writer) int {
 		return writeJSON(stdout, stderr, next)
 	}
 	fmt.Fprintf(stdout, "Next action: %s\nReason: %s\n", next.Action, next.Reason)
+	return exitOK
+}
+
+func runLease(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("lease", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	purpose := fs.String("purpose", "", "lease purpose")
+	branch := fs.String("branch", "", "existing branch/ref")
+	base := fs.String("base", "", "base ref for new branch")
+	newBranch := fs.String("new-branch", "", "new branch name")
+	repo := fs.String("repo-name", "", "repository name for lease metadata")
+	stateRoot := fs.String("state-root", "", "Baton state root")
+	jsonOut := fs.Bool("json", false, "emit JSON")
+	if err := fs.Parse(args); err != nil {
+		return exitUsage
+	}
+	manager := lease.NewManager(*stateRoot)
+	record, err := manager.Acquire(lease.AcquireRequest{
+		Purpose:   *purpose,
+		BaseRef:   *base,
+		HeadRef:   *branch,
+		NewBranch: *newBranch,
+		Repo:      *repo,
+	})
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitLocalGit
+	}
+	if *jsonOut {
+		return writeJSON(stdout, stderr, record)
+	}
+	fmt.Fprintf(stdout, "Lease %s: %s\n", record.ID, record.WorktreePath)
+	return exitOK
+}
+
+func runRelease(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("release", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	leaseID := fs.String("lease", "", "lease id")
+	path := fs.String("path", "", "lease worktree path")
+	keepDirty := fs.Bool("keep-dirty", false, "mark dirty lease released")
+	stateRoot := fs.String("state-root", "", "Baton state root")
+	jsonOut := fs.Bool("json", false, "emit JSON")
+	if err := fs.Parse(args); err != nil {
+		return exitUsage
+	}
+	if (*leaseID == "") == (*path == "") {
+		fmt.Fprintln(stderr, "release requires exactly one of --lease or --path")
+		return exitUsage
+	}
+	manager := lease.NewManager(*stateRoot)
+	var (
+		result lease.ReleaseResult
+		err    error
+	)
+	if *leaseID != "" {
+		result, err = manager.ReleaseByID(*leaseID, *keepDirty)
+	} else {
+		result, err = manager.ReleaseByPath(*path, *keepDirty)
+	}
+	if err != nil {
+		if result.Dirty {
+			writeJSON(stdout, stderr, result)
+		}
+		fmt.Fprintln(stderr, err)
+		return exitLocalGit
+	}
+	if *jsonOut {
+		return writeJSON(stdout, stderr, result)
+	}
+	fmt.Fprintf(stdout, "Released %s\n", result.Lease.ID)
+	return exitOK
+}
+
+func runLeases(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("leases", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	stateRoot := fs.String("state-root", "", "Baton state root")
+	jsonOut := fs.Bool("json", false, "emit JSON")
+	if err := fs.Parse(args); err != nil {
+		return exitUsage
+	}
+	records, err := lease.NewManager(*stateRoot).List()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitLocalGit
+	}
+	if *jsonOut {
+		return writeJSON(stdout, stderr, struct {
+			SchemaVersion int            `json:"schemaVersion"`
+			Kind          string         `json:"kind"`
+			Leases        []lease.Record `json:"leases"`
+		}{SchemaVersion: 1, Kind: "leases", Leases: records})
+	}
+	for _, record := range records {
+		fmt.Fprintf(stdout, "%s %s %s\n", record.ID, record.Status, record.WorktreePath)
+	}
+	return exitOK
+}
+
+func runPrune(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("prune", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	dryRun := fs.Bool("dry-run", false, "preview prune candidates")
+	stateRoot := fs.String("state-root", "", "Baton state root")
+	jsonOut := fs.Bool("json", false, "emit JSON")
+	if err := fs.Parse(args); err != nil {
+		return exitUsage
+	}
+	if !*dryRun {
+		fmt.Fprintln(stderr, "prune currently requires --dry-run")
+		return exitUsage
+	}
+	plan, err := lease.NewManager(*stateRoot).PruneDryRun(time.Now().UTC())
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitLocalGit
+	}
+	if *jsonOut {
+		return writeJSON(stdout, stderr, plan)
+	}
+	for _, record := range plan.Candidates {
+		fmt.Fprintf(stdout, "%s %s\n", record.ID, record.Status)
+	}
 	return exitOK
 }
 
