@@ -27,11 +27,18 @@ type PullRequest struct {
 }
 
 type Snapshot struct {
-	SchemaVersion int          `json:"schemaVersion"`
-	Kind          string       `json:"kind"`
-	Repo          string       `json:"repo"`
-	Issues        []IssueState `json:"issues"`
-	PullRequests  []PullState  `json:"pullRequests"`
+	SchemaVersion int           `json:"schemaVersion"`
+	Kind          string        `json:"kind"`
+	Repo          string        `json:"repo"`
+	BranchHealth  *BranchHealth `json:"branchHealth,omitempty"`
+	Issues        []IssueState  `json:"issues"`
+	PullRequests  []PullState   `json:"pullRequests"`
+}
+
+type BranchHealth struct {
+	Ref        string `json:"ref"`
+	SHA        string `json:"sha"`
+	CheckState string `json:"checkState"`
 }
 
 type IssueState struct {
@@ -72,6 +79,10 @@ type IssueRef struct {
 }
 
 func BuildSnapshot(repo string, cfg config.Config, issues []Issue, prs []PullRequest) Snapshot {
+	return BuildSnapshotWithBranchHealth(repo, cfg, issues, prs, nil)
+}
+
+func BuildSnapshotWithBranchHealth(repo string, cfg config.Config, issues []Issue, prs []PullRequest, branchHealth *BranchHealth) Snapshot {
 	prStates := make([]PullState, 0, len(prs))
 	prsByIssue := map[int][]int{}
 	for _, pr := range prs {
@@ -110,10 +121,21 @@ func BuildSnapshot(repo string, cfg config.Config, issues []Issue, prs []PullReq
 		issueStates = append(issueStates, state)
 	}
 
-	return Snapshot{SchemaVersion: 1, Kind: "queueSnapshot", Repo: repo, Issues: issueStates, PullRequests: prStates}
+	return Snapshot{SchemaVersion: 1, Kind: "queueSnapshot", Repo: repo, BranchHealth: branchHealth, Issues: issueStates, PullRequests: prStates}
 }
 
 func RecommendNext(snapshot Snapshot) NextAction {
+	if snapshot.BranchHealth != nil && (snapshot.BranchHealth.CheckState == "failure" || snapshot.BranchHealth.CheckState == "pending") {
+		return NextAction{
+			SchemaVersion: 1,
+			Kind:          "nextAction",
+			Action:        "branch-health",
+			Repo:          snapshot.Repo,
+			Reason:        snapshot.BranchHealth.CheckState + "-staging-branch",
+			BlockedItems:  []string{},
+			Instructions:  []string{"Acquire a lease before editing.", "Fix the shared staging branch before starting new issue work.", "Do not open unrelated issue PRs until branch health is clear."},
+		}
+	}
 	for _, pr := range snapshot.PullRequests {
 		state := pr.PullRequest.CheckState
 		if state == "failure" || state == "pending" {

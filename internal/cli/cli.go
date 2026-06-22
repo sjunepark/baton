@@ -1008,7 +1008,12 @@ func fetchQueueSnapshot(repoFlag, configPath string, includeChecks bool, stderr 
 			prs[i].CheckState = rollup.State
 		}
 	}
-	return queue.BuildSnapshot(repo, cfg, issues, prs), exitOK
+	branchHealth, err := client.GetBranchHealth(repo, cfg.Repository.StagingBranch)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return queue.Snapshot{}, exitGitHub
+	}
+	return queue.BuildSnapshotWithBranchHealth(repo, cfg, issues, prs, branchHealth), exitOK
 }
 
 func githubClientForRepo(repoFlag string, stderr io.Writer) (string, *gh.Client, int) {

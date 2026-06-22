@@ -199,6 +199,25 @@ func (c *Client) GetCheckRollup(repo string, pr queue.PullRequest) (CheckRollup,
 	return CheckRollup{SchemaVersion: 1, Kind: "checkRollup", Repo: repo, PRNumber: pr.Number, HeadSHA: pr.HeadSHA, State: classifyChecks(checks), Checks: checks}, nil
 }
 
+func (c *Client) GetBranchHealth(repo string, ref string) (*queue.BranchHealth, error) {
+	if ref == "" {
+		return nil, nil
+	}
+	var payload struct {
+		Object struct {
+			SHA string `json:"sha"`
+		} `json:"object"`
+	}
+	if err := c.getJSON(fmt.Sprintf("/repos/%s/git/ref/heads/%s", repo, url.PathEscape(ref)), &payload); err != nil {
+		return nil, err
+	}
+	rollup, err := c.GetCheckRollup(repo, queue.PullRequest{HeadSHA: payload.Object.SHA})
+	if err != nil {
+		return nil, err
+	}
+	return &queue.BranchHealth{Ref: ref, SHA: payload.Object.SHA, CheckState: rollup.State}, nil
+}
+
 func (c *Client) GetReviewThreads(repo string, prNumber int) (ReviewThreadResult, error) {
 	owner, name, err := splitRepo(repo)
 	if err != nil {

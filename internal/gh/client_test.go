@@ -98,3 +98,28 @@ func TestCreateIssueComment(t *testing.T) {
 		t.Fatal("comment was not posted")
 	}
 }
+
+func TestGetBranchHealth(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/open-creo/creo/git/ref/heads/agent":
+			w.Write([]byte(`{"object":{"sha":"abc123"}}`))
+		case "/repos/open-creo/creo/commits/abc123/check-runs":
+			w.Write([]byte(`{"check_runs":[{"name":"test","status":"completed","conclusion":"failure","html_url":"https://example/check"}]}`))
+		case "/repos/open-creo/creo/commits/abc123/status":
+			w.Write([]byte(`{"statuses":[]}`))
+		default:
+			t.Fatalf("unexpected path %s", r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "token", server.Client())
+	health, err := client.GetBranchHealth("open-creo/creo", "agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if health.Ref != "agent" || health.SHA != "abc123" || health.CheckState != "failure" {
+		t.Fatalf("health = %#v", health)
+	}
+}

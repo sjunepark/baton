@@ -13,9 +13,10 @@
 - GitHub API foundations are implemented for issue-policy apply, PR policy
   issue/commit enrichment, and label sync.
 - Read-only queue inspection is implemented with GitHub issue/PR/check/review
-  fetching and a pure next-action classifier. Live GitHub validation against
-  Creo succeeds for `doctor`, `queue`, `prs`, and `next`; the current Creo queue
-  has no open PR follow-up case to validate that ordering live.
+  fetching, staging branch health, and a pure next-action classifier. Live
+  GitHub validation against Creo succeeds for `doctor`, `queue`, `prs`, and
+  `next`; the current Creo queue has no open PR follow-up case to validate that
+  ordering live.
 - Native worktree leasing is implemented with lease records, branch collision
   protection, dirty release refusal, listing, prune dry-run, and conservative
   prune cleanup behind `--yes`.
@@ -272,4 +273,10 @@ Integration, live gated:
   or PR timelines.
 - Validation: `go test ./...` covers completion comment body formatting and the
   GitHub issue comment REST endpoint.
+- Added staging branch health fetching and `branch-health` next-action
+  precedence before issue intake.
+- Validation: `go test ./...` covers branch-health classification and GitHub
+  ref/check fetching; live `baton next --json --repo open-creo/creo` still
+  selects issue #5 for investigation because Creo's current staging branch is
+  not red.
 - Next slice: start Creo migration wiring.

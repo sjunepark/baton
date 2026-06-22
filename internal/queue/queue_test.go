@@ -47,6 +47,36 @@ func TestRecommendNextPrefersPRFollowup(t *testing.T) {
 	}
 }
 
+func TestRecommendNextPrefersBranchHealthBeforeIssue(t *testing.T) {
+	snapshot := Snapshot{
+		SchemaVersion: 1,
+		Kind:          "queueSnapshot",
+		Repo:          "open-creo/creo",
+		BranchHealth:  &BranchHealth{Ref: "agent", SHA: "abc", CheckState: "failure"},
+		Issues:        []IssueState{{Issue: Issue{Number: 1, URL: "https://example/1"}, Eligible: true, Action: "issue-implementation"}},
+	}
+	next := RecommendNext(snapshot)
+	if next.Action != "branch-health" {
+		t.Fatalf("next = %#v", next)
+	}
+}
+
+func TestRecommendNextPrefersBranchHealthBeforePRFollowup(t *testing.T) {
+	snapshot := Snapshot{
+		SchemaVersion: 1,
+		Kind:          "queueSnapshot",
+		Repo:          "open-creo/creo",
+		BranchHealth:  &BranchHealth{Ref: "agent", SHA: "abc", CheckState: "pending"},
+		PullRequests: []PullState{{
+			PullRequest: PullRequest{Number: 10, URL: "https://example/pr/10", BaseRef: "agent", HeadRef: "agent-work/1", CheckState: "failure"},
+		}},
+	}
+	next := RecommendNext(snapshot)
+	if next.Action != "branch-health" {
+		t.Fatalf("next = %#v", next)
+	}
+}
+
 func TestRecommendNextIssueImplementation(t *testing.T) {
 	snapshot := Snapshot{
 		SchemaVersion: 1,
