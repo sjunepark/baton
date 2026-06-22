@@ -143,16 +143,20 @@ Goal: ship a Baton skill that Codex can use in automations.
 
 Tasks:
 
-- Create `skills/baton/SKILL.md`.
-- Add concise command and JSON references only if needed.
-- Validate skill metadata.
-- Test the skill manually on Creo queue inspection.
+- [x] Create `skills/baton/SKILL.md`.
+- [x] Add concise command and JSON references only if needed.
+- [x] Validate skill metadata.
+- [ ] Test the skill manually on Creo queue inspection.
 
 Acceptance:
 
-- A fresh Codex session can use the skill to run one safe read-only triage.
-- A fresh Codex session can acquire a lease before editing.
-- Skill does not duplicate long CLI docs.
+- [ ] A fresh Codex session can use the skill to run one safe read-only triage.
+- [x] A fresh Codex session can acquire a lease before editing.
+- [x] Skill does not duplicate long CLI docs.
+
+Remaining:
+
+- Live-test the skill against Creo after GitHub auth/queue validation.
 
 ## Phase 6 - Creo Migration
 
@@ -240,4 +244,9 @@ Integration, live gated:
 - Validation: `go test ./...` covers lease acquisition into a temp git worktree,
   branch collision refusal, dirty release refusal, keep-dirty release, and prune
   dry-run candidates.
-- Next slice: create the bundled Baton Codex skill package.
+- Added bundled `skills/baton` package with a concise workflow and compact
+  command/JSON references.
+- Validation: skill metadata is present in `skills/baton/SKILL.md`; full repo
+  validation remains `go test ./...`.
+- Next slice: live-test against Creo where auth is available, then start Creo
+  migration wiring.
