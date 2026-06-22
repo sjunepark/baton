@@ -31,7 +31,7 @@ objects, explicit exit codes, dry-run or apply gates for mutations, pure
 decision objects, and no interactive prompts. It also ships a concise Codex
 skill, which is a good foundation for ambient agent context.
 
-The main AXI gaps are at the interface layer:
+At `fb24bdc`, the main AXI gaps were at the interface layer:
 
 - no TOON or other compact agent-native output mode;
 - no content-first home view when `baton` is run without arguments;
@@ -90,16 +90,16 @@ objects.
 
 | AXI principle | Current fit | Possible fix or enhancement |
 | --- | --- | --- |
-| Token-efficient output | Partial. JSON is stable but pretty-printed by default in `writeJSON`, and there is no TOON mode. | Add `--format toon,json,text` or `--format toon` alongside existing `--json`; keep `--json` for compatibility. Add compact JSON or `--pretty` as an opt-in. |
-| Minimal default schemas | Partial. Queue list bodies are omitted, but list items still include nested wrappers, URLs, labels, SHAs, and repeated metadata. | Define compact default views per command and add `--fields` or `--view full` for expansion. |
-| Content truncation | Weak. Review-thread comments return full bodies, and migration dry-run JSON can return complete generated config content. | Add default body limits with `bodyChars`, `bodyTruncated`, and `--full` escape hatches. |
-| Pre-computed aggregates | Partial. `next` precomputes one action, and checks have a single rollup state, but most lists lack counts and grouped summaries. | Add `counts` and summaries to queue, PRs, checks, review threads, label sync, leases, prune, and doctor. |
-| Definitive empty states | Partial. JSON arrays are explicit, but text output loops can print nothing for empty lists. | Add `count: 0` or clear "0 results" text for empty queues, PR lists, leases, checks, threads, and sync plans. |
-| Structured errors and exit codes | Partial. Exit codes exist and mutations are gated, but errors are unstructured stderr strings even when `--json` is requested. | Add a shared `error` result envelope on stdout for structured modes, with category, exit code, message, hint, and retryability. |
-| Ambient context | Partial. `skills/baton` exists, but there is no command that installs or prints a compact session dashboard. | Add `baton home` or no-args home output, and consider `baton setup-agent-context` for Codex/session integrations. |
-| Content first | Weak. No-args `baton` prints global help rather than live repo state. | Make no-args output a live home view with binary path, repo/config/auth status, active leases, and next suggested command. |
-| Contextual disclosure | Partial. `nextAction.instructions` is useful, but other command outputs do not include `help[]` next steps. | Append concrete `help[]` commands to structured outputs, especially `doctor`, `queue`, `prs`, `pr`, `checks`, `review-threads`, and `lease`. |
-| Consistent help | Weak. Subcommand `--help` is default Go flag help and currently exits as usage through `go run`. | Add first-class subcommand help on stdout with exit 0, concise examples, and `baton help <command>`. |
+| Token-efficient output | Implemented. JSON is compact by default, and read-heavy commands expose TOON through `--format toon`. | Add `--pretty` later only if human pretty-printed JSON becomes useful enough. |
+| Minimal default schemas | Implemented for compact list reads. TOON defaults are concise, with `--fields` on `queue`, `prs`, and `checks`. | Keep JSON as the full automation contract. |
+| Content truncation | Implemented for review-thread comments, migration dry-run content, and completion summary/validation output. | Add the same pattern to future long body views if Baton exposes them. |
+| Pre-computed aggregates | Implemented across queue, PR list, PR dashboard, checks, review threads, label sync, leases, prune, and doctor. | Keep new high-volume results aggregate-first. |
+| Definitive empty states | Implemented. List results expose counts and text/TOON views print explicit empty states. | Preserve this behavior for future list commands. |
+| Structured errors and exit codes | Implemented for structured modes through the shared error renderer. | Continue mapping new command failures through the renderer. |
+| Ambient context | Implemented with `baton home`, bare `baton`, and updated bundled skill guidance. | Defer repo-local context installers until Baton intentionally owns hooks or hints. |
+| Content first | Implemented. Bare `baton` renders the live home dashboard; `baton --help` remains global help. | Keep home resilient when config or auth is missing. |
+| Contextual disclosure | Implemented. Structured results include `help[]` or command-specific guidance. | Keep help entries concrete and low-noise. |
+| Consistent help | Implemented. `baton help <command>` and `<command> --help` render first-class help on stdout with exit 0. | Generate docs from command metadata in a future docs automation slice if drift becomes costly. |
 
 ## Prioritized Enhancements
 
@@ -341,7 +341,7 @@ than guessed runtime values.
 
 ### AXI-010: Add An Agent Context Setup Command
 
-Evidence:
+Original evidence:
 
 - `skills/baton` gives concise process guidance, but users or automations still
   need to know that the skill exists and to run `baton next --json`.
@@ -357,9 +357,15 @@ Recommended shape:
 - Generate the skill command reference from the same command metadata used by
   CLI help, so docs do not drift.
 
+Implementation note: Baton now provides `baton home --format toon`, bare
+`baton` renders the home dashboard, and the bundled skill prefers compact home
+and read outputs. `setup-agent-context` was not added because the recommended
+shape only calls for it if Baton should install repo-local hints or hooks, which
+is outside the current CLI safety scope.
+
 ### AXI-011: Deepen PR And Review Summaries
 
-Evidence:
+Original evidence:
 
 - `baton pr <number> --json` currently returns PR basics plus check state.
 - The CLI spec expects richer PR state, including linked issues, labels, review
