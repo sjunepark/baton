@@ -65,6 +65,10 @@ objects.
 - `baton review-threads` now defaults to bounded comment-body output with
   `bodyChars`, `bodyTruncated`, `bodyPreview`, and `fullCommand` metadata, plus
   `--full` and `--body-limit` escape hatches.
+- `migrate-config --dry-run` and `complete --json` now bound generated or
+  user-supplied long text by default and expose full-output escape hatches. The
+  current `pr` JSON output does not expose PR bodies, so there is no PR body
+  field to truncate yet.
 
 ## AXI Scorecard
 
@@ -394,10 +398,10 @@ Recommended enhancement:
    - [x] explicit empty-state text.
    - [x] subcommand help with exit 0.
 
-4. [ ] Add truncation:
+4. [x] Add truncation:
    - [x] Start with `review-threads`.
    - [x] Add `--full` tests.
-   - [ ] Then extend to PR body/config-like dry-run content.
+   - [x] Then extend to PR body/config-like dry-run content.
 
 5. [ ] Add compact/TOON output:
    - Start with read-only commands: `home`, `doctor`, `next`, `queue`, `prs`,
@@ -434,6 +438,12 @@ Recommended enhancement:
   Validation: `go test ./...` passes; a built `cmd/baton` binary verifies
   review-thread help documents truncation flags and negative `--body-limit`
   returns structured usage JSON with empty stderr.
+- 2026-06-23: Completed the remaining truncation targets by bounding
+  `migrate-config --dry-run` generated content and `complete --json` summary
+  and validation output, while preserving full completion records on disk and
+  noting that PR bodies are not currently exposed in JSON. Validation:
+  `go test ./...` passes; a built `cmd/baton` binary verifies migration and
+  completion help/output metadata.
 
 ## Keep As-Is
 

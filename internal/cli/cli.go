@@ -34,6 +34,7 @@ const (
 	schemaVersionV1 = 1
 
 	defaultReviewThreadBodyLimit = 4096
+	defaultDocumentBodyLimit     = 4096
 )
 
 type renderer struct {
@@ -82,6 +83,36 @@ type leaseCounts struct {
 	Active   int `json:"active"`
 	Released int `json:"released"`
 	Pruned   int `json:"pruned"`
+}
+
+type configMigrationResult struct {
+	SchemaVersion    int    `json:"schemaVersion"`
+	Kind             string `json:"kind"`
+	From             string `json:"from"`
+	To               string `json:"to"`
+	Action           string `json:"action"`
+	Content          string `json:"content,omitempty"`
+	ContentChars     int    `json:"contentChars,omitempty"`
+	ContentTruncated bool   `json:"contentTruncated,omitempty"`
+	ContentPreview   string `json:"contentPreview,omitempty"`
+	FullCommand      string `json:"fullCommand,omitempty"`
+}
+
+type completionResult struct {
+	SchemaVersion       int       `json:"schemaVersion"`
+	Kind                string    `json:"kind"`
+	ID                  string    `json:"id"`
+	LeaseID             string    `json:"leaseId,omitempty"`
+	Summary             string    `json:"summary"`
+	SummaryChars        int       `json:"summaryChars"`
+	SummaryTruncated    bool      `json:"summaryTruncated"`
+	SummaryPreview      string    `json:"summaryPreview,omitempty"`
+	Validation          string    `json:"validation,omitempty"`
+	ValidationChars     int       `json:"validationChars,omitempty"`
+	ValidationTruncated bool      `json:"validationTruncated,omitempty"`
+	ValidationPreview   string    `json:"validationPreview,omitempty"`
+	FullCommand         string    `json:"fullCommand,omitempty"`
+	CreatedAt           time.Time `json:"createdAt"`
 }
 
 func newRenderer(stdout, stderr io.Writer, structured bool) renderer {
@@ -204,7 +235,7 @@ Usage:
   baton --help
   baton version
   baton init --dry-run|--apply [--profile default] [--go-install module@version|--install-command <cmd>] [--yes] [--json]
-  baton migrate-config --dry-run|--apply [--from <path>] [--to <path>] [--yes] [--json]
+  baton migrate-config --dry-run|--apply [--from <path>] [--to <path>] [--yes] [--full] [--body-limit <chars>] [--json]
   baton doctor [--config <path>] [--json]
   baton issue-policy --body-file <path> [--labels a,b] [--config <path>] [--json]
   baton issue-policy --event <path> [--apply] [--repo owner/name] [--config <path>] [--json]
@@ -222,7 +253,7 @@ Usage:
   baton release --lease <id>|--path <path> [--keep-dirty]
   baton leases --json
   baton prune --dry-run|--yes --json
-  baton complete --summary <text> [--lease <id>] [--validation <text>] [--comment --repo owner/name --issue N|--pr N] [--json]
+  baton complete --summary <text> [--lease <id>] [--validation <text>] [--comment --repo owner/name --issue N|--pr N] [--full] [--body-limit <chars>] [--json]
   baton ensure-branch [--apply] [--remote origin] [--base main] [--target agent] [--json]
   baton labels --file <path> [--json]
 
@@ -255,9 +286,9 @@ var commandHelps = map[string]commandHelp{
 	},
 	"migrate-config": {
 		Purpose:  "Preview or write a Baton config migrated from the legacy policy config.",
-		Usage:    "baton migrate-config --dry-run|--apply [--from <path>] [--to <path>] [--yes] [--json]",
-		Flags:    []string{"--dry-run: preview migrated config", "--apply: write migrated config", "--from: legacy policy config path", "--to: Baton config output path", "--json: emit structured JSON"},
-		Examples: []string{"baton migrate-config --dry-run --json", "baton migrate-config --apply --yes"},
+		Usage:    "baton migrate-config --dry-run|--apply [--from <path>] [--to <path>] [--yes] [--full] [--body-limit <chars>] [--json]",
+		Flags:    []string{"--dry-run: preview migrated config", "--apply: write migrated config", "--from: legacy policy config path", "--to: Baton config output path", "--full: include full generated config content", "--body-limit: maximum default content characters", "--json: emit structured JSON"},
+		Examples: []string{"baton migrate-config --dry-run --json", "baton migrate-config --dry-run --full --json", "baton migrate-config --apply --yes"},
 		Related:  []string{"baton doctor --config .github/baton.yml --json"},
 	},
 	"doctor": {
@@ -360,9 +391,9 @@ var commandHelps = map[string]commandHelp{
 	},
 	"complete": {
 		Purpose:  "Record completion details and optionally post a GitHub comment.",
-		Usage:    "baton complete --summary <text> [--lease <id>] [--validation <text>] [--comment --repo owner/name --issue N|--pr N] [--json]",
-		Flags:    []string{"--summary: completion summary", "--validation: validation performed", "--comment: post a GitHub comment", "--json: emit structured JSON"},
-		Examples: []string{"baton complete --summary done --validation 'go test ./...' --json"},
+		Usage:    "baton complete --summary <text> [--lease <id>] [--validation <text>] [--comment --repo owner/name --issue N|--pr N] [--full] [--body-limit <chars>] [--json]",
+		Flags:    []string{"--summary: completion summary", "--validation: validation performed", "--comment: post a GitHub comment", "--full: include full summary and validation text", "--body-limit: maximum default text characters", "--json: emit structured JSON"},
+		Examples: []string{"baton complete --summary done --validation 'go test ./...' --json", "baton complete --summary done --full --json"},
 		Related:  []string{"baton release --lease <id>"},
 	},
 	"ensure-branch": {
@@ -458,11 +489,16 @@ func runMigrateConfig(args []string, stdout, stderr io.Writer) int {
 	dryRun := fs.Bool("dry-run", false, "preview migrated config")
 	apply := fs.Bool("apply", false, "write migrated config")
 	yes := fs.Bool("yes", false, "overwrite changed target")
+	full := fs.Bool("full", false, "include full generated config content")
+	bodyLimit := fs.Int("body-limit", defaultDocumentBodyLimit, "maximum default content characters")
 	jsonOut := fs.Bool("json", false, "emit JSON")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
 	out := newRenderer(stdout, stderr, *jsonOut)
+	if *bodyLimit < 0 {
+		return out.ErrorMessage(exitUsage, "migrate-config --body-limit must be non-negative", "")
+	}
 	if *dryRun == *apply {
 		return out.ErrorMessage(exitUsage, "migrate-config requires exactly one of --dry-run or --apply", "Run `baton migrate-config --dry-run` to preview or `baton migrate-config --apply` to write.")
 	}
@@ -484,20 +520,13 @@ func runMigrateConfig(args []string, stdout, stderr io.Writer) int {
 	} else if !os.IsNotExist(err) {
 		return out.Error(exitConfig, err, "")
 	}
-	result := struct {
-		SchemaVersion int    `json:"schemaVersion"`
-		Kind          string `json:"kind"`
-		From          string `json:"from"`
-		To            string `json:"to"`
-		Action        string `json:"action"`
-		Content       string `json:"content,omitempty"`
-	}{SchemaVersion: 1, Kind: "configMigration", From: *from, To: *to, Action: action}
+	result := configMigrationResult{SchemaVersion: 1, Kind: "configMigration", From: *from, To: *to, Action: action}
 	if *dryRun {
-		result.Content = string(content)
+		result = withConfigMigrationContent(result, string(content), *bodyLimit, *full)
 		if *jsonOut {
 			return out.JSON(result)
 		}
-		fmt.Fprintf(stdout, "%s %s from %s\n\n%s", action, *to, *from, content)
+		fmt.Fprintf(stdout, "%s %s from %s\n\n%s", action, *to, *from, result.Content)
 		return exitOK
 	}
 	if action == "overwrite" && !*yes {
@@ -1105,11 +1134,16 @@ func runComplete(args []string, stdout, stderr io.Writer) int {
 	issueNumber := fs.Int("issue", 0, "issue number to comment on")
 	prNumber := fs.Int("pr", 0, "PR number to comment on")
 	stateRoot := fs.String("state-root", "", "Baton state root")
+	full := fs.Bool("full", false, "include full summary and validation text")
+	bodyLimit := fs.Int("body-limit", defaultDocumentBodyLimit, "maximum default text characters")
 	jsonOut := fs.Bool("json", false, "emit JSON")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
 	out := newRenderer(stdout, stderr, *jsonOut)
+	if *bodyLimit < 0 {
+		return out.ErrorMessage(exitUsage, "complete --body-limit must be non-negative", "")
+	}
 	record, err := complete.Write(*stateRoot, *leaseID, *summary, *validation, time.Now().UTC())
 	if err != nil {
 		return out.Error(exitUsage, err, "")
@@ -1134,7 +1168,7 @@ func runComplete(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	if *jsonOut {
-		return out.JSON(record)
+		return out.JSON(completionResultFromRecord(record, *bodyLimit, *full))
 	}
 	fmt.Fprintf(stdout, "Recorded completion %s\n", record.ID)
 	return exitOK
@@ -1489,6 +1523,53 @@ func truncateReviewComment(comment gh.ReviewComment, prNumber, limit int, full b
 	comment.BodyTruncated = true
 	comment.FullCommand = fmt.Sprintf("baton review-threads %d --full --json", prNumber)
 	return comment
+}
+
+func withConfigMigrationContent(result configMigrationResult, content string, limit int, full bool) configMigrationResult {
+	preview, chars, truncated := limitString(content, limit, full)
+	result.Content = preview
+	result.ContentChars = chars
+	result.ContentTruncated = truncated
+	if truncated {
+		result.ContentPreview = preview
+		result.FullCommand = "baton migrate-config --dry-run --full --json"
+	}
+	return result
+}
+
+func completionResultFromRecord(record complete.Record, limit int, full bool) completionResult {
+	summary, summaryChars, summaryTruncated := limitString(record.Summary, limit, full)
+	validation, validationChars, validationTruncated := limitString(record.Validation, limit, full)
+	result := completionResult{
+		SchemaVersion:       record.SchemaVersion,
+		Kind:                record.Kind,
+		ID:                  record.ID,
+		LeaseID:             record.LeaseID,
+		Summary:             summary,
+		SummaryChars:        summaryChars,
+		SummaryTruncated:    summaryTruncated,
+		Validation:          validation,
+		ValidationChars:     validationChars,
+		ValidationTruncated: validationTruncated,
+		CreatedAt:           record.CreatedAt,
+	}
+	if summaryTruncated {
+		result.SummaryPreview = summary
+		result.FullCommand = "baton complete --summary <text> --full --json"
+	}
+	if validationTruncated {
+		result.ValidationPreview = validation
+		result.FullCommand = "baton complete --summary <text> --validation <text> --full --json"
+	}
+	return result
+}
+
+func limitString(value string, limit int, full bool) (string, int, bool) {
+	runes := []rune(value)
+	if full || len(runes) <= limit {
+		return value, len(runes), false
+	}
+	return string(runes[:limit]), len(runes), true
 }
 
 func countLeases(records []lease.Record) leaseCounts {

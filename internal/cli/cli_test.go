@@ -121,6 +121,96 @@ func TestReviewThreadsRejectsNegativeBodyLimit(t *testing.T) {
 	}
 }
 
+func TestMigrateConfigDryRunTruncatesContent(t *testing.T) {
+	dir := t.TempDir()
+	configPath := writeDefaultConfig(t, dir)
+	targetPath := filepath.Join(dir, "out.yml")
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"migrate-config", "--from", configPath, "--to", targetPath, "--dry-run", "--body-limit", "8", "--json"}, &stdout, &stderr, "test")
+	if code != exitOK {
+		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitOK, stdout.String(), stderr.String())
+	}
+	var result configMigrationResult
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		t.Fatalf("decode config migration: %v\n%s", err, stdout.String())
+	}
+	if !result.ContentTruncated || result.ContentChars <= len(result.Content) || result.Content != result.ContentPreview {
+		t.Fatalf("result = %#v", result)
+	}
+	if result.FullCommand != "baton migrate-config --dry-run --full --json" {
+		t.Fatalf("fullCommand = %q", result.FullCommand)
+	}
+}
+
+func TestMigrateConfigDryRunFullContent(t *testing.T) {
+	dir := t.TempDir()
+	configPath := writeDefaultConfig(t, dir)
+	targetPath := filepath.Join(dir, "out.yml")
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"migrate-config", "--from", configPath, "--to", targetPath, "--dry-run", "--body-limit", "8", "--full", "--json"}, &stdout, &stderr, "test")
+	if code != exitOK {
+		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitOK, stdout.String(), stderr.String())
+	}
+	var result configMigrationResult
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		t.Fatalf("decode config migration: %v\n%s", err, stdout.String())
+	}
+	if result.ContentTruncated || result.ContentPreview != "" || result.FullCommand != "" {
+		t.Fatalf("result = %#v", result)
+	}
+	if result.ContentChars != len([]rune(result.Content)) {
+		t.Fatalf("contentChars = %d, content length = %d", result.ContentChars, len([]rune(result.Content)))
+	}
+}
+
+func TestCompleteJSONTruncatesOutputButPersistsFullRecord(t *testing.T) {
+	dir := t.TempDir()
+	summary := "abcdef"
+	validation := "uvwxyz"
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"complete", "--summary", summary, "--validation", validation, "--state-root", dir, "--body-limit", "3", "--json"}, &stdout, &stderr, "test")
+	if code != exitOK {
+		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitOK, stdout.String(), stderr.String())
+	}
+	var result completionResult
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		t.Fatalf("decode completion: %v\n%s", err, stdout.String())
+	}
+	if result.Summary != "abc" || !result.SummaryTruncated || result.SummaryChars != 6 {
+		t.Fatalf("summary result = %#v", result)
+	}
+	if result.Validation != "uvw" || !result.ValidationTruncated || result.ValidationChars != 6 {
+		t.Fatalf("validation result = %#v", result)
+	}
+
+	content, err := os.ReadFile(filepath.Join(dir, "completions", result.ID+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), summary) || !strings.Contains(string(content), validation) {
+		t.Fatalf("persisted record = %s, want full summary and validation", content)
+	}
+}
+
+func TestCompleteJSONFullOutput(t *testing.T) {
+	dir := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"complete", "--summary", "abcdef", "--state-root", dir, "--body-limit", "3", "--full", "--json"}, &stdout, &stderr, "test")
+	if code != exitOK {
+		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitOK, stdout.String(), stderr.String())
+	}
+	var result completionResult
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		t.Fatalf("decode completion: %v\n%s", err, stdout.String())
+	}
+	if result.Summary != "abcdef" || result.SummaryTruncated || result.SummaryPreview != "" {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
 func TestPRPolicyJSONReturnsPolicyExitOnErrors(t *testing.T) {
 	dir := t.TempDir()
 	fixture := filepath.Join(dir, "pr.json")
