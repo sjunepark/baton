@@ -22,6 +22,8 @@ const (
 	exitPolicy      = 1
 	exitUsage       = 2
 	exitConfig      = 3
+	exitAuth        = 4
+	exitGitHub      = 5
 	exitLocalGit    = 6
 	schemaVersionV1 = 1
 )
@@ -44,6 +46,8 @@ func Run(args []string, stdout, stderr io.Writer, version string) int {
 		return runIssuePolicy(args[1:], stdout, stderr)
 	case "pr-policy":
 		return runPRPolicy(args[1:], stdout, stderr)
+	case "sync-labels":
+		return runSyncLabels(args[1:], stdout, stderr)
 	case "ensure-branch":
 		return runEnsureBranch(args[1:], stdout, stderr)
 	case "labels":
@@ -62,9 +66,10 @@ Usage:
   baton version
   baton init --dry-run|--apply [--yes] [--json]
   baton issue-policy --body-file <path> [--labels a,b] [--config <path>] [--json]
-  baton issue-policy --event <path> [--config <path>] [--json]
+  baton issue-policy --event <path> [--apply] [--repo owner/name] [--config <path>] [--json]
   baton pr-policy --fixture <path> [--config <path>] [--json]
   baton pr-policy --event <path> [--config <path>] [--json]
+  baton sync-labels --dry-run|--apply [--repo owner/name] [--labels-file <path>] [--json]
   baton ensure-branch --remote-base <sha> [--remote-target <sha>] [--local-target <sha>] [--json]
   baton labels --file <path> [--json]
 
@@ -116,7 +121,9 @@ func runIssuePolicy(args []string, stdout, stderr io.Writer) int {
 	bodyFile := fs.String("body-file", "", "issue body markdown file")
 	eventPath := fs.String("event", "", "GitHub issue event payload")
 	labelsCSV := fs.String("labels", "", "comma-separated current labels")
+	repoFlag := fs.String("repo", "", "GitHub repository owner/name")
 	configPath := fs.String("config", "", "policy config path")
+	apply := fs.Bool("apply", false, "apply labels and policy comment to GitHub")
 	jsonOut := fs.Bool("json", false, "emit JSON")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
@@ -133,6 +140,8 @@ func runIssuePolicy(args []string, stdout, stderr io.Writer) int {
 	}
 	body := ""
 	currentLabels := splitCSV(*labelsCSV)
+	eventIssueNumber := 0
+	eventRepo := ""
 	if *eventPath != "" {
 		content, err := os.ReadFile(*eventPath)
 		if err != nil {
@@ -146,6 +155,8 @@ func runIssuePolicy(args []string, stdout, stderr io.Writer) int {
 		}
 		body = event.Body
 		currentLabels = event.Labels
+		eventIssueNumber = event.Number
+		eventRepo = event.Repository
 	} else {
 		content, err := os.ReadFile(*bodyFile)
 		if err != nil {
@@ -161,17 +172,23 @@ func runIssuePolicy(args []string, stdout, stderr io.Writer) int {
 		Policy:        cfg.IssuePolicy,
 	})
 	if *jsonOut {
-		return writeJSON(stdout, stderr, decision)
+		if code := writeJSON(stdout, stderr, decision); code != exitOK {
+			return code
+		}
 	}
 	if !decision.IsFormIssue {
-		fmt.Fprintln(stdout, "Issue policy: body does not match the configured form.")
-		return exitOK
+		if !*jsonOut {
+			fmt.Fprintln(stdout, "Issue policy: body does not match the configured form.")
+		}
+		return applyIssueDecisionIfRequested(*apply, *eventPath, *repoFlag, eventRepo, eventIssueNumber, decision, cfg, stderr)
 	}
-	fmt.Fprintf(stdout, "Issue policy: add %s; remove %s\n", strings.Join(decision.LabelsToAdd, ", "), strings.Join(decision.LabelsToRemove, ", "))
-	if len(decision.MissingRequiredSections) > 0 {
-		fmt.Fprintf(stdout, "Missing required sections: %s\n", strings.Join(decision.MissingRequiredSections, ", "))
+	if !*jsonOut {
+		fmt.Fprintf(stdout, "Issue policy: add %s; remove %s\n", strings.Join(decision.LabelsToAdd, ", "), strings.Join(decision.LabelsToRemove, ", "))
+		if len(decision.MissingRequiredSections) > 0 {
+			fmt.Fprintf(stdout, "Missing required sections: %s\n", strings.Join(decision.MissingRequiredSections, ", "))
+		}
 	}
-	return exitOK
+	return applyIssueDecisionIfRequested(*apply, *eventPath, *repoFlag, eventRepo, eventIssueNumber, decision, cfg, stderr)
 }
 
 func runPRPolicy(args []string, stdout, stderr io.Writer) int {
@@ -179,6 +196,7 @@ func runPRPolicy(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	fixturePath := fs.String("fixture", "", "pure PR policy fixture JSON")
 	eventPath := fs.String("event", "", "GitHub pull_request event payload")
+	repoFlag := fs.String("repo", "", "GitHub repository owner/name")
 	configPath := fs.String("config", "", "policy config path")
 	jsonOut := fs.Bool("json", false, "emit JSON")
 	if err := fs.Parse(args); err != nil {
@@ -216,6 +234,32 @@ func runPRPolicy(args []string, stdout, stderr io.Writer) int {
 			return exitUsage
 		}
 		input.PullRequest = pr
+		repo := firstNonEmpty(*repoFlag, pr.BaseRepositoryFullName)
+		if repo == "" {
+			fmt.Fprintln(stderr, "--repo, GITHUB_REPOSITORY, or pull_request.base.repo.full_name is required")
+			return exitUsage
+		}
+		client, err := gh.NewClientFromEnv()
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return exitAuth
+		}
+		issueNumbers := gh.IssueNumbersForPR(pr)
+		if len(issueNumbers) > 0 {
+			issues, err := client.FetchIssueLabels(repo, issueNumbers)
+			if err != nil {
+				fmt.Fprintln(stderr, err)
+				return exitGitHub
+			}
+			input.ReferencedIssues = issues
+		}
+		messages, reachedCap, err := client.FetchCommitListing(repo, pr.Number)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return exitGitHub
+		}
+		input.CommitMessages = messages
+		input.CommitListingReachedCap = reachedCap
 	}
 	input.Policy = cfg
 	decision := policy.ComputePullRequestPolicy(input)
@@ -231,6 +275,67 @@ func runPRPolicy(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "- %s\n", msg)
 	}
 	return exitPolicy
+}
+
+func runSyncLabels(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("sync-labels", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	dryRun := fs.Bool("dry-run", false, "preview label changes")
+	apply := fs.Bool("apply", false, "apply label changes")
+	repoFlag := fs.String("repo", "", "GitHub repository owner/name")
+	labelsFile := fs.String("labels-file", ".github/labels.yml", "labels manifest path")
+	jsonOut := fs.Bool("json", false, "emit JSON")
+	if err := fs.Parse(args); err != nil {
+		return exitUsage
+	}
+	if *dryRun == *apply {
+		fmt.Fprintln(stderr, "sync-labels requires exactly one of --dry-run or --apply")
+		return exitUsage
+	}
+	repo, err := gh.RepoFromEnvOrFlag(*repoFlag)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitUsage
+	}
+	manifest, err := labels.LoadManifest(*labelsFile)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitConfig
+	}
+	client, err := gh.NewClientFromEnv()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitAuth
+	}
+	existing, err := client.ListLabels(repo)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitGitHub
+	}
+	plan := labels.PlanSync(repo, manifest.Labels, existing)
+	if *apply {
+		for _, change := range plan.Changes {
+			switch change.Action {
+			case "create":
+				if err := client.CreateLabel(repo, labels.Label{Name: change.Name, Color: change.Color, Description: change.Description}); err != nil {
+					fmt.Fprintln(stderr, err)
+					return exitGitHub
+				}
+			case "update":
+				if err := client.UpdateLabel(repo, labels.Label{Name: change.Name, Color: change.Color, Description: change.Description}); err != nil {
+					fmt.Fprintln(stderr, err)
+					return exitGitHub
+				}
+			}
+		}
+	}
+	if *jsonOut {
+		return writeJSON(stdout, stderr, plan)
+	}
+	for _, change := range plan.Changes {
+		fmt.Fprintf(stdout, "%s %s\n", change.Action, change.Name)
+	}
+	return exitOK
 }
 
 func runEnsureBranch(args []string, stdout, stderr io.Writer) int {
@@ -306,6 +411,31 @@ func runLabels(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
+func applyIssueDecisionIfRequested(apply bool, eventPath, repoFlag, eventRepo string, issueNumber int, decision policy.IssuePolicyDecision, cfg config.Config, stderr io.Writer) int {
+	if !apply {
+		return exitOK
+	}
+	if eventPath == "" {
+		fmt.Fprintln(stderr, "issue-policy --apply requires --event")
+		return exitUsage
+	}
+	repo := firstNonEmpty(repoFlag, eventRepo, os.Getenv("GITHUB_REPOSITORY"))
+	if repo == "" || issueNumber == 0 {
+		fmt.Fprintln(stderr, "issue-policy --apply requires a repository and issue number")
+		return exitUsage
+	}
+	client, err := gh.NewClientFromEnv()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitAuth
+	}
+	if err := client.ApplyIssueDecision(repo, issueNumber, decision, cfg.IssuePolicy.PolicyCommentMarker); err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitGitHub
+	}
+	return exitOK
+}
+
 func loadConfig(path string) (config.Config, error) {
 	if path != "" {
 		return config.Load(path)
@@ -318,6 +448,15 @@ func loadConfig(path string) (config.Config, error) {
 		return config.DefaultCreoCompat(), nil
 	}
 	return config.Config{}, err
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func splitCSV(value string) []string {

@@ -178,6 +178,10 @@ Missing required sections:
 Update the issue body and the policy action will remove `+"`agent:blocked`"+` when the form is complete.`, marker, strings.Join(lines, "\n"))
 }
 
+func ClearIssuePolicyComment(marker string) string {
+	return marker + "\n\nThe issue policy gate is currently clear. `agent:blocked` is not required."
+}
+
 func blockedLabel(issuePolicy config.IssuePolicy) string {
 	if labels := issuePolicy.ControlledLabelGroups["quality_gate"]; len(labels) > 0 {
 		return labels[0]

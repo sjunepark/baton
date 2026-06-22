@@ -10,8 +10,10 @@
   adapted from the Creo reference behavior.
 - The first Phase 2 install slice is implemented: Baton can preview or apply
   the standard target-repo template set with overwrite protection.
-- GitHub API writes, live PR enrichment, queue inspection, label sync writes,
-  and worktree leasing are not implemented yet.
+- GitHub API foundations are implemented for issue-policy apply, PR policy
+  issue/commit enrichment, and label sync.
+- Queue inspection, `ensure-branch --apply`, and worktree leasing are not
+  implemented yet.
 
 ## Phase 0 - Repository Scaffold
 
@@ -69,7 +71,7 @@ Tasks:
   and issue workflow doc.
 - [x] Implement `baton init --dry-run`.
 - [x] Implement `baton init --apply`.
-- Implement `baton sync-labels`.
+- [x] Implement `baton sync-labels`.
 - Implement `baton ensure-branch`.
 
 Acceptance:
@@ -80,10 +82,7 @@ Acceptance:
 
 Remaining:
 
-- Implement GitHub-backed `baton sync-labels`.
 - Wire `baton ensure-branch --apply` to real non-destructive git commands.
-- Implement GitHub write support for the installed `issue-policy --apply`
-  workflow path.
 
 ## Phase 3 - Read-Only Triage
 
@@ -211,5 +210,9 @@ Integration, live gated:
   `baton init --apply`, and embedded target-repo templates.
 - Validation: `go test ./...`, `go run ./cmd/baton init --dry-run --json`,
   event-based `issue-policy --json`, and event-based `pr-policy --json` pass.
-- Next slice: implement GitHub write/client foundations for `issue-policy
-  --apply`, `pr-policy --event` issue/commit enrichment, and `sync-labels`.
+- Added GitHub REST client foundations for `issue-policy --apply`,
+  `pr-policy --event` issue/commit enrichment, and `sync-labels`.
+- Validation: `go test ./...` covers GitHub client request sequencing, commit
+  pagination cap detection, label sync planning, and existing policy parity.
+- Next slice: wire real `ensure-branch --apply`, then start read-only queue
+  inspection (`queue`, `prs`, `pr`, checks, review threads, `next`).
