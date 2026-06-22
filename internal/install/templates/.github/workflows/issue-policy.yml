@@ -1,0 +1,27 @@
+name: Issue Policy
+
+on:
+  issues:
+    types:
+      - opened
+      - edited
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  apply-policy:
+    name: Apply issue policy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Baton
+        run: go install github.com/sejunpark/baton/cmd/baton@latest
+
+      - name: Apply issue policy labels
+        run: baton issue-policy --event "$GITHUB_EVENT_PATH" --apply
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

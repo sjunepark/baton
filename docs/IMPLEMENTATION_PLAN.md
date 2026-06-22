@@ -6,10 +6,12 @@
   fixture directories, help/version smoke path.
 - The first Phase 1 policy parity slice is implemented: legacy/Baton config
   loading, issue policy decisions, PR policy decisions, branch setup planner,
-  and label manifest parsing are covered by Go unit tests adapted from the Creo
-  reference behavior.
-- GitHub API writes, install templates, queue inspection, and worktree leasing
-  are not implemented yet.
+  event payload parsing, and label manifest parsing are covered by Go unit tests
+  adapted from the Creo reference behavior.
+- The first Phase 2 install slice is implemented: Baton can preview or apply
+  the standard target-repo template set with overwrite protection.
+- GitHub API writes, live PR enrichment, queue inspection, label sync writes,
+  and worktree leasing are not implemented yet.
 
 ## Phase 0 - Repository Scaffold
 
@@ -39,7 +41,7 @@ Tasks:
 - [x] Port branch setup planner.
 - [x] Port label manifest parser.
 - [x] Copy/adapt Creo tests as Go table tests.
-- Add event fixture tests.
+- [x] Add event fixture tests.
 
 Acceptance:
 
@@ -63,18 +65,25 @@ Goal: make Baton usable in another repo without copying scripts.
 
 Tasks:
 
-- Add templates for GitHub workflows, issue template, labels, policy config,
+- [x] Add templates for GitHub workflows, issue template, labels, policy config,
   and issue workflow doc.
-- Implement `baton init --dry-run`.
-- Implement `baton init --apply`.
+- [x] Implement `baton init --dry-run`.
+- [x] Implement `baton init --apply`.
 - Implement `baton sync-labels`.
 - Implement `baton ensure-branch`.
 
 Acceptance:
 
-- A test repo can be initialized.
-- Dry-run output is understandable.
-- Existing files are not overwritten without explicit confirmation.
+- [x] A test repo can be initialized.
+- [x] Dry-run output is understandable.
+- [x] Existing files are not overwritten without explicit confirmation.
+
+Remaining:
+
+- Implement GitHub-backed `baton sync-labels`.
+- Wire `baton ensure-branch --apply` to real non-destructive git commands.
+- Implement GitHub write support for the installed `issue-policy --apply`
+  workflow path.
 
 ## Phase 3 - Read-Only Triage
 
@@ -198,5 +207,9 @@ Integration, live gated:
   policy engines, branch planner, label manifest parser, and Go tests.
 - Validation: `go test ./...`, `go run ./cmd/baton --help`, and
   `go run ./cmd/baton version` pass.
-- Next slice: add event fixture parsing for `issue-policy`/`pr-policy`, then
-  implement install templates and dry-run/apply planning.
+- Added GitHub issue/PR event payload parsing, `baton init --dry-run`,
+  `baton init --apply`, and embedded target-repo templates.
+- Validation: `go test ./...`, `go run ./cmd/baton init --dry-run --json`,
+  event-based `issue-policy --json`, and event-based `pr-policy --json` pass.
+- Next slice: implement GitHub write/client foundations for `issue-policy
+  --apply`, `pr-policy --event` issue/commit enrichment, and `sync-labels`.

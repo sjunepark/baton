@@ -1,0 +1,37 @@
+name: PR Policy
+
+on:
+  pull_request_target:
+    branches:
+      - agent
+      - main
+    types:
+      - opened
+      - edited
+      - synchronize
+      - reopened
+      - ready_for_review
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  check-pr-policy:
+    name: Check PR policy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - name: Install Baton
+        run: go install github.com/sejunpark/baton/cmd/baton@latest
+
+      - name: Check PR policy
+        run: baton pr-policy --event "$GITHUB_EVENT_PATH"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

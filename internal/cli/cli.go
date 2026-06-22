@@ -10,7 +10,9 @@ import (
 	"strings"
 
 	"github.com/sejunpark/baton/internal/config"
+	"github.com/sejunpark/baton/internal/gh"
 	"github.com/sejunpark/baton/internal/git"
+	"github.com/sejunpark/baton/internal/install"
 	"github.com/sejunpark/baton/internal/labels"
 	"github.com/sejunpark/baton/internal/policy"
 )
@@ -36,6 +38,8 @@ func Run(args []string, stdout, stderr io.Writer, version string) int {
 	case "version":
 		fmt.Fprintln(stdout, version)
 		return exitOK
+	case "init":
+		return runInit(args[1:], stdout, stderr)
 	case "issue-policy":
 		return runIssuePolicy(args[1:], stdout, stderr)
 	case "pr-policy":
@@ -56,8 +60,11 @@ func printHelp(w io.Writer) {
 Usage:
   baton --help
   baton version
+  baton init --dry-run|--apply [--yes] [--json]
   baton issue-policy --body-file <path> [--labels a,b] [--config <path>] [--json]
+  baton issue-policy --event <path> [--config <path>] [--json]
   baton pr-policy --fixture <path> [--config <path>] [--json]
+  baton pr-policy --event <path> [--config <path>] [--json]
   baton ensure-branch --remote-base <sha> [--remote-target <sha>] [--local-target <sha>] [--json]
   baton labels --file <path> [--json]
 
@@ -67,18 +74,55 @@ phases.
 `)
 }
 
+func runInit(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("init", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	dryRun := fs.Bool("dry-run", false, "preview installed files")
+	apply := fs.Bool("apply", false, "write installed files")
+	yes := fs.Bool("yes", false, "overwrite changed files when applying")
+	jsonOut := fs.Bool("json", false, "emit JSON")
+	if err := fs.Parse(args); err != nil {
+		return exitUsage
+	}
+	if *dryRun == *apply {
+		fmt.Fprintln(stderr, "init requires exactly one of --dry-run or --apply")
+		return exitUsage
+	}
+	var (
+		plan install.Plan
+		err  error
+	)
+	if *apply {
+		plan, err = install.Apply(".", *yes)
+	} else {
+		plan, err = install.Preview(".")
+	}
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitConfig
+	}
+	if *jsonOut {
+		return writeJSON(stdout, stderr, plan)
+	}
+	for _, change := range plan.Changes {
+		fmt.Fprintf(stdout, "%s %s\n", change.Action, change.Path)
+	}
+	return exitOK
+}
+
 func runIssuePolicy(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("issue-policy", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	bodyFile := fs.String("body-file", "", "issue body markdown file")
+	eventPath := fs.String("event", "", "GitHub issue event payload")
 	labelsCSV := fs.String("labels", "", "comma-separated current labels")
 	configPath := fs.String("config", "", "policy config path")
 	jsonOut := fs.Bool("json", false, "emit JSON")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
-	if *bodyFile == "" {
-		fmt.Fprintln(stderr, "issue-policy requires --body-file")
+	if (*bodyFile == "") == (*eventPath == "") {
+		fmt.Fprintln(stderr, "issue-policy requires exactly one of --body-file or --event")
 		return exitUsage
 	}
 
@@ -87,15 +131,33 @@ func runIssuePolicy(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return exitConfig
 	}
-	body, err := os.ReadFile(*bodyFile)
-	if err != nil {
-		fmt.Fprintf(stderr, "read issue body: %v\n", err)
-		return exitUsage
+	body := ""
+	currentLabels := splitCSV(*labelsCSV)
+	if *eventPath != "" {
+		content, err := os.ReadFile(*eventPath)
+		if err != nil {
+			fmt.Fprintf(stderr, "read issue event: %v\n", err)
+			return exitUsage
+		}
+		event, err := gh.ParseIssueEvent(content)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return exitUsage
+		}
+		body = event.Body
+		currentLabels = event.Labels
+	} else {
+		content, err := os.ReadFile(*bodyFile)
+		if err != nil {
+			fmt.Fprintf(stderr, "read issue body: %v\n", err)
+			return exitUsage
+		}
+		body = string(content)
 	}
 
 	decision := policy.ComputeIssuePolicy(policy.IssuePolicyInput{
-		Body:          string(body),
-		CurrentLabels: splitCSV(*labelsCSV),
+		Body:          body,
+		CurrentLabels: currentLabels,
 		Policy:        cfg.IssuePolicy,
 	})
 	if *jsonOut {
@@ -116,13 +178,14 @@ func runPRPolicy(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("pr-policy", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fixturePath := fs.String("fixture", "", "pure PR policy fixture JSON")
+	eventPath := fs.String("event", "", "GitHub pull_request event payload")
 	configPath := fs.String("config", "", "policy config path")
 	jsonOut := fs.Bool("json", false, "emit JSON")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
-	if *fixturePath == "" {
-		fmt.Fprintln(stderr, "pr-policy currently requires --fixture for deterministic local evaluation")
+	if (*fixturePath == "") == (*eventPath == "") {
+		fmt.Fprintln(stderr, "pr-policy requires exactly one of --fixture or --event")
 		return exitUsage
 	}
 	cfg, err := loadConfig(*configPath)
@@ -130,15 +193,29 @@ func runPRPolicy(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return exitConfig
 	}
-	content, err := os.ReadFile(*fixturePath)
-	if err != nil {
-		fmt.Fprintf(stderr, "read PR policy fixture: %v\n", err)
-		return exitUsage
-	}
 	var input policy.PRPolicyInput
-	if err := json.Unmarshal(content, &input); err != nil {
-		fmt.Fprintf(stderr, "parse PR policy fixture: %v\n", err)
-		return exitUsage
+	if *fixturePath != "" {
+		content, err := os.ReadFile(*fixturePath)
+		if err != nil {
+			fmt.Fprintf(stderr, "read PR policy fixture: %v\n", err)
+			return exitUsage
+		}
+		if err := json.Unmarshal(content, &input); err != nil {
+			fmt.Fprintf(stderr, "parse PR policy fixture: %v\n", err)
+			return exitUsage
+		}
+	} else {
+		content, err := os.ReadFile(*eventPath)
+		if err != nil {
+			fmt.Fprintf(stderr, "read PR event: %v\n", err)
+			return exitUsage
+		}
+		pr, err := gh.ParsePullRequestEvent(content)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return exitUsage
+		}
+		input.PullRequest = pr
 	}
 	input.Policy = cfg
 	decision := policy.ComputePullRequestPolicy(input)
