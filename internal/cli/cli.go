@@ -11,16 +11,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sejunpark/baton/internal/complete"
-	"github.com/sejunpark/baton/internal/config"
-	"github.com/sejunpark/baton/internal/doctor"
-	"github.com/sejunpark/baton/internal/gh"
-	"github.com/sejunpark/baton/internal/git"
-	"github.com/sejunpark/baton/internal/install"
-	"github.com/sejunpark/baton/internal/labels"
-	"github.com/sejunpark/baton/internal/lease"
-	"github.com/sejunpark/baton/internal/policy"
-	"github.com/sejunpark/baton/internal/queue"
+	"github.com/sjunepark/baton/internal/complete"
+	"github.com/sjunepark/baton/internal/config"
+	"github.com/sjunepark/baton/internal/doctor"
+	"github.com/sjunepark/baton/internal/gh"
+	"github.com/sjunepark/baton/internal/git"
+	"github.com/sjunepark/baton/internal/install"
+	"github.com/sjunepark/baton/internal/labels"
+	"github.com/sjunepark/baton/internal/lease"
+	"github.com/sjunepark/baton/internal/policy"
+	"github.com/sjunepark/baton/internal/queue"
 )
 
 const (

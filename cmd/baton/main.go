@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/sejunpark/baton/internal/cli"
+	"github.com/sjunepark/baton/internal/cli"
 )
 
 var version = "dev"

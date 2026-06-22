@@ -12,8 +12,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sejunpark/baton/internal/labels"
-	"github.com/sejunpark/baton/internal/policy"
+	"github.com/sjunepark/baton/internal/labels"
+	"github.com/sjunepark/baton/internal/policy"
 )
 
 const defaultAPIBase = "https://api.github.com"

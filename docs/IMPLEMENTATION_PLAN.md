@@ -114,10 +114,10 @@ Acceptance:
 
 Remaining:
 
-- Publish Baton at a GitHub module path or provide an equivalent trusted binary
-  install path before changing Creo workflows. This local Baton checkout has no
-  configured Git remote, so the current template `go install` path is not yet
-  usable in GitHub Actions.
+- Publish Baton at `github.com/sjunepark/baton` or provide an equivalent
+  trusted binary install path before changing Creo workflows. This local Baton
+  checkout still has no configured Git remote, so the default `go install` path
+  is not yet usable in GitHub Actions until the repository exists remotely.
 - Live-validate PR follow-up precedence against Creo when an open agent PR
   exists.
 
@@ -306,5 +306,8 @@ Integration, live gated:
 - Hardened queue JSON so empty `linkedPrs` is emitted as `[]` instead of
   `null`.
 - Validation: `go test ./...` covers the empty-array contract.
+- Corrected the Go module and default workflow install path to
+  `github.com/sjunepark/baton`, matching the authenticated GitHub owner.
+- Validation: `go test ./...` passes after the module/import rewrite.
 - Next slice: publish/configure a trusted Baton install path, then start Creo
   migration wiring.

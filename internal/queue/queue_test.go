@@ -3,7 +3,7 @@ package queue
 import (
 	"testing"
 
-	"github.com/sejunpark/baton/internal/config"
+	"github.com/sjunepark/baton/internal/config"
 )
 
 func TestBuildSnapshotEligibility(t *testing.T) {

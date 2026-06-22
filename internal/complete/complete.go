@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sejunpark/baton/internal/lease"
+	"github.com/sjunepark/baton/internal/lease"
 )
 
 type Record struct {

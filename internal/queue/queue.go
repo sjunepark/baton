@@ -3,8 +3,8 @@ package queue
 import (
 	"fmt"
 
-	"github.com/sejunpark/baton/internal/config"
-	"github.com/sejunpark/baton/internal/policy"
+	"github.com/sjunepark/baton/internal/config"
+	"github.com/sjunepark/baton/internal/policy"
 )
 
 type Issue struct {

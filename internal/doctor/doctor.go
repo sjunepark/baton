@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sejunpark/baton/internal/config"
-	"github.com/sejunpark/baton/internal/lease"
+	"github.com/sjunepark/baton/internal/config"
+	"github.com/sjunepark/baton/internal/lease"
 )
 
 type Result struct {

@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sejunpark/baton/internal/queue"
+	"github.com/sjunepark/baton/internal/queue"
 )
 
 type CheckRollup struct {

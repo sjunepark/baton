@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sejunpark/baton/internal/config"
+	"github.com/sjunepark/baton/internal/config"
 )
 
 func TestComputeIssuePolicy(t *testing.T) {

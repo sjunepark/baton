@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/sejunpark/baton/internal/policy"
+	"github.com/sjunepark/baton/internal/policy"
 )
 
 type IssueEvent struct {

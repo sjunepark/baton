@@ -1,4 +1,4 @@
-module github.com/sejunpark/baton
+module github.com/sjunepark/baton
 
 go 1.26
 

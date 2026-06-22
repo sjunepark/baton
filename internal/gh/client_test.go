@@ -6,8 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/sejunpark/baton/internal/config"
-	"github.com/sejunpark/baton/internal/policy"
+	"github.com/sjunepark/baton/internal/config"
+	"github.com/sjunepark/baton/internal/policy"
 )
 
 func TestFetchCommitListingDetectsCap(t *testing.T) {

@@ -3,7 +3,7 @@ package policy
 import (
 	"testing"
 
-	"github.com/sejunpark/baton/internal/config"
+	"github.com/sjunepark/baton/internal/config"
 )
 
 func TestComputePullRequestPolicy(t *testing.T) {
