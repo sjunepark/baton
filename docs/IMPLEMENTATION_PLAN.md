@@ -31,7 +31,7 @@ Tasks:
 - [x] Add CLI entrypoint stub.
 - [x] Add test harness.
 - [x] Add config and fixture directories.
-- Add CI only after local commands exist.
+- [x] Add CI only after local commands exist.
 
 Acceptance:
 
@@ -256,5 +256,6 @@ Integration, live gated:
   --summary ... --json` pass. `doctor` currently reports expected warnings for
   missing repo-local Baton config, missing origin remote, and missing
   `GITHUB_TOKEN`/`GH_TOKEN` in this repository.
+- Added repository CI for `go test ./...`.
 - Next slice: live-test against Creo when GitHub auth is available, then start
   Creo migration wiring.
