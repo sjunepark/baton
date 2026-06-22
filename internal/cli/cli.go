@@ -365,8 +365,8 @@ Usage:
   baton checks <number> [--repo owner/name] [--config <path>] [--format text|json|toon] [--json]
   baton review-threads <number> [--repo owner/name] [--config <path>] [--full] [--body-limit <chars>] [--format text|json|toon] [--json]
   baton next [--repo owner/name] [--config <path>] [--format text|json|toon] [--json]
-  baton lease --purpose <purpose> --branch <ref> [--repo owner/name] --json
-  baton lease --purpose <purpose> --base <ref> --new-branch <ref> [--repo owner/name] --json
+  baton lease --purpose <purpose> --branch <ref> [--repo owner/name] [--format text|json|toon] [--json]
+  baton lease --purpose <purpose> --base <ref> --new-branch <ref> [--repo owner/name] [--format text|json|toon] [--json]
   baton release --lease <id>|--path <path> [--keep-dirty]
   baton leases --json
   baton prune --dry-run|--yes --json
@@ -487,9 +487,9 @@ var commandHelps = map[string]commandHelp{
 	},
 	"lease": {
 		Purpose:  "Acquire a managed Baton worktree lease before editing.",
-		Usage:    "baton lease --purpose <purpose> --branch <ref>|--base <ref> --new-branch <ref> [--repo owner/name] [--json]",
-		Flags:    []string{"--purpose: lease purpose", "--branch: existing branch/ref", "--base: base ref for a new branch", "--new-branch: new branch name", "--json: emit structured JSON"},
-		Examples: []string{"baton lease --purpose issue-123 --base origin/agent --new-branch agent-work/issue-123 --json"},
+		Usage:    "baton lease --purpose <purpose> --branch <ref>|--base <ref> --new-branch <ref> [--repo owner/name] [--format text|json|toon] [--json]",
+		Flags:    []string{"--purpose: lease purpose", "--branch: existing branch/ref", "--base: base ref for a new branch", "--new-branch: new branch name", "--format: output format text, json, or toon", "--json: emit structured JSON"},
+		Examples: []string{"baton lease --purpose issue-123 --base origin/agent --new-branch agent-work/issue-123 --format toon"},
 		Related:  []string{"baton leases --json", "baton release --lease <id>"},
 	},
 	"release": {
@@ -501,9 +501,9 @@ var commandHelps = map[string]commandHelp{
 	},
 	"leases": {
 		Purpose:  "List managed Baton worktree leases.",
-		Usage:    "baton leases [--state-root <path>] [--json]",
-		Flags:    []string{"--state-root: Baton state root", "--json: emit structured JSON"},
-		Examples: []string{"baton leases --json"},
+		Usage:    "baton leases [--state-root <path>] [--format text|json|toon] [--json]",
+		Flags:    []string{"--state-root: Baton state root", "--format: output format text, json, or toon", "--json: emit structured JSON"},
+		Examples: []string{"baton leases --format toon", "baton leases --json"},
 		Related:  []string{"baton lease --purpose <purpose> --base <ref> --new-branch <ref> --json", "baton prune --dry-run --json"},
 	},
 	"prune": {
@@ -1159,11 +1159,14 @@ func runLease(args []string, stdout, stderr io.Writer) int {
 	repo := fs.String("repo", "", "repository owner/name for lease metadata")
 	repoName := fs.String("repo-name", "", "repository name for lease metadata")
 	stateRoot := fs.String("state-root", "", "Baton state root")
-	jsonOut := fs.Bool("json", false, "emit JSON")
+	formats := addFormatFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
-	out := newRenderer(stdout, stderr, *jsonOut)
+	out, format, code := rendererFromFormatFlags(stdout, stderr, formats)
+	if code != exitOK {
+		return code
+	}
 	manager := lease.NewManager(*stateRoot)
 	record, err := manager.Acquire(lease.AcquireRequest{
 		Purpose:   *purpose,
@@ -1175,8 +1178,11 @@ func runLease(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return out.Error(exitLocalGit, err, "")
 	}
-	if *jsonOut {
+	if format == formatJSON {
 		return out.JSON(record)
+	}
+	if format == formatTOON {
+		return writeLeaseTOON(stdout, record)
 	}
 	fmt.Fprintf(stdout, "Lease %s: %s\n", record.ID, record.WorktreePath)
 	return exitOK
@@ -1224,18 +1230,24 @@ func runLeases(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("leases", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	stateRoot := fs.String("state-root", "", "Baton state root")
-	jsonOut := fs.Bool("json", false, "emit JSON")
+	formats := addFormatFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
-	out := newRenderer(stdout, stderr, *jsonOut)
+	out, format, code := rendererFromFormatFlags(stdout, stderr, formats)
+	if code != exitOK {
+		return code
+	}
 	records, err := lease.NewManager(*stateRoot).List()
 	if err != nil {
 		return out.Error(exitLocalGit, err, "")
 	}
 	result := buildLeasesResult(records)
-	if *jsonOut {
+	if format == formatJSON {
 		return out.JSON(result)
+	}
+	if format == formatTOON {
+		return writeLeasesTOON(stdout, result)
 	}
 	if len(result.Leases) == 0 {
 		fmt.Fprintln(stdout, "leases[0]:")
@@ -1920,6 +1932,39 @@ func writeNextTOON(w io.Writer, next queue.NextAction) int {
 	return exitOK
 }
 
+func writeLeaseTOON(w io.Writer, record lease.Record) int {
+	fmt.Fprintln(w, "kind: lease")
+	fmt.Fprintf(w, "schemaVersion: %d\n", record.SchemaVersion)
+	fmt.Fprintf(w, "id: %s\n", record.ID)
+	fmt.Fprintf(w, "repo: %s\n", record.Repo)
+	fmt.Fprintf(w, "path: %s\n", homeRelative(record.Path))
+	fmt.Fprintf(w, "purpose: %s\n", record.Purpose)
+	fmt.Fprintf(w, "baseRef: %s\n", record.BaseRef)
+	fmt.Fprintf(w, "headRef: %s\n", record.HeadRef)
+	fmt.Fprintf(w, "status: %s\n", record.Status)
+	help := []string{
+		fmt.Sprintf("Run `cd %s` before editing.", homeRelative(record.Path)),
+		fmt.Sprintf("Run `baton release --lease %s` when work is complete.", record.ID),
+	}
+	writeHelpLines(w, help)
+	return exitOK
+}
+
+func writeLeasesTOON(w io.Writer, result leasesResult) int {
+	fmt.Fprintln(w, "kind: leases")
+	fmt.Fprintf(w, "schemaVersion: %d\n", result.SchemaVersion)
+	fmt.Fprintf(w, "count: %d\n", result.Count)
+	fmt.Fprintf(w, "counts.active: %d\n", result.Counts.Active)
+	fmt.Fprintf(w, "counts.released: %d\n", result.Counts.Released)
+	fmt.Fprintf(w, "counts.pruned: %d\n", result.Counts.Pruned)
+	fmt.Fprintf(w, "leases[%d]:\n", len(result.Leases))
+	for _, record := range result.Leases {
+		fmt.Fprintf(w, "  - id=%s status=%s path=%s purpose=%s headRef=%s\n", record.ID, record.Status, homeRelative(record.Path), oneLine(record.Purpose), record.HeadRef)
+	}
+	writeHelpLines(w, result.Help)
+	return exitOK
+}
+
 func writeHelpLines(w io.Writer, help []string) {
 	fmt.Fprintf(w, "help[%d]:\n", len(help))
 	for _, item := range help {
@@ -2075,12 +2120,20 @@ func countLeases(records []lease.Record) leaseCounts {
 
 func leasesHelp(records []lease.Record) []string {
 	if len(records) == 0 {
-		return []string{"Run `baton lease --purpose <purpose> --base <ref> --new-branch <ref> --json` to acquire a worktree lease."}
+		return []string{"Run `baton lease --purpose <purpose> --base <ref> --new-branch <ref> --format toon` to acquire a worktree lease."}
 	}
-	return []string{
+	help := []string{}
+	for _, record := range records {
+		if record.Status == "active" {
+			help = append(help, fmt.Sprintf("Run `cd %s` before editing lease %s.", homeRelative(record.Path), record.ID))
+			break
+		}
+	}
+	help = append(help,
 		"Run `baton release --lease <id>` when work is complete.",
 		"Run `baton prune --dry-run --json` to inspect cleanup candidates.",
-	}
+	)
+	return help
 }
 
 func exitCategory(code int) string {

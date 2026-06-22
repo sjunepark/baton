@@ -75,6 +75,8 @@ objects.
   a compatibility alias.
 - Running `baton` with no arguments now renders the content-first home view;
   `baton --help` remains global help.
+- Lease acquisition and lease listing now support compact TOON output with
+  home-relative `path` values and concrete `cd`, release, and prune guidance.
 - Agent-facing docs now prefer compact `--format toon` reads while keeping
   `--json` documented as the stable automation contract.
 
@@ -463,6 +465,10 @@ Recommended enhancement:
   `--format toon` reads while preserving `--json` for automation contracts.
 - 2026-06-23: Completed AXI-002 no-args home behavior by making bare `baton`
   render the home dashboard while preserving `baton --help` as global help.
+  Validation: `go test ./...` passes.
+- 2026-06-23: Completed AXI-012 lease output normalization by adding
+  `--format toon` to `lease` and `leases`, rendering compact paths as
+  home-relative, and including `cd`, release, and prune next-step guidance.
   Validation: `go test ./...` passes.
 
 ## Keep As-Is

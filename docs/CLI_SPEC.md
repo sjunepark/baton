@@ -334,7 +334,7 @@ Acquire an isolated worktree.
 Examples:
 
 ```sh
-baton lease --purpose pr-followup --branch agent-work/foo --json
+baton lease --purpose pr-followup --branch agent-work/foo --format toon
 baton lease --purpose issue-4 --base origin/agent --new-branch agent-work/4-title --json
 ```
 
@@ -352,6 +352,23 @@ JSON result:
   "expiresAt": "2026-06-22T18:30:00Z"
 }
 ```
+
+Compact output renders `path` home-relative and includes `cd <path>` and
+release guidance. JSON keeps both `path` and `worktreePath` for compatibility.
+
+### `baton leases`
+
+List managed worktree leases.
+
+Examples:
+
+```sh
+baton leases --format toon
+baton leases --json
+```
+
+Compact output includes lease counts, home-relative paths, release guidance,
+and prune guidance.
 
 ### `baton release`
 

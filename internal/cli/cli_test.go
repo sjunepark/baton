@@ -11,6 +11,7 @@ import (
 	"github.com/sjunepark/baton/internal/config"
 	"github.com/sjunepark/baton/internal/doctor"
 	"github.com/sjunepark/baton/internal/gh"
+	"github.com/sjunepark/baton/internal/lease"
 	"github.com/sjunepark/baton/internal/queue"
 )
 
@@ -173,6 +174,10 @@ func TestNumberedCommandMissingNumberHonorsTOONFormat(t *testing.T) {
 
 func TestTOONRenderersStable(t *testing.T) {
 	var stdout bytes.Buffer
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
 	snapshot := queue.Snapshot{
 		SchemaVersion: 1,
 		Kind:          "queueSnapshot",
@@ -220,6 +225,33 @@ func TestTOONRenderersStable(t *testing.T) {
 	writeDoctorTOON(&stdout, doctor.Result{SchemaVersion: 1, Kind: "doctor", ReadyState: "ready", Counts: doctor.Counts{OK: 1}, Checks: []doctor.Check{{Name: "git", Status: "ok"}}})
 	if !strings.Contains(stdout.String(), "kind: doctor\n") || !strings.Contains(stdout.String(), "checks[1]:\n  - name=git status=ok\n") {
 		t.Fatalf("doctor toon = %q", stdout.String())
+	}
+
+	stdout.Reset()
+	record := lease.Record{SchemaVersion: 1, Kind: "lease", ID: "lease-1", Repo: "example/repo", Path: filepath.Join(home, "work", "repo"), Purpose: "issue-1", BaseRef: "origin/agent", HeadRef: "agent-work/1", Status: "active"}
+	writeLeaseTOON(&stdout, record)
+	if !strings.Contains(stdout.String(), "path: ~/work/repo\n") || !strings.Contains(stdout.String(), "Run `cd ~/work/repo` before editing.") {
+		t.Fatalf("lease toon = %q", stdout.String())
+	}
+
+	stdout.Reset()
+	writeLeasesTOON(&stdout, buildLeasesResult([]lease.Record{record}))
+	if !strings.Contains(stdout.String(), "counts.active: 1\n") || !strings.Contains(stdout.String(), "leases[1]:\n  - id=lease-1 status=active path=~/work/repo purpose=issue-1 headRef=agent-work/1\n") {
+		t.Fatalf("leases toon = %q", stdout.String())
+	}
+}
+
+func TestLeasesFormatTOONEmpty(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"leases", "--state-root", t.TempDir(), "--format", "toon"}, &stdout, &stderr, "test")
+	if code != exitOK {
+		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitOK, stdout.String(), stderr.String())
+	}
+	if stderr.String() != "" {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "kind: leases\n") || !strings.Contains(stdout.String(), "count: 0\n") {
+		t.Fatalf("leases toon = %q", stdout.String())
 	}
 }
 
