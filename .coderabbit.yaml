@@ -5,9 +5,18 @@ reviews:
   high_level_summary: true
   review_status: true
   review_details: true
+  path_filters:
+    - "!go.sum"
   auto_review:
     enabled: true
+    base_branches: []
     drafts: true
+    ignore_title_keywords:
+      - "WIP"
+      - "[skip review]"
+    ignore_usernames:
+      - "dependabot[bot]"
+      - "renovate[bot]"
   path_instructions:
     - path: "**/*.go"
       instructions: |
