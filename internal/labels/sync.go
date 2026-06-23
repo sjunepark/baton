@@ -44,7 +44,8 @@ func PlanSync(repo string, desired []Label, existing []Label) SyncPlan {
 			Description: label.Description,
 		})
 	}
-	return SyncPlan{SchemaVersion: 1, Kind: "labelSyncPlan", Repo: repo, Count: len(changes), Counts: countChanges(changes), Changes: changes, Help: syncHelp(changes)}
+	counts := countChanges(changes)
+	return SyncPlan{SchemaVersion: 1, Kind: "labelSyncPlan", Repo: repo, Count: len(changes), Counts: counts, Changes: changes, Help: syncHelp(counts)}
 }
 
 func countChanges(changes []LabelChange) SyncCounts {
@@ -62,8 +63,7 @@ func countChanges(changes []LabelChange) SyncCounts {
 	return counts
 }
 
-func syncHelp(changes []LabelChange) []string {
-	counts := countChanges(changes)
+func syncHelp(counts SyncCounts) []string {
 	if counts.Create == 0 && counts.Update == 0 {
 		return []string{"No label changes needed."}
 	}
