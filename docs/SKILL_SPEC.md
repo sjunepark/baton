@@ -18,7 +18,7 @@ Draft description:
 
 ```yaml
 name: baton
-description: Use the Baton CLI to run reusable GitHub issue/PR agent workflows, including queue triage, PR follow-up, review-thread inspection, CI check handling, safe worktree leasing, and policy-gated Codex automation. Use when asked to run or inspect Baton-managed agent work, automate GitHub issue intake, follow up agent PRs, migrate Baton policy, or operate inside a Baton lease.
+description: Use the Baton CLI to run reusable GitHub issue/PR agent workflows, including creating Baton-ready GitHub issue todos, queue triage, PR follow-up, review-thread inspection, CI check handling, safe worktree leasing, policy-gated issue intake, and scheduled Baton-managed Codex automation. Use when asked to create, convert, or triage todos for Baton-managed agents, run or inspect Baton-managed agent work, automate GitHub issue intake, follow up agent PRs, set up recurring Codex automation with Baton, migrate Baton policy, or operate inside a Baton lease.
 ```
 
 ## Required Skill Behavior
@@ -30,6 +30,12 @@ The skill must instruct Codex to:
 - Run `baton next --format toon` before selecting work.
 - Prefer Baton compact output or JSON over manual GitHub browsing for queue
   state.
+- Create todos as structured GitHub issues with the Agent-readable work item
+  template when asked to prepare Baton-managed work.
+- Use issue-form-compatible `###` headings when creating issues through an API
+  instead of the GitHub form UI.
+- Choose the least-permissive Agent mode that fits and avoid marking vague work
+  ready for implementation.
 - Acquire a lease before any file edits.
 - Work only inside the leased path.
 - Handle exactly one unit of work per automation run.
@@ -74,6 +80,19 @@ The skill must instruct Codex to:
 5. Open PR to staging branch with `Refs #<issue>`, not closing keywords.
 6. Add configured automation labels when available.
 
+### Todo Creation
+
+1. Use GitHub issues as the Baton todo queue.
+2. Use the repository's Agent-readable work item issue template.
+3. Use issue-form-compatible `###` headings when creating issues through an API.
+4. Split unrelated work into separate issues.
+5. Fill Summary, Context / evidence, and Acceptance criteria with actionable
+   detail.
+6. Use optional Non-goals / constraints and Validation hints when they reduce
+   ambiguity.
+7. Choose the least-permissive Agent mode that fits.
+8. Do not create branches or PRs when only asked to create todos.
+
 ### Investigation-Only
 
 1. Do not edit files unless the user explicitly changes scope.
@@ -100,6 +119,8 @@ The skill may include:
 
 - `references/commands.md`: compact command reference.
 - `references/json-contracts.md`: key fields Codex should inspect.
+- `references/todo-creation.md`: guidance and prompts for creating
+  Baton-ready GitHub issue todos.
 - No scripts initially. The CLI owns scripts.
 
 Keep `SKILL.md` short and point to Baton CLI help for detailed command syntax.
@@ -121,4 +142,15 @@ Use the Baton skill in this repository. Run Baton to select one open agent PR
 that needs follow-up, acquire a lease for its branch, fix failing checks or
 blocking review feedback, validate, push to the existing branch, comment with
 results, release the lease when clean, and stop. Do not merge.
+```
+
+Todo creation:
+
+```text
+Use the Baton skill in this repository. Create Baton-ready GitHub issues from
+the notes below using the Agent-readable work item issue template. Split
+unrelated work, use issue-form-compatible Markdown headings if creating issues
+through an API, choose the least-permissive Agent mode that fits, include clear
+context/evidence and acceptance criteria, and do not implement, branch, open a
+PR, or merge.
 ```

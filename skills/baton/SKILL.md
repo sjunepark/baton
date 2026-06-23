@@ -1,6 +1,6 @@
 ---
 name: baton
-description: Use the Baton CLI to run reusable GitHub issue/PR agent workflows, including queue triage, PR follow-up, review-thread inspection, CI check handling, safe worktree leasing, policy-gated issue intake, and scheduled Baton-managed Codex automation. Use when asked to run or inspect Baton-managed agent work, automate GitHub issue intake, follow up agent PRs, set up recurring Codex automation with Baton, migrate Baton policy, or operate inside a Baton lease.
+description: Use the Baton CLI to run reusable GitHub issue/PR agent workflows, including creating Baton-ready GitHub issue todos, queue triage, PR follow-up, review-thread inspection, CI check handling, safe worktree leasing, policy-gated issue intake, and scheduled Baton-managed Codex automation. Use when asked to create, convert, or triage todos for Baton-managed agents, run or inspect Baton-managed agent work, automate GitHub issue intake, follow up agent PRs, set up recurring Codex automation with Baton, migrate Baton policy, or operate inside a Baton lease.
 ---
 
 # Baton
@@ -23,6 +23,22 @@ contracts, and your judgment for code changes.
   PRs, checks, and review threads.
 - Stop and report on auth failures, lease conflicts, ambiguous scope, human
   product/security/schema decisions, or dirty lease release conflicts.
+
+## Todo Creation
+
+- Use GitHub issues as the Baton todo queue.
+- Create todos with the repository's Agent-readable work item issue template.
+- If creating issues through an API instead of the GitHub form UI, write the
+  body with the same `###` headings from the template.
+- Split unrelated work into separate issues.
+- Choose the least-permissive Agent mode that fits:
+  - Ready trivial: tiny obvious fix.
+  - Ready bounded: scoped implementation work with clear acceptance criteria.
+  - Investigate only: research/report only.
+  - Needs discussion: human decision required before implementation.
+- Do not mark vague work as ready for implementation.
+- Do not create branches or PRs when only asked to create todos.
+- For detailed todo-creation prompts, read `references/todo-creation.md`.
 
 ## Workflow
 
@@ -58,6 +74,8 @@ contracts, and your judgment for code changes.
 
 ## References
 
+- For creating Baton-ready GitHub issue todos, read
+  `references/todo-creation.md`.
 - For commands and common flags, read `references/commands.md`.
 - For JSON fields to inspect before acting, read `references/json-contracts.md`.
 - For setting up scheduled Codex app automations that run Baton, read
