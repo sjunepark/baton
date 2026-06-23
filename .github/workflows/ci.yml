@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   test:
-    name: Go tests
+    name: Go quality
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -22,6 +22,20 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Check formatting
+        run: |
+          unformatted="$(gofmt -l $(git ls-files '*.go'))"
+          if [ -n "$unformatted" ]; then
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
 
       - name: Test
         run: go test ./...
