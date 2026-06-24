@@ -36,7 +36,7 @@ If setup is incomplete, install Baton repository files first:
 
 ```sh
 baton init --dry-run --json
-baton init --apply --go-install github.com/sjunepark/baton/cmd/baton@v0.1.3
+baton init --apply --go-install github.com/sjunepark/baton/cmd/baton@v0.1.4
 baton ensure-branch --apply
 baton sync-labels --apply --repo owner/name --json
 ```
