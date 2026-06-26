@@ -78,5 +78,5 @@ contracts, and your judgment for code changes.
   `references/todo-creation.md`.
 - For commands and common flags, read `references/commands.md`.
 - For JSON fields to inspect before acting, read `references/json-contracts.md`.
-- For setting up scheduled Codex app automations that run Baton, read
+- For target-repo setup and scheduled Codex app automations that run Baton, read
   `references/automation-setup.md`.

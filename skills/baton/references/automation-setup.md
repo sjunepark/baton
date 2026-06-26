@@ -2,7 +2,8 @@
 
 Use this reference when asked to create, update, or explain a recurring Codex
 app automation that uses Baton to select and handle one safe unit of GitHub
-issue or PR work.
+issue or PR work. Also use it when asked to make a repository ready for
+Baton-managed automation.
 
 ## Fit
 
@@ -40,6 +41,46 @@ baton init --apply --go-install github.com/sjunepark/baton/cmd/baton@v0.1.4
 baton ensure-branch --apply
 baton sync-labels --apply --repo owner/name --json
 ```
+
+`baton init` installs or updates the target-repository policy files:
+
+- `.github/baton.yml`
+- `.github/labels.yml`
+- `.github/ISSUE_WORKFLOW.md`
+- `.github/ISSUE_TEMPLATE/agent-work.yml`
+- `.github/workflows/issue-policy.yml`
+- `.github/workflows/pr-policy.yml`
+
+Review the `baton init --dry-run --json` plan before applying it. Use
+`baton ensure-branch --apply` to create or verify the staging branch, normally
+`agent`, without force-resetting existing branch state.
+
+## Target Repository AGENTS.md
+
+Add a small Baton section to the target repository's `AGENTS.md` when
+autonomous agents should work from the GitHub issue/PR queue:
+
+```md
+## Baton Automation
+
+- Use `$baton` for unattended GitHub issue and PR work.
+- Run `baton next --format toon` before choosing queue work.
+- Handle at most one Baton-selected unit per run.
+- Acquire a Baton lease before editing files: `baton lease ... --json`.
+- Work only inside the returned lease `path`; do not mutate the primary
+  checkout for automation work.
+- Push, comment, or open PRs only according to the Baton-selected action.
+- Run focused validation, record completion with `baton complete`, and release
+  a clean lease with `baton release --lease <id> --json`.
+- Stop and report on auth failures, lease conflicts, ambiguous requirements,
+  human product/security/schema decisions, unrelated red branch health, or dirty
+  lease release conflicts.
+- Never merge unless explicitly requested.
+```
+
+Keep repository-specific build, test, and validation commands in the same
+`AGENTS.md` or a closer nested `AGENTS.md`; Baton supplies workflow safety, not
+project build knowledge.
 
 The automation environment needs:
 
