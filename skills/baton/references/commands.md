@@ -3,6 +3,24 @@
 Use `--format toon` for compact agent-facing reads. Use `--json` for stable
 automation contracts and mutating command results.
 
+## Skill Commands
+
+- `$baton`: read-only dashboard/menu.
+- `$baton status [repo]`: readiness and setup checks.
+- `$baton next [repo]`: show one selected next action without acting.
+- `$baton queue [repo]`: show eligible and skipped queue items.
+- `$baton todo <todo>`: create one Baton-ready GitHub issue.
+- `$baton todos <notes-or-file>`: split notes into Baton-ready GitHub issues.
+- `$baton investigate <issue>`: investigate/comment without edits.
+- `$baton implement <issue>`: lease, implement one ready issue, and open/update
+  a staging PR.
+- `$baton follow-up <pr>`: lease an existing PR branch and fix PR follow-up.
+- `$baton run [repo]`: select and handle exactly one safe unit.
+- `$baton adopt [repo]`: dry-run target-repo setup checks.
+- `$baton automate [repo]`: prepare scheduled one-unit automation.
+
+## CLI Commands
+
 - `baton home --format toon`: show local Baton context without failing on
   missing config or auth.
 - `baton doctor --format toon`: check local readiness.

@@ -107,7 +107,7 @@ Use this request shape:
 ```text
 Create a project automation named "Baton queue worker" for OWNER/REPO.
 Run it every 30 minutes in a background worktree if that option is available.
-Use the `$baton` skill. The automation should run the prompt below exactly,
+Use the `$baton` skill. The automation should run the command below exactly,
 handle at most one Baton-selected unit, and report findings in Triage.
 
 <paste the Default Queue Worker Prompt>
@@ -135,41 +135,14 @@ reuse it.
 Use this as the default prompt for a project or standalone automation:
 
 ```text
-$baton
-
-In this repository, run Baton to select at most one safe next GitHub issue or
-PR action, handle only that unit, validate, report, and stop.
-
-Workflow:
-1. Run `baton home --format toon` and `baton doctor --format toon` if readiness
-   is uncertain.
-2. Run `baton next --format toon --repo OWNER/REPO`.
-3. If the action is `none` or `digest`, report the Baton summary and stop.
-4. If Baton selects PR follow-up, inspect it with `baton pr <number> --json`,
-   then lease the existing PR branch with `baton lease --purpose pr-<number>
-   --branch <headRef> --repo OWNER/REPO --json`.
-5. If Baton selects issue implementation, lease a new branch from the staging
-   branch with `baton lease --purpose issue-<number> --base origin/agent
-   --new-branch agent-work/<number>-<short-slug> --repo OWNER/REPO --json`.
-6. Change to the returned lease `path`, read that repo's `AGENTS.md`, and work
-   only inside the lease.
-7. Validate with focused checks.
-8. Push or comment only according to the selected Baton action.
-9. Run `baton complete --summary <text> --lease <id> --validation <text>
-   --json`.
-10. Release the lease with `baton release --lease <id> --json` when clean.
-
-Stop and report instead of editing on auth failures, config failures, lease
-conflicts, ambiguous requirements, human product/security/schema decisions,
-unrelated red branch health, or dirty lease release conflicts.
-
-Do not mutate the primary checkout. Do not merge. Do not handle more than one
-unit per run.
+$baton run --repo OWNER/REPO
 ```
 
 Replace `OWNER/REPO` with the target repository. Keep `--repo OWNER/REPO` in
 the prompt when the automation may run from a Codex-created worktree or any
-directory where remote detection could be ambiguous.
+directory where remote detection could be ambiguous. The skill command expands
+to the one-unit lease/validate/report/release workflow and keeps the no-merge
+boundary.
 
 ## PR Follow-Up Prompt
 
@@ -177,20 +150,7 @@ Use this when the automation should babysit one PR until checks and review
 feedback are clear:
 
 ```text
-$baton
-
-For PR #NUMBER in OWNER/REPO, check whether Baton reports actionable follow-up.
-Run `baton pr NUMBER --json --repo OWNER/REPO`, then inspect checks and review
-threads with `baton checks NUMBER --format toon --repo OWNER/REPO` and
-`baton review-threads NUMBER --format toon --repo OWNER/REPO`.
-
-If required checks are failing or unresolved non-outdated review feedback is
-actionable, acquire a lease for the existing PR branch, fix only the PR
-follow-up, validate, push to the same branch, record completion, release the
-lease when clean, and stop.
-
-If there is no actionable follow-up, report the current state and stop. Do not
-open a new PR. Do not merge.
+$baton follow-up NUMBER --repo OWNER/REPO
 ```
 
 ## Read-Only Triage Prompt
@@ -199,11 +159,7 @@ Use this for a low-risk automation that reports what would be done but never
 edits files:
 
 ```text
-$baton
-
-Run `baton next --format toon --repo OWNER/REPO` and summarize the selected
-next action, skipped blockers, and exact command a future implementation run
-should execute. Do not acquire a lease, edit files, push, comment, or merge.
+$baton next --repo OWNER/REPO
 ```
 
 ## First-Run Review

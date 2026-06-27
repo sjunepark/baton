@@ -108,6 +108,8 @@ installing Baton so PR-modified repository code is not executed.
   requirements.
 - [ARCHITECTURE.md](ARCHITECTURE.md): system shape and invariants.
 - [docs/CLI_SPEC.md](docs/CLI_SPEC.md): command and JSON contract.
+- [docs/USER_FLOWS.md](docs/USER_FLOWS.md): human-facing Baton skill and CLI
+  workflows.
 - [docs/CONFIG_SPEC.md](docs/CONFIG_SPEC.md): reusable policy config.
 - [docs/GITHUB_POLICY_EXTRACTION.md](docs/GITHUB_POLICY_EXTRACTION.md):
   extraction plan for the original reference workflow.

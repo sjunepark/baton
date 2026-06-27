@@ -24,6 +24,47 @@ contracts, and your judgment for code changes.
 - Stop and report on auth failures, lease conflicts, ambiguous scope, human
   product/security/schema decisions, or dirty lease release conflicts.
 
+## Commands
+
+Use `$baton <command> <arguments>` as the user-facing skill command surface.
+The command name supplies the workflow; everything after it is the true
+argument.
+
+| Skill command | Behavior |
+| --- | --- |
+| `$baton` | Show readiness, queue summary, and 2-3 recommended next commands. Read-only. |
+| `$baton status [repo]` | Run readiness and setup checks. Read-only. |
+| `$baton next [repo]` | Show the next Baton-selected action. Read-only. |
+| `$baton queue [repo]` | Show eligible and skipped issues/PRs. Read-only. |
+| `$baton todo <todo>` | Create one Baton-ready GitHub issue. No branch, lease, commit, or PR. |
+| `$baton todos <notes-or-file>` | Split notes into Baton-ready GitHub issues. No implementation. |
+| `$baton investigate <issue>` | Investigate/comment on one issue. No file edits unless the user explicitly changes scope. |
+| `$baton implement <issue>` | Lease one ready issue, implement it, validate, and open/update a PR to the staging branch. |
+| `$baton follow-up <pr>` | Lease the existing PR branch, fix checks or review follow-up, validate, and push to that branch. |
+| `$baton run [repo]` | Let Baton select and handle exactly one safe unit, then stop. |
+| `$baton adopt [repo]` | Check target-repo setup with dry-run/read-only commands and recommend next setup commands. |
+| `$baton automate [repo]` | Explain or prepare scheduled one-unit automation. Do not schedule implementation automation before a manual run succeeds. |
+
+## Routing
+
+- No argument means read-only dashboard/menu. Never auto-run mutating work.
+- If the first word matches a command, load only the reference needed for that
+  command and execute that workflow.
+- If intent clearly maps to a command, proceed as if that command was invoked;
+  for example, "create a Baton todo for X" maps to `$baton todo X`.
+- If two mutating commands could fit, ask one short clarification before
+  acting.
+- Preserve command-level consent boundaries:
+  - `$baton`, `status`, `next`, and `queue` are read-only.
+  - `todo` and `todos` may create GitHub issues but must not create branches,
+    commits, PRs, leases, or merges.
+  - `investigate` may comment on an issue but must not edit files unless the
+    user explicitly changes scope.
+  - `implement`, `follow-up`, and `run` may edit only after acquiring a Baton
+    lease and changing to the returned lease path.
+  - No command may merge unless the user explicitly asks and target repo policy
+    allows it.
+
 ## Todo Creation
 
 - Use GitHub issues as the Baton todo queue.
@@ -40,20 +81,39 @@ contracts, and your judgment for code changes.
 - Do not create branches or PRs when only asked to create todos.
 - For detailed todo-creation prompts, read `references/todo-creation.md`.
 
-## Workflow
+## Command Workflows
 
-1. If readiness is uncertain, run `baton home --format toon` or
-   `baton doctor --format toon`; otherwise run the narrow command needed for
-   the current task.
-2. Run `baton next --format toon`.
-3. If the action is `none` or `digest`, report the summary and stop.
-4. Acquire a lease for the selected action.
-5. `cd` to the lease path and read that repo's `AGENTS.md`.
-6. Implement or investigate only the selected unit.
-7. Validate with focused checks.
-8. Push/comment according to the selected action.
-9. Release the lease when clean. If release refuses a dirty worktree, report the
-   lease path and changed files.
+- `$baton`: run `baton home --format toon` or `baton doctor --format toon`,
+  then `baton queue --format toon` and `baton next --format toon` when a repo
+  is known. Report state and exact next skill commands only.
+- `status`: run `baton doctor --format toon`, plus `baton ensure-branch --json`
+  and `baton sync-labels --dry-run --repo <repo> --json` when setup is in
+  scope. Do not apply setup.
+- `next`: run `baton next --format toon --repo <repo>` and report the selected
+  action without taking it.
+- `queue`: run `baton queue --format toon --repo <repo>` and summarize eligible
+  and skipped work.
+- `todo` and `todos`: read `references/todo-creation.md`, create issue bodies
+  with the required `###` headings, preflight with `baton issue-policy
+  --body-file <tmp-file> --json`, then create issues with `gh issue create`.
+- `investigate`: inspect the issue through Baton/GitHub, confirm investigation
+  scope, run focused diagnostics, and comment findings. Do not edit files.
+- `implement`: confirm the issue has an implementation label and no skip label,
+  acquire a lease from the staging branch, work inside the returned `path`,
+  validate, and open/update a PR to the staging branch with `Refs #<issue>`.
+- `follow-up`: run `baton pr <number> --json`, `baton checks <number> --format
+  toon`, and `baton review-threads <number> --format toon`; lease the existing
+  PR branch before edits and push fixes to that branch.
+- `run`: run `baton next --format toon --repo <repo>`, handle exactly one
+  selected unit according to its action, validate, report, and stop.
+- `adopt`: run read-only/dry-run setup checks: `baton home --format toon`,
+  `baton doctor --format toon`, `baton init --dry-run --json`,
+  `baton migrate-config --dry-run` when a legacy policy exists,
+  `baton sync-labels --dry-run --repo <repo> --json`, and
+  `baton ensure-branch --json`.
+- `automate`: read `references/automation-setup.md`, verify prerequisites with
+  read-only commands, and prepare a scheduled automation prompt that uses
+  `$baton run --repo owner/name` when repo selection must be explicit.
 
 ## PR Follow-Up
 

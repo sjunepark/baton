@@ -25,6 +25,12 @@ description: Use the Baton CLI to run reusable GitHub issue/PR agent workflows, 
 
 The skill must instruct Codex to:
 
+- Treat `$baton <command> <arguments>` as the user-facing command router for
+  common Baton workflows.
+- Treat `$baton` with no arguments as a read-only dashboard/menu, never as
+  permission to start mutating work.
+- Treat everything after a recognized skill command as the command argument so
+  users do not need to paste boilerplate workflow prompts.
 - Run `baton home --format toon` or `baton doctor --format toon` when
   repository readiness is uncertain.
 - Run `baton next --format toon` before selecting work.
@@ -45,6 +51,35 @@ The skill must instruct Codex to:
 - Never merge unless explicitly requested.
 - Stop on ambiguous scope, human decision needs, risky data/schema/security
   changes, dirty lease conflicts, or auth failures.
+
+## Skill Command Router
+
+The bundled skill must expose these concise commands:
+
+| Skill command | Behavior |
+| --- | --- |
+| `$baton` | Show readiness, queue summary, and recommended next commands. Read-only. |
+| `$baton status [repo]` | Run readiness and setup checks. Read-only. |
+| `$baton next [repo]` | Show the next Baton-selected action. Read-only. |
+| `$baton queue [repo]` | Show eligible and skipped issues/PRs. Read-only. |
+| `$baton todo <todo>` | Create one Baton-ready GitHub issue. No branch or PR. |
+| `$baton todos <notes-or-file>` | Split notes into Baton-ready GitHub issues. No implementation. |
+| `$baton investigate <issue>` | Investigate/comment on one issue. No edits unless explicitly respecified. |
+| `$baton implement <issue>` | Lease one ready issue, implement it, validate, and open/update a staging PR. |
+| `$baton follow-up <pr>` | Lease an existing PR branch, fix checks or review follow-up, and push there. |
+| `$baton run [repo]` | Let Baton select and handle exactly one safe unit, then stop. |
+| `$baton adopt [repo]` | Check target-repo Baton setup with dry-run/read-only commands. |
+| `$baton automate [repo]` | Explain or prepare scheduled one-unit automation. |
+
+Routing rules:
+
+- If the first word matches a command, execute that workflow.
+- If intent clearly maps to a command, route to it without asking for a long
+  prompt; for example, "create a Baton todo for X" maps to `$baton todo X`.
+- If two mutating commands could fit, ask one short clarification.
+- `todo` and `todos` may create GitHub issues only.
+- `implement`, `follow-up`, and `run` may edit only after acquiring a Baton
+  lease and changing to the returned lease path.
 
 ## Skill Workflow
 
@@ -130,27 +165,20 @@ Keep `SKILL.md` short and point to Baton CLI help for detailed command syntax.
 Issue intake:
 
 ```text
-Use the Baton skill in this repository. Run Baton to select one safe next issue
-or investigation item, acquire a lease, complete that one unit, validate, push
-or comment as appropriate, release the lease when clean, and stop. Do not merge.
+$baton run
 ```
 
 PR follow-up:
 
 ```text
-Use the Baton skill in this repository. Run Baton to select one open agent PR
-that needs follow-up, acquire a lease for its branch, fix failing checks or
-blocking review feedback, validate, push to the existing branch, comment with
-results, release the lease when clean, and stop. Do not merge.
+$baton follow-up <pr>
 ```
 
 Todo creation:
 
 ```text
-Use the Baton skill in this repository. Create Baton-ready GitHub issues from
-the notes below using the Agent-readable work item issue template. Split
-unrelated work, use issue-form-compatible Markdown headings if creating issues
-through an API, choose the least-permissive Agent mode that fits, include clear
-context/evidence and acceptance criteria, and do not implement, branch, open a
-PR, or merge.
+$baton todos <notes-or-file>
 ```
+
+Use [USER_FLOWS.md](USER_FLOWS.md) for human-facing flow examples that map
+skill commands to equivalent CLI commands.

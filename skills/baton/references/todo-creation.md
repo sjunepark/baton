@@ -87,55 +87,21 @@ Ready bounded
 <optional extra context>
 ```
 
-## Default Prompt
+## Skill Commands
 
-```text
-Create Baton-ready GitHub issues for the work below.
+- `$baton todo <todo>`: create one Baton-ready GitHub issue from the todo.
+- `$baton todos <notes-or-file>`: split notes into Baton-ready GitHub issues,
+  merging duplicate notes that describe the same outcome.
 
-For each todo:
-1. Create one GitHub issue using the repository's Agent-readable work item issue template.
-2. If creating through an API, use the issue-form-compatible Markdown body with `###` headings.
-3. Choose the least-permissive Agent mode that fits.
-4. Fill Work kind, Agent mode, Summary, Context / evidence, and Acceptance criteria.
-5. Add Non-goals / constraints and Validation hints when useful.
-6. Split unrelated work into separate issues.
-7. Merge duplicate notes that describe the same outcome.
-8. Use Investigate only or Needs discussion if implementation scope is unclear.
-9. Do not implement, branch, open a PR, or merge.
+For both commands, create issue bodies with the API body template above,
+preflight each body with `baton issue-policy --body-file <tmp-file> --json`,
+then create issues with `gh issue create --repo <repo> --title ... --body-file
+<tmp-file>`.
 
-After creating issues, report the issue numbers, chosen Agent mode, and why each
-mode was chosen.
-
-Todos:
-<paste todos here>
-```
-
-## Single-Todo Prompt
-
-```text
-Create one Baton-ready GitHub issue for this todo:
-
-<todo>
-
-Use the repository's Agent-readable work item issue template. Make the issue
-actionable for a future agent by including clear context/evidence, acceptance
-criteria, non-goals, and validation hints. Choose the least-permissive Agent
-mode that still fits. Do not implement the work.
-```
-
-## Notes-To-Issues Prompt
-
-```text
-Turn these notes into Baton-ready GitHub issues.
-
-Split unrelated work into separate issues. Merge duplicate notes. If a note
-lacks enough information for implementation, create it as Investigate only or
-Needs discussion instead of Ready bounded. Each issue should have concrete
-acceptance criteria and validation hints where possible.
-
-Notes:
-<paste notes here>
-```
+If a note lacks enough information for implementation, create it as
+Investigate only or Needs discussion instead of Ready bounded. Ask a concise
+clarification only when creating even an investigation/discussion issue would be
+misleading.
 
 ## Reporting Format
 
