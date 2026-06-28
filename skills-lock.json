@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "release-please-release": {
+      "source": "/Users/sejunpark/IT/agent-scripts/skills/release-please-release",
+      "sourceType": "local",
+      "computedHash": "63434646a4b6d8dc1c586bba556e66c2955fd35b61047eed3e0b6429ceca3d1f"
+    }
+  }
+}
