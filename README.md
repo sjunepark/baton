@@ -26,7 +26,7 @@ The default generated GitHub Actions install command uses the published module
 path:
 
 ```sh
-go install github.com/sjunepark/baton/cmd/baton@v0.1.4
+go install github.com/sjunepark/baton/cmd/baton@v0.1.5
 ```
 
 Use `baton init --go-install` or `baton init --install-command` to pin a
@@ -52,13 +52,13 @@ baton init --dry-run --json
 Apply installation files after reviewing the plan:
 
 ```sh
-baton init --apply --go-install github.com/sjunepark/baton/cmd/baton@v0.1.4
+baton init --apply --go-install github.com/sjunepark/baton/cmd/baton@v0.1.5
 ```
 
 For a pinned release or alternate trusted source, pass a full command:
 
 ```sh
-baton init --apply --install-command 'go install github.com/sjunepark/baton/cmd/baton@v0.1.4'
+baton init --apply --install-command 'go install github.com/sjunepark/baton/cmd/baton@v0.1.5'
 ```
 
 Inspect a repository queue:
