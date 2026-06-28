@@ -23,8 +23,36 @@
     --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
     --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
   }
+  /* Lite (light) theme — overrides the palette only; embedded terminals/code blocks stay dark on purpose. */
+  html[data-theme="lite"] {
+    --bg: #ffffff;
+    --bg-soft: #f6f8fa;
+    --bg-soft2: #eceff3;
+    --line: #d0d7de;
+    --line-soft: #e4e8ed;
+    --text: #1c2230;
+    --muted: #4a5462;
+    --faint: #79828f;
+    --accent: #0969da;
+    --accent-dim: #0969da;
+    --green: #1a7f37;
+    --amber: #9a6700;
+    --red: #cf222e;
+    --purple: #8250df;
+  }
+  /* In lite mode, intentionally-dark code surfaces keep the original dark palette for their inner text. */
+  html[data-theme="lite"] .term,
+  html[data-theme="lite"] .cmd-line {
+    --text: #e6edf3; --muted: #9aa7b8; --faint: #6b7686;
+    --accent: #58a6ff; --green: #3fb950; --amber: #d29922; --red: #f85149; --purple: #bc8cff;
+  }
   * { box-sizing: border-box; }
   html { scroll-behavior: smooth; }
+  body { transition: background-color .2s ease, color .2s ease; }
+
+  /* Theme toggle */
+  .theme-toggle { position: fixed; top: 12px; right: 16px; z-index: 60; font-family: var(--sans); font-size: 12.5px; color: var(--muted); background: var(--bg-soft); border: 1px solid var(--line); border-radius: 999px; padding: 7px 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; }
+  .theme-toggle:hover { color: var(--text); border-color: var(--accent); }
   body {
     margin: 0;
     font-family: var(--sans);
@@ -182,8 +210,10 @@
     .split .mid span { transform: rotate(90deg); }
   }
 </style>
+<script>/* Apply persisted theme before paint to avoid a flash. */try{if(localStorage.getItem('baton-theme')==='lite')document.documentElement.dataset.theme='lite';}catch(e){}</script>
 </head>
 <body>
+<button class="theme-toggle" id="themeToggle" aria-label="Toggle light/dark theme">☀️ Lite</button>
 <div class="wrap">
   <nav class="side">
     <div class="brand"><div class="dot">B</div><b>Baton</b></div>
@@ -395,6 +425,23 @@
 </div>
 
 <script>
+/* ---------- theme toggle (lite / dark) ---------- */
+(function(){
+  const root = document.documentElement;
+  const btn = document.getElementById('themeToggle');
+  function apply(t){
+    if (t==='lite') root.dataset.theme='lite'; else delete root.dataset.theme;
+    btn.textContent = t==='lite' ? '🌙 Dark' : '☀️ Lite';
+  }
+  btn.addEventListener('click', () => {
+    const next = root.dataset.theme==='lite' ? 'dark' : 'lite';
+    try { localStorage.setItem('baton-theme', next); } catch(e){}
+    apply(next);
+  });
+  let saved='dark'; try { saved = localStorage.getItem('baton-theme')||'dark'; } catch(e){}
+  apply(saved);
+})();
+
 /* ---------- Workflow stepper ---------- */
 const STEPS = [
   { t: "Orient", icon:"🧭", cmd:[["baton home","--format toon"],["baton doctor","--format toon"]],
