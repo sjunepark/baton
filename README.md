@@ -104,6 +104,11 @@ installing Baton so PR-modified repository code is not executed.
 
 ## Project Map
 
+- [docs/overview.html](docs/overview.html): interactive big-picture guide — the
+  mental model, system shape, runtime flows, and safety invariants (concepts,
+  not flags). Open in a browser; start here.
+- [docs/tutorial.html](docs/tutorial.html): interactive CLI tutorial — the
+  hands-on command workflow and syntax.
 - [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md): product and safety
   requirements.
 - [ARCHITECTURE.md](ARCHITECTURE.md): system shape and invariants.

@@ -1,0 +1,1239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Baton — The Big Picture</title>
+<meta name="description" content="The mental model of Baton: a deterministic CLI and a judgment-making agent that turn GitHub Issues into safe, unattended work. Concepts, not flags.">
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg-soft: #161b22;
+    --bg-soft2: #1c2230;
+    --bg-soft3: #20283a;
+    --line: #2a3140;
+    --line-soft: #222936;
+    --text: #e6edf3;
+    --muted: #9aa7b8;
+    --faint: #6b7686;
+    --accent: #58a6ff;     /* CLI / facts */
+    --accent-dim: #1f6feb;
+    --green: #3fb950;       /* read-only / safe / pass */
+    --amber: #d29922;       /* mutate / warn / pending */
+    --red: #f85149;         /* stop / fail / danger */
+    --purple: #bc8cff;      /* Codex / judgment */
+    --teal: #39c5cf;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; font-family: var(--sans); background: var(--bg); color: var(--text);
+    line-height: 1.6; -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code { font-family: var(--mono); font-size: .92em; background: rgba(110,130,160,.13); padding: .12em .4em; border-radius: 5px; color: #d7e2f0; }
+  ::selection { background: rgba(88,166,255,.3); }
+
+  /* Layout */
+  .wrap { display: grid; grid-template-columns: 250px 1fr; max-width: 1340px; margin: 0 auto; }
+  nav.side {
+    position: sticky; top: 0; align-self: start; height: 100vh;
+    padding: 26px 16px; border-right: 1px solid var(--line-soft); overflow-y: auto;
+  }
+  nav.side .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+  nav.side .brand .dot { width: 27px; height: 27px; border-radius: 7px; background: linear-gradient(135deg, var(--accent), var(--purple)); display: grid; place-items: center; font-weight: 800; color: #08111f; font-family: var(--mono); }
+  nav.side .brand b { font-size: 17px; letter-spacing: .3px; }
+  nav.side .tag { color: var(--faint); font-size: 12px; margin: 0 0 20px 37px; }
+  nav.side a.link { display: block; color: var(--muted); font-size: 13px; padding: 5px 10px; border-radius: 6px; border-left: 2px solid transparent; }
+  nav.side a.link:hover { color: var(--text); background: var(--bg-soft); text-decoration: none; }
+  nav.side a.link.active { color: var(--accent); border-left-color: var(--accent); background: var(--bg-soft); }
+  nav.side .grp { color: var(--faint); font-size: 10.5px; text-transform: uppercase; letter-spacing: .14em; margin: 18px 0 5px 10px; }
+  nav.side .foot { margin: 26px 0 0 10px; font-size: 12px; color: var(--faint); }
+  nav.side .foot a { color: var(--muted); }
+
+  main { padding: 0 clamp(20px, 5vw, 70px) 140px; min-width: 0; }
+  section { padding-top: 70px; }
+  h1 { font-size: clamp(34px, 5.2vw, 56px); line-height: 1.06; margin: 0 0 16px; letter-spacing: -.022em; }
+  h2 { font-size: 28px; margin: 0 0 6px; letter-spacing: -.012em; }
+  h2 .num { color: var(--faint); font-family: var(--mono); font-size: 16px; margin-right: 12px; }
+  h3 { font-size: 17px; margin: 26px 0 8px; }
+  p { color: var(--muted); margin: 11px 0; }
+  .lead { font-size: 19px; color: var(--text); max-width: 66ch; line-height: 1.55; }
+  .sub { color: var(--faint); font-size: 14px; margin: -2px 0 22px; max-width: 70ch; }
+  strong, b { color: var(--text); font-weight: 600; }
+  .accent { color: var(--accent); } .purple { color: var(--purple); } .green { color: var(--green); }
+  .amber { color: var(--amber); } .red { color: var(--red); } .faint { color: var(--faint); }
+
+  /* Hero */
+  .hero { padding-top: 78px; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); background: var(--bg-soft); border: 1px solid var(--line); border-radius: 999px; padding: 5px 13px; margin-bottom: 24px; }
+  .pill .blip { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .hero-cta { display: flex; gap: 12px; margin-top: 28px; flex-wrap: wrap; }
+  .btn { font-family: var(--sans); font-size: 14px; font-weight: 600; padding: 11px 20px; border-radius: 8px; cursor: pointer; border: 1px solid var(--line); background: var(--bg-soft); color: var(--text); transition: .15s; }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: var(--accent-dim); border-color: var(--accent-dim); color: #fff; }
+  .btn.primary:hover { background: var(--accent); }
+  .btn:disabled { opacity: .4; cursor: default; }
+
+  /* Cards */
+  .grid { display: grid; gap: 16px; margin: 22px 0; }
+  .g2 { grid-template-columns: 1fr 1fr; } .g3 { grid-template-columns: repeat(3, 1fr); }
+  .card { background: var(--bg-soft); border: 1px solid var(--line-soft); border-radius: 12px; padding: 20px; }
+  .card h3 { margin-top: 0; display: flex; align-items: center; gap: 9px; font-size: 16px; }
+  .card .ico { font-size: 19px; }
+  .card p { margin: 6px 0 0; font-size: 13.5px; }
+
+  /* Is / Is-not panel */
+  .isnot { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border: 1px solid var(--line-soft); border-radius: 14px; overflow: hidden; margin: 24px 0; }
+  .isnot .pane { padding: 22px 24px; }
+  .isnot .is { background: linear-gradient(180deg, rgba(63,185,80,.08), transparent); }
+  .isnot .isnt { background: linear-gradient(180deg, rgba(248,81,73,.07), transparent); border-left: 1px solid var(--line-soft); }
+  .isnot h3 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: .1em; }
+  .isnot .is h3 { color: var(--green); } .isnot .isnt h3 { color: var(--red); }
+  .isnot ul { margin: 0; padding-left: 4px; list-style: none; }
+  .isnot li { margin: 9px 0; font-size: 14px; color: var(--muted); display: flex; gap: 9px; align-items: flex-start; }
+  .isnot li .mk { flex: none; font-family: var(--mono); }
+  .isnot .is li .mk { color: var(--green); } .isnot .isnt li .mk { color: var(--red); }
+
+  /* Generic flowing band diagram */
+  .bands { display: grid; gap: 14px; margin: 24px 0; }
+  .band { border: 1px solid var(--line-soft); border-radius: 12px; padding: 16px 18px; position: relative; }
+  .band .bhead { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--faint); margin-bottom: 12px; }
+  .band.cli { background: linear-gradient(180deg, rgba(31,111,235,.09), transparent); }
+  .band.cli .bhead { color: var(--accent); }
+  .band.codex { background: linear-gradient(180deg, rgba(188,140,255,.09), transparent); }
+  .band.codex .bhead { color: var(--purple); }
+  .band.src .bhead { color: var(--green); }
+  .nodes { display: flex; flex-wrap: wrap; gap: 10px; }
+  .node { background: var(--bg-soft2); border: 1px solid var(--line-soft); border-radius: 8px; padding: 9px 13px; font-size: 13px; color: var(--text); }
+  .node .r { display: block; font-size: 11px; color: var(--faint); margin-top: 2px; }
+  .flowtag { text-align: center; color: var(--faint); font-family: var(--mono); font-size: 12px; padding: 2px 0; }
+  .flowtag b { color: var(--muted); font-weight: 500; }
+
+  /* Split toggle widget */
+  .seg { display: inline-flex; background: var(--bg-soft); border: 1px solid var(--line); border-radius: 9px; padding: 3px; gap: 3px; flex-wrap: wrap; }
+  .seg button { font-family: var(--sans); font-size: 13px; color: var(--muted); background: transparent; border: none; border-radius: 6px; padding: 7px 16px; cursor: pointer; transition: .12s; }
+  .seg button.active { color: #fff; }
+  .seg button[data-side="cli"].active { background: var(--accent-dim); }
+  .seg button[data-side="codex"].active { background: #6f42c1; }
+  .seg button[data-side="both"].active { background: var(--bg-soft3); color: var(--text); border: 1px solid var(--line); }
+  .split2 { display: grid; grid-template-columns: 1fr auto 1fr; gap: 0; align-items: stretch; margin: 20px 0; border: 1px solid var(--line-soft); border-radius: 14px; overflow: hidden; transition: .2s; }
+  .split2 .col { padding: 22px 24px; transition: .25s; }
+  .split2 .col.cli { background: linear-gradient(180deg, rgba(31,111,235,.10), transparent); }
+  .split2 .col.codex { background: linear-gradient(180deg, rgba(188,140,255,.10), transparent); }
+  .split2 .col.dim { opacity: .32; filter: grayscale(.5); }
+  .split2 .mid { display: grid; place-items: center; padding: 0 6px; border-left: 1px solid var(--line-soft); border-right: 1px solid var(--line-soft); background: var(--bg); min-width: 64px; }
+  .split2 .mid .spine { text-align: center; }
+  .split2 .mid .arr { font-size: 20px; color: var(--faint); line-height: 1.2; }
+  .split2 .mid .arr.down { color: var(--accent); } .split2 .mid .arr.up { color: var(--purple); }
+  .split2 .mid .obj { font-family: var(--mono); font-size: 10px; color: var(--faint); margin: 8px 0; writing-mode: vertical-rl; transform: rotate(180deg); letter-spacing: .04em; }
+  .split2 h3 { margin: 0 0 4px; font-size: 14px; text-transform: uppercase; letter-spacing: .08em; }
+  .split2 .cli h3 { color: var(--accent); } .split2 .codex h3 { color: var(--purple); }
+  .split2 .role { color: var(--text); font-size: 13.5px; margin: 2px 0 12px; }
+  .split2 ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 13.5px; }
+  .split2 li { margin: 7px 0; }
+  .split2 .never { margin-top: 14px; font-size: 12px; color: var(--faint); border-top: 1px dashed var(--line); padding-top: 10px; }
+
+  /* GitHub-surface hover map */
+  .ghmap { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 22px 0; }
+  .ghnode { background: var(--bg-soft); border: 1px solid var(--line-soft); border-radius: 11px; padding: 16px; cursor: default; transition: .15s; }
+  .ghnode:hover { border-color: var(--accent); transform: translateY(-2px); background: var(--bg-soft2); }
+  .ghnode .ic { font-size: 20px; }
+  .ghnode .nm { font-weight: 600; margin: 6px 0 2px; font-size: 14.5px; }
+  .ghnode .role { font-size: 12px; color: var(--accent); font-family: var(--mono); }
+  .ghnode .dt { font-size: 12.5px; color: var(--muted); margin-top: 8px; display: none; }
+  .ghnode:hover .dt { display: block; }
+  .ghnode.overlay { background: linear-gradient(135deg, rgba(188,140,255,.10), transparent); border-style: dashed; }
+  .ghnode.overlay .role { color: var(--purple); }
+
+  /* Decision tree */
+  .controls { display: grid; gap: 14px; margin: 22px 0; }
+  .ctl { display: grid; grid-template-columns: 200px 1fr; gap: 14px; align-items: center; }
+  .ctl .lbl { font-size: 13.5px; color: var(--text); }
+  .ctl .lbl small { display: block; color: var(--faint); font-size: 12px; font-weight: 400; }
+  .opts { display: inline-flex; flex-wrap: wrap; background: var(--bg-soft); border: 1px solid var(--line); border-radius: 8px; padding: 3px; gap: 3px; }
+  .opts button { font-family: var(--mono); font-size: 12px; color: var(--muted); background: transparent; border: none; border-radius: 6px; padding: 6px 12px; cursor: pointer; transition: .12s; }
+  .opts button.active { color: #08111f; font-weight: 700; }
+  .opts button.active[data-tone="ok"] { background: var(--green); }
+  .opts button.active[data-tone="warn"] { background: var(--amber); }
+  .opts button.active[data-tone="bad"] { background: var(--red); color: #fff; }
+  .opts button.active[data-tone="neutral"] { background: var(--muted); }
+  .opts button.active[data-tone="info"] { background: var(--accent); }
+  .opts button.active[data-tone="judge"] { background: var(--purple); color: #fff; }
+
+  .ladder { display: grid; gap: 10px; margin: 22px 0; }
+  .tier { display: grid; grid-template-columns: 34px 1fr; gap: 14px; align-items: stretch; border: 1px solid var(--line-soft); border-radius: 11px; padding: 14px 16px; background: var(--bg-soft); transition: .18s; position: relative; }
+  .tier .ix { font-family: var(--mono); font-size: 12px; color: var(--faint); display: grid; place-items: center; border-right: 1px solid var(--line-soft); }
+  .tier .tname { font-weight: 600; font-size: 14.5px; }
+  .tier .tcond { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+  .tier .tstate { position: absolute; top: 13px; right: 14px; font-family: var(--mono); font-size: 11px; padding: 2px 9px; border-radius: 999px; }
+  .tier.win { border-color: var(--green); background: linear-gradient(180deg, rgba(63,185,80,.12), var(--bg-soft)); box-shadow: 0 0 0 1px rgba(63,185,80,.3); }
+  .tier.win .ix { color: var(--green); }
+  .tier.win .tstate { background: var(--green); color: #08111f; }
+  .tier.passed { opacity: .7; }
+  .tier.passed .tstate { background: var(--bg-soft3); color: var(--muted); }
+  .tier.preempted { opacity: .4; }
+  .tier.preempted .tstate { background: var(--bg-soft3); color: var(--faint); }
+  .result { border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; margin: 18px 0; background: #0a0e14; }
+  .result .rtop { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .result .raction { font-family: var(--mono); font-size: 18px; font-weight: 700; color: var(--green); }
+  .result .rreason { font-family: var(--mono); font-size: 13px; color: var(--amber); }
+  .result .rreason::before { content: "reason: "; color: var(--faint); }
+  .result ol { margin: 14px 0 0; padding-left: 22px; color: var(--muted); font-size: 13.5px; }
+  .result ol li { margin: 5px 0; }
+  .result .empty { color: var(--faint); font-style: italic; font-size: 13.5px; margin-top: 12px; }
+
+  /* Eligibility resolver */
+  .elig { border: 1px solid var(--line-soft); border-radius: 12px; padding: 18px 20px; margin: 18px 0; background: var(--bg-soft); }
+  .chiprow { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 4px; }
+  .lchip { font-family: var(--mono); font-size: 12px; color: var(--muted); background: var(--bg-soft2); border: 1px solid var(--line-soft); border-radius: 999px; padding: 6px 13px; cursor: pointer; transition: .12s; }
+  .lchip.on { color: #08111f; font-weight: 700; }
+  .lchip.on[data-kind="impl"] { background: var(--amber); }
+  .lchip.on[data-kind="invest"] { background: var(--accent); color: #08111f; }
+  .lchip.on[data-kind="skip"] { background: var(--red); color: #fff; }
+  .lchip.on[data-kind="pr"] { background: var(--purple); color: #fff; }
+  .everdict { margin-top: 14px; font-size: 14px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .everdict .tag { font-family: var(--mono); font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 6px; }
+  .everdict.elig .tag { background: var(--green); color: #08111f; }
+  .everdict.inelig .tag { background: var(--red); color: #fff; }
+  .everdict .why { color: var(--muted); font-size: 13px; }
+
+  /* Stepper */
+  .stepper { margin: 22px 0; }
+  .steps-nav { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 18px; }
+  .steps-nav button { font-family: var(--sans); font-size: 12.5px; color: var(--muted); background: var(--bg-soft); border: 1px solid var(--line-soft); border-radius: 999px; padding: 6px 13px; cursor: pointer; display: flex; align-items: center; gap: 7px; }
+  .steps-nav button .n { font-family: var(--mono); font-size: 10.5px; width: 18px; height: 18px; border-radius: 50%; background: var(--bg-soft2); display: grid; place-items: center; color: var(--faint); }
+  .steps-nav button:hover { color: var(--text); border-color: var(--line); }
+  .steps-nav button.active { color: var(--text); border-color: var(--accent); background: var(--bg-soft2); }
+  .steps-nav button.active .n { background: var(--accent); color: #08111f; }
+  .steps-nav button.stop.active { border-color: var(--red); } .steps-nav button.stop.active .n { background: var(--red); color: #fff; }
+  .step-panel { background: var(--bg-soft); border: 1px solid var(--line-soft); border-radius: 12px; padding: 22px 24px; min-height: 210px; }
+  .step-panel h3 { margin-top: 0; font-size: 19px; }
+  .step-panel .why { color: var(--muted); font-size: 14.5px; }
+  .step-meta { display: flex; flex-wrap: wrap; gap: 18px; margin: 16px 0; }
+  .step-meta .mi { font-size: 12.5px; }
+  .step-meta .mi .k { display: block; color: var(--faint); text-transform: uppercase; letter-spacing: .08em; font-size: 10.5px; margin-bottom: 3px; }
+  .step-meta .mi .v { color: var(--text); font-family: var(--mono); font-size: 12.5px; }
+  .step-meta .mi.read .v { color: var(--green); } .step-meta .mi.mutate .v { color: var(--amber); }
+  .step-meta .mi.guard .v { color: var(--purple); }
+  .step-panel .note { font-size: 13px; color: var(--faint); border-left: 2px solid var(--line); padding-left: 12px; margin-top: 14px; }
+  .step-panel .note.stop { border-left-color: var(--red); color: #f0a59f; }
+  .step-foot { display: flex; justify-content: space-between; margin-top: 16px; }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 20px 0 0; border-bottom: 1px solid var(--line-soft); }
+  .tabs button { font-family: var(--sans); font-size: 13px; color: var(--muted); background: transparent; border: none; border-bottom: 2px solid transparent; padding: 10px 14px; cursor: pointer; margin-bottom: -1px; }
+  .tabs button:hover { color: var(--text); }
+  .tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-body { padding: 18px 2px; }
+  .seqlist { display: grid; gap: 8px; }
+  .seqstep { display: grid; grid-template-columns: 26px 1fr; gap: 12px; align-items: start; padding: 11px 14px; background: var(--bg-soft); border: 1px solid var(--line-soft); border-radius: 9px; }
+  .seqstep .sn { font-family: var(--mono); font-size: 11px; color: var(--faint); padding-top: 1px; }
+  .seqstep .stxt { font-size: 13.5px; color: var(--text); }
+  .seqstep .ann { font-size: 12px; margin-top: 4px; font-family: var(--mono); }
+  .seqstep .ann.read { color: var(--green); } .seqstep .ann.mutate { color: var(--amber); } .seqstep .ann.trust { color: var(--accent); } .seqstep .ann.stop { color: var(--red); }
+
+  /* State machine */
+  .sm { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin: 20px 0 8px; flex-wrap: wrap; }
+  .smnode { flex: 1 1 0; min-width: 100px; text-align: center; padding: 16px 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg-soft); cursor: pointer; transition: .15s; position: relative; }
+  .smnode:hover { border-color: var(--accent); }
+  .smnode.sel { border-color: var(--accent); background: var(--bg-soft2); box-shadow: 0 0 0 1px var(--accent); }
+  .smnode .st { font-family: var(--mono); font-weight: 700; font-size: 14px; letter-spacing: .04em; }
+  .smnode .stsub { font-size: 11px; color: var(--faint); margin-top: 3px; }
+  .smnode[data-s="active"] .st { color: var(--green); }
+  .smnode[data-s="released"] .st { color: var(--accent); }
+  .smnode[data-s="pruned"] .st { color: var(--faint); }
+  .smnode[data-s="none"] .st { color: var(--muted); }
+  .smarrow { color: var(--faint); font-size: 18px; font-family: var(--mono); flex: none; }
+  .smdetail { border: 1px solid var(--line-soft); border-radius: 12px; padding: 18px 20px; margin: 6px 0 0; background: var(--bg-soft); min-height: 130px; }
+  .smdetail h4 { margin: 0 0 4px; font-family: var(--mono); font-size: 15px; }
+  .smdetail .meaning { color: var(--muted); font-size: 14px; }
+  .smdetail .guards { margin: 12px 0 0; }
+  .smdetail .guards .g { font-size: 13px; margin: 6px 0; display: flex; gap: 9px; align-items: flex-start; }
+  .smdetail .guards .g .mk { font-family: var(--mono); flex: none; }
+  .g.allow .mk { color: var(--green); } .g.refuse .mk { color: var(--red); }
+  .smnote { font-size: 12.5px; color: var(--faint); border-left: 2px solid var(--line); padding-left: 12px; margin-top: 14px; }
+
+  /* Isolation boundary */
+  .zones { display: grid; grid-template-columns: 1fr auto 1fr; gap: 0; align-items: center; margin: 20px 0; }
+  .zone { border: 1px solid var(--line-soft); border-radius: 12px; padding: 18px 20px; }
+  .zone.a { background: linear-gradient(180deg, rgba(63,185,80,.06), transparent); }
+  .zone.b { background: linear-gradient(180deg, rgba(210,153,34,.08), transparent); }
+  .zone .zh { font-size: 13px; font-weight: 600; }
+  .zone .zb { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+  .zone .zbadge { font-family: var(--mono); font-size: 10.5px; padding: 3px 9px; border-radius: 5px; display: inline-block; margin-top: 10px; }
+  .zone.a .zbadge { background: rgba(63,185,80,.18); color: var(--green); }
+  .zone.b .zbadge { background: rgba(210,153,34,.18); color: var(--amber); }
+  .zarrow { padding: 0 10px; text-align: center; color: var(--faint); font-family: var(--mono); font-size: 12px; }
+  .zarrow .big { font-size: 22px; display: block; color: var(--amber); }
+
+  /* Comparison columns */
+  .cmp { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border: 1px solid var(--line-soft); border-radius: 14px; overflow: hidden; margin: 20px 0; }
+  .cmp .cc { padding: 20px 22px; }
+  .cmp .cc.danger { background: linear-gradient(180deg, rgba(248,81,73,.06), transparent); }
+  .cmp .cc.good { background: linear-gradient(180deg, rgba(63,185,80,.07), transparent); border-left: 1px solid var(--line-soft); }
+  .cmp h4 { margin: 0 0 12px; font-size: 14px; font-family: var(--mono); }
+  .cmp .cc.danger h4 { color: var(--red); } .cmp .cc.good h4 { color: var(--green); }
+  .cmp .row { display: grid; grid-template-columns: 110px 1fr; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line-soft); font-size: 13px; }
+  .cmp .row:first-of-type { border-top: none; }
+  .cmp .row .rk { color: var(--faint); } .cmp .row .rv { color: var(--text); }
+  .cmpnote { font-size: 12.5px; color: var(--faint); text-align: center; padding: 12px 16px; background: var(--bg-soft); border-top: 1px solid var(--line-soft); grid-column: 1 / -1; }
+
+  /* Concentric rings (policy) */
+  .rings { margin: 22px 0; display: grid; gap: 8px; }
+  .ring { border: 1px solid var(--line-soft); border-radius: 12px; padding: 13px 16px; }
+  .ring .rl { font-size: 11px; text-transform: uppercase; letter-spacing: .09em; color: var(--faint); margin-bottom: 8px; }
+  .ring.core { background: linear-gradient(180deg, rgba(57,197,207,.1), transparent); border-color: rgba(57,197,207,.35); }
+  .ring.core .rl { color: var(--teal); }
+  .ring .nodes .node { font-family: var(--mono); font-size: 12px; }
+
+  /* Consent ladder */
+  .ceiling { border: 1px dashed var(--red); border-radius: 9px; padding: 11px 16px; background: rgba(248,81,73,.05); color: #f0a59f; font-size: 13px; margin-bottom: 12px; display: flex; align-items: center; gap: 10px; }
+  .ceiling .mk { color: var(--red); font-family: var(--mono); }
+  .rungs { display: grid; gap: 9px; }
+  .rung { border: 1px solid var(--line-soft); border-radius: 11px; padding: 0; overflow: hidden; background: var(--bg-soft); transition: .15s; }
+  .rung .rhead { display: flex; align-items: center; gap: 12px; padding: 13px 16px; cursor: pointer; }
+  .rung .rhead:hover { background: var(--bg-soft2); }
+  .rung .rtier { font-family: var(--mono); font-size: 11px; padding: 3px 9px; border-radius: 5px; flex: none; }
+  .rung[data-t="0"] .rtier { background: rgba(63,185,80,.18); color: var(--green); }
+  .rung[data-t="1"] .rtier { background: rgba(88,166,255,.18); color: var(--accent); }
+  .rung[data-t="2"] .rtier { background: rgba(210,153,34,.18); color: var(--amber); }
+  .rung[data-t="3"] .rtier { background: rgba(188,140,255,.18); color: var(--purple); }
+  .rung .rcmds { font-family: var(--mono); font-size: 12.5px; color: var(--text); flex: 1; }
+  .rung .rchev { color: var(--faint); transition: .2s; }
+  .rung.open .rchev { transform: rotate(90deg); }
+  .rung .rbody { display: none; padding: 0 16px 14px 16px; }
+  .rung.open .rbody { display: block; }
+  .rung .rbody .mm { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 6px; }
+  .rung .rbody .mm .h { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 6px; }
+  .rung .rbody .may .h { color: var(--green); } .rung .rbody .maynot .h { color: var(--red); }
+  .rung .rbody ul { margin: 0; padding-left: 16px; font-size: 13px; color: var(--muted); }
+  .rung .rbody li { margin: 4px 0; }
+
+  /* Command families */
+  .fam { display: grid; gap: 12px; margin: 22px 0; }
+  .lane { border: 1px solid var(--line-soft); border-radius: 11px; padding: 14px 16px; background: var(--bg-soft); }
+  .lane .lh { font-size: 12px; text-transform: uppercase; letter-spacing: .09em; color: var(--faint); margin-bottom: 10px; }
+  .lane .cmds { display: flex; flex-wrap: wrap; gap: 7px; }
+  .cmdchip { font-family: var(--mono); font-size: 12px; padding: 5px 11px; border-radius: 7px; border: 1px solid var(--line-soft); background: var(--bg-soft2); color: var(--text); display: inline-flex; align-items: center; gap: 7px; }
+  .cmdchip .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  .cmdchip .dot.read { background: var(--accent); } .cmdchip .dot.mg { background: var(--amber); } .cmdchip .dot.ml { background: var(--purple); }
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin: 8px 2px 0; }
+  .legend .li { display: flex; align-items: center; gap: 7px; }
+  .legend .dot { width: 8px; height: 8px; border-radius: 50%; }
+
+  /* Exit code table */
+  table.exit { width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 13.5px; }
+  table.exit th, table.exit td { padding: 9px 12px; border-bottom: 1px solid var(--line-soft); text-align: left; vertical-align: top; }
+  table.exit th { color: var(--faint); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .07em; }
+  table.exit td.code { font-family: var(--mono); color: var(--accent); width: 1%; }
+  table.exit td.cat { font-family: var(--mono); color: var(--text); white-space: nowrap; }
+  table.exit td.meaning { color: var(--muted); }
+  table.exit .retry { font-family: var(--mono); font-size: 11px; color: var(--green); }
+
+  /* Invariant ledger */
+  .ledfilter { display: flex; flex-wrap: wrap; gap: 7px; margin: 18px 0; }
+  .fchip { font-size: 12px; color: var(--muted); background: var(--bg-soft); border: 1px solid var(--line-soft); border-radius: 999px; padding: 6px 13px; cursor: pointer; transition: .12s; }
+  .fchip.on { color: #08111f; background: var(--accent); border-color: var(--accent); font-weight: 600; }
+  .invs { display: grid; gap: 10px; }
+  .inv { border: 1px solid var(--line-soft); border-radius: 11px; padding: 14px 16px; background: var(--bg-soft); transition: .15s; }
+  .inv .it { font-size: 14.5px; color: var(--text); }
+  .inv .iby { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+  .inv .iby::before { content: "enforced by "; color: var(--faint); }
+  .inv .themes { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 9px; }
+  .inv .tt { font-family: var(--mono); font-size: 10.5px; color: var(--faint); background: var(--bg-soft2); border-radius: 5px; padding: 2px 7px; }
+  .inv.hide { display: none; }
+
+  /* Callouts */
+  .callout { border-left: 3px solid var(--accent); background: rgba(88,166,255,.06); border-radius: 0 8px 8px 0; padding: 14px 18px; margin: 22px 0; }
+  .callout.warn { border-left-color: var(--amber); background: rgba(210,153,34,.07); }
+  .callout.stop { border-left-color: var(--red); background: rgba(248,81,73,.07); }
+  .callout.truth { border-left-color: var(--purple); background: rgba(188,140,255,.07); }
+  .callout b { color: var(--text); }
+  .callout p { margin: 4px 0 0; font-size: 13.5px; }
+  .callout .ch { font-weight: 700; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+  .callout.truth .ch { color: var(--purple); }
+  .callout.stop .ch { color: var(--red); }
+  .callout.warn .ch { color: var(--amber); }
+
+  /* Glossary */
+  details.gloss { border: 1px solid var(--line-soft); border-radius: 10px; margin: 8px 0; background: var(--bg-soft); overflow: hidden; }
+  details.gloss summary { padding: 13px 16px; cursor: pointer; font-weight: 600; font-size: 14px; list-style: none; display: flex; align-items: center; gap: 10px; }
+  details.gloss summary::-webkit-details-marker { display: none; }
+  details.gloss summary::before { content: "+"; color: var(--accent); font-family: var(--mono); }
+  details.gloss[open] summary::before { content: "–"; }
+  details.gloss .gb { padding: 0 16px 14px 38px; color: var(--muted); font-size: 13.5px; }
+  .glosswrap { columns: 1; }
+
+  footer { border-top: 1px solid var(--line-soft); margin-top: 90px; padding-top: 26px; color: var(--faint); font-size: 13px; }
+  footer a { color: var(--muted); }
+
+  .meterwrap { position: fixed; top: 0; left: 0; right: 0; height: 3px; background: transparent; z-index: 50; }
+  .meter { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--purple)); transition: width .1s; }
+
+  @media (max-width: 940px) {
+    .wrap { grid-template-columns: 1fr; }
+    nav.side { display: none; }
+    .g2, .g3, .isnot, .split2, .ghmap, .cmp, .zones, .ctl, .rung .rbody .mm { grid-template-columns: 1fr; }
+    .split2 .mid { border: none; border-top: 1px solid var(--line-soft); padding: 8px; }
+    .split2 .mid .obj { writing-mode: horizontal-tb; transform: none; }
+    .ctl .lbl { margin-bottom: 4px; }
+    .zones .zarrow { padding: 8px; transform: rotate(90deg); }
+    .sm { flex-direction: column; } .smarrow { transform: rotate(90deg); }
+  }
+</style>
+</head>
+<body>
+<div class="meterwrap"><div class="meter" id="meter"></div></div>
+<div class="wrap">
+  <nav class="side">
+    <div class="brand"><div class="dot">B</div><b>Baton</b></div>
+    <div class="tag">the big picture</div>
+    <div class="grp">Foundations</div>
+    <a class="link" href="#why">Why Baton exists</a>
+    <a class="link" href="#the-split">The two-brain split</a>
+    <a class="link" href="#github-queue">GitHub is the queue</a>
+    <div class="grp">The loop</div>
+    <a class="link" href="#next-action">One safe next action</a>
+    <a class="link" href="#unit-of-work">Life of one unit</a>
+    <div class="grp">The machinery</div>
+    <a class="link" href="#policy">Policy as decisions</a>
+    <a class="link" href="#leasing">Isolation by leasing</a>
+    <a class="link" href="#install-trust">Installer & CI trust</a>
+    <div class="grp">The ledger</div>
+    <a class="link" href="#invariants">Safety by construction</a>
+    <a class="link" href="#surfaces">The two surfaces</a>
+    <a class="link" href="#glossary">Glossary</a>
+    <div class="foot">
+      Concepts, not flags.<br>
+      For exact commands see<br><a href="tutorial.html">the CLI tutorial →</a>
+    </div>
+  </nav>
+
+  <main>
+    <!-- HERO -->
+    <section class="hero" id="why" style="padding-top:78px">
+      <div class="pill"><span class="blip"></span> Go CLI &nbsp;·&nbsp; companion Codex skill &nbsp;·&nbsp; the mental model</div>
+      <h1>Hand routine GitHub work<br>to an agent — safely.</h1>
+      <p class="lead">Baton lets a solo developer give scheduled coding agents real issue and PR work on their personal repos, without building a platform or risking the working tree. Its one defining bet: <b class="accent">the CLI owns the facts</b>, <b class="purple">the agent owns the judgment</b> — and neither does the other's job.</p>
+      <div class="hero-cta">
+        <button class="btn primary" onclick="document.getElementById('the-split').scrollIntoView()">See the split</button>
+        <button class="btn" onclick="document.getElementById('next-action').scrollIntoView()">Try the decision tree</button>
+      </div>
+
+      <div class="grid g3" style="margin-top:42px">
+        <div class="card"><h3><span class="ico">🧠</span> Two brains</h3><p>A deterministic binary emits verifiable facts &amp; policy. A model supplies code, ambiguity, and escalation. Auditable <em>and</em> flexible.</p></div>
+        <div class="card"><h3><span class="ico">🗂️</span> No new datastore</h3><p>GitHub Issues, labels, PRs, checks, and a shared <code>agent</code> branch <em>are</em> the state. Nothing hides in a sidecar DB or dashboard.</p></div>
+        <div class="card"><h3><span class="ico">🔒</span> Safe by construction</h3><p>One unit per run, edits only inside a leased worktree, dry-run gates, trusted-code-in-CI, no auto-merge. Safety lives in the architecture.</p></div>
+      </div>
+
+      <h2 style="margin-top:64px"><span class="num">00</span>The bet — and the non-goals</h2>
+      <p class="sub">Calibrate scope first. Baton is deliberately small; most of its design falls out of what it refuses to be.</p>
+      <div class="isnot">
+        <div class="pane is">
+          <h3>Baton is</h3>
+          <ul>
+            <li><span class="mk">+</span><span>A <b>local-first coordinator</b> for one solo developer's GitHub repos.</span></li>
+            <li><span class="mk">+</span><span>A <b>thin layer</b> over GitHub infrastructure you already trust.</span></li>
+            <li><span class="mk">+</span><span>A <b>fact engine</b> (a testable Go binary) plus a <b>judgment agent</b> (Codex + a skill).</span></li>
+            <li><span class="mk">+</span><span>One binary: <code>go install github.com/sjunepark/baton/cmd/baton@v0.1.4</code>.</span></li>
+          </ul>
+        </div>
+        <div class="pane isnt">
+          <h3>Baton is not</h3>
+          <ul>
+            <li><span class="mk">×</span><span>A general-purpose CI/CD platform or multi-tenant service.</span></li>
+            <li><span class="mk">×</span><span>A web dashboard or a replacement for Issues / Projects.</span></li>
+            <li><span class="mk">×</span><span>A fully autonomous merge bot.</span></li>
+            <li><span class="mk">×</span><span>A code generator — the CLI never writes a line of your code.</span></li>
+          </ul>
+        </div>
+      </div>
+      <p>The target user runs scheduled Codex automations across personal repos; the <em>secondary</em> user is the Codex instances those automations launch. Everything below follows from serving both safely.</p>
+    </section>
+
+    <!-- THE SPLIT -->
+    <section id="the-split">
+      <h2><span class="num">01</span>The two-brain split: facts vs. judgment</h2>
+      <p class="sub">Hold this one picture and the rest of Baton is a footnote. Toggle a side to see what it owns — and what it is forbidden to do.</p>
+
+      <div class="seg" id="splitSeg" role="tablist" style="margin-bottom:6px">
+        <button data-side="cli" class="active">⚙️ CLI — the facts</button>
+        <button data-side="codex">🧠 Codex — the judgment</button>
+        <button data-side="both">⇅ The round trip</button>
+      </div>
+
+      <div class="split2" id="split2">
+        <div class="col cli">
+          <h3>⚙️ Baton CLI</h3>
+          <div class="role">Reproducible &amp; verifiable.</div>
+          <ul>
+            <li>Reads GitHub state: issues, PRs, checks, reviews</li>
+            <li>Computes <b>policy</b> decisions (pure functions)</li>
+            <li>Picks <b>one</b> next action from the priority ladder</li>
+            <li>Hands out &amp; releases <b>worktree leases</b>; knows git/branch facts</li>
+          </ul>
+          <div class="never">Never writes your code. Never makes an implementation call.</div>
+        </div>
+        <div class="mid">
+          <div class="spine">
+            <div class="arr down" title="facts flow down">▼</div>
+            <div class="obj">nextAction · queueSnapshot · lease · reviewThreads · checks</div>
+            <div class="arr up" title="results flow up">▲</div>
+          </div>
+        </div>
+        <div class="col codex">
+          <h3>🧠 Codex + skill</h3>
+          <div class="role">Where the thinking lives.</div>
+          <ul>
+            <li>Decides <b>how</b> to implement the selected unit</li>
+            <li>Interprets ambiguous review feedback</li>
+            <li>Writes code, validates, summarizes</li>
+            <li><b>Stops &amp; escalates</b> on human product/security/schema calls</li>
+          </ul>
+          <div class="never">Never re-derives GitHub state by hand. Never invents policy.</div>
+        </div>
+      </div>
+      <p>The contract between them is a set of <b>schema-versioned objects</b> — every structured result carries a <code>kind</code> and a <code>schemaVersion</code>. Facts flow down to the agent; code, comments, and PRs flow back up. Because the facts come from a testable binary, unattended runs stay <b>auditable</b>; because a model handles the fuzzy parts, they stay <b>flexible</b>.</p>
+    </section>
+
+    <!-- GITHUB QUEUE -->
+    <section id="github-queue">
+      <h2><span class="num">02</span>GitHub is the database</h2>
+      <p class="sub">Baton stores nothing of its own for work-tracking. Hover each element to see the role it already plays.</p>
+      <div class="ghmap">
+        <div class="ghnode"><div class="ic">📋</div><div class="nm">Issue</div><div class="role">→ queue item</div><div class="dt">The operational todo queue. <em>"GitHub Issues are the operational queue"</em> is a named architectural invariant.</div></div>
+        <div class="ghnode"><div class="ic">🏷️</div><div class="nm">Label</div><div class="role">→ policy + agent-mode</div><div class="dt"><code>agent:ready-trivial</code>, <code>agent:ready-bounded</code>, <code>agent:investigate-only</code>, <code>agent:blocked</code>, <code>needs:discussion</code>, <code>needs:review</code>.</div></div>
+        <div class="ghnode"><div class="ic">🔀</div><div class="nm">Pull Request</div><div class="role">→ in-flight work</div><div class="dt">Work PRs target the staging branch; their existence pre-empts new issue work.</div></div>
+        <div class="ghnode"><div class="ic">✅</div><div class="nm">Check rollup</div><div class="role">→ blocker</div><div class="dt">Failing required checks block merge and steer the next action's reason string.</div></div>
+        <div class="ghnode"><div class="ic">💬</div><div class="nm">Review thread</div><div class="role">→ blocker (human &gt; bot)</div><div class="dt">Unresolved human threads outrank bot comments and can force a stop.</div></div>
+        <div class="ghnode"><div class="ic">🌿</div><div class="nm"><code>agent</code> staging branch</div><div class="role">→ integration target</div><div class="dt">Work PRs merge here first; its CI health gates whether new work may start.</div></div>
+        <div class="ghnode overlay"><div class="ic">⚙️</div><div class="nm"><code>.github/baton.yml</code></div><div class="role">→ policy source of truth</div><div class="dt">Per-repo config overlays the GitHub surface: branch names, label taxonomy, keywords, section IDs. CLI defaults are bootstrap only.</div></div>
+        <div class="ghnode"><div class="ic">🚫</div><div class="nm">No sidecar DB</div><div class="role">→ nothing hidden</div><div class="dt">There is no Baton database or dashboard. Everything stays inspectable with normal GitHub tooling.</div></div>
+        <div class="ghnode"><div class="ic">📁</div><div class="nm"><code>~/.baton</code></div><div class="role">→ operational only</div><div class="dt">The only local on-disk state: lease + completion metadata and worktrees. <b>Not</b> the work record — that stays in GitHub.</div></div>
+      </div>
+      <div class="callout"><span class="ch">Why this matters</span><p>Because state lives in GitHub, Baton is a coordinator over infrastructure you already trust — not a competing platform you now have to operate, back up, and reconcile.</p></div>
+    </section>
+
+    <!-- NEXT ACTION -->
+    <section id="next-action">
+      <h2><span class="num">03</span>One safe next action: the priority ladder</h2>
+      <p class="sub">The CLI collapses the entire repo state into <b>exactly one</b> recommended unit of work via a fixed cascade that returns at the first match. Change the inputs — watch which tier wins.</p>
+
+      <div class="controls" id="treeControls">
+        <div class="ctl">
+          <div class="lbl">Staging branch CI <small>health of the shared <code>agent</code> branch</small></div>
+          <div class="opts" data-key="branch">
+            <button data-v="none" data-tone="neutral">none</button>
+            <button data-v="success" data-tone="ok" class="active">success</button>
+            <button data-v="pending" data-tone="warn">pending</button>
+            <button data-v="failure" data-tone="bad">failure</button>
+          </div>
+        </div>
+        <div class="ctl">
+          <div class="lbl">Open agent PR <small>any open work PR, and its check state</small></div>
+          <div class="opts" data-key="pr">
+            <button data-v="none" data-tone="neutral" class="active">none</button>
+            <button data-v="failure" data-tone="bad">failing</button>
+            <button data-v="pending" data-tone="warn">pending</button>
+            <button data-v="success" data-tone="ok">green</button>
+            <button data-v="open" data-tone="info">open (unknown)</button>
+          </div>
+        </div>
+        <div class="ctl">
+          <div class="lbl">First eligible issue <small>after label policy is applied</small></div>
+          <div class="opts" data-key="issue">
+            <button data-v="none" data-tone="neutral" class="active">none</button>
+            <button data-v="implementation" data-tone="warn">implementation</button>
+            <button data-v="investigation" data-tone="info">investigation</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="ladder" id="treeLadder">
+        <div class="tier" data-tier="0">
+          <div class="ix">1</div>
+          <div><div class="tname">branch-health</div><div class="tcond">Staging branch CI is <code>failure</code> or <code>pending</code>.</div></div>
+          <div class="tstate"></div>
+        </div>
+        <div class="tier" data-tier="1">
+          <div class="ix">2</div>
+          <div><div class="tname">pr-followup</div><div class="tcond"><b>Any</b> open agent PR — the check state only changes the reason.</div></div>
+          <div class="tstate"></div>
+        </div>
+        <div class="tier" data-tier="2">
+          <div class="ix">3</div>
+          <div><div class="tname">issue-investigation / issue-implementation</div><div class="tcond">The first eligible issue, by its label policy.</div></div>
+          <div class="tstate"></div>
+        </div>
+        <div class="tier" data-tier="3">
+          <div class="ix">4</div>
+          <div><div class="tname">none</div><div class="tcond">Nothing eligible — report and stop.</div></div>
+          <div class="tstate"></div>
+        </div>
+      </div>
+
+      <div class="result" id="treeResult"></div>
+
+      <div class="callout truth"><span class="ch">⚑ Subtle truths the code reveals</span>
+        <p><b>Any</b> open PR wins over fresh issues — even a fully green PR pre-empts new issue work; the check state only swaps the <code>reason</code> string. The enum reserves a sixth value, <code>digest</code>, but <code>RecommendNext</code> <b>never emits it</b>. And despite the architecture doc, the classifier does <b>not</b> yet read review threads — selection keys only off branch health and PR check state.</p>
+      </div>
+
+      <h3>What makes an issue "eligible"?</h3>
+      <p>Eligibility is <b>pure label policy</b>, not a heuristic. Toggle labels to resolve one issue:</p>
+      <div class="elig">
+        <div class="chiprow" id="eligChips">
+          <button class="lchip" data-kind="impl" data-l="agent:ready-bounded">agent:ready-bounded</button>
+          <button class="lchip" data-kind="invest" data-l="agent:investigate-only">agent:investigate-only</button>
+          <button class="lchip" data-kind="skip" data-l="agent:blocked">agent:blocked</button>
+          <button class="lchip" data-kind="skip" data-l="needs:discussion">needs:discussion</button>
+          <button class="lchip" data-kind="pr" data-l="linked-pr">active linked PR</button>
+        </div>
+        <div class="everdict" id="eligVerdict"></div>
+      </div>
+      <p class="faint" style="font-size:12.5px">An implementation label routes to <code>issue-implementation</code>; a comment-only label routes to <code>issue-investigation</code>; any skip label forces ineligible; and an <em>implementation</em> issue with an active linked PR becomes ineligible — but an <em>investigation</em> issue is never disqualified by a linked PR.</p>
+    </section>
+
+    <!-- UNIT OF WORK -->
+    <section id="unit-of-work">
+      <h2><span class="num">04</span>The life of one unit of work</h2>
+      <p class="sub">One recommendation flows through a bounded loop. Step through it — watch where reads happen, where the lease boundary sits, and where a run stops.</p>
+      <div class="stepper">
+        <div class="steps-nav" id="lifeNav"></div>
+        <div class="step-panel" id="lifePanel"></div>
+        <div class="step-foot">
+          <button class="btn" id="lifePrev">← Prev</button>
+          <button class="btn primary" id="lifeNext">Next →</button>
+        </div>
+      </div>
+      <div class="callout warn"><span class="ch">The guardrails span every step</span>
+        <p><b>One unit per run · never the primary checkout · edit only inside <code>lease.path</code> · never auto-merge.</b> Any of lease conflict, ambiguous scope, a required human decision, an auth failure, or a dirty release means: stop and report.</p>
+      </div>
+    </section>
+
+    <!-- POLICY -->
+    <section id="policy">
+      <h2><span class="num">05</span>Policy as deterministic decisions</h2>
+      <p class="sub">Policy is two <b>pure functions</b>. All GitHub side effects live in a thin shell around them — so identical input yields byte-identical decisions, diffable in tests and reproducible locally.</p>
+
+      <div class="rings">
+        <div class="ring"><div class="rl">Outer — GitHub event + API</div><div class="nodes"><span class="node">issues / pull_request_target event</span><span class="node">REST + GraphQL</span></div></div>
+        <div class="ring"><div class="rl">Materialize — CLI fetches inputs</div><div class="nodes"><span class="node">parse event</span><span class="node">fetch labels</span><span class="node">fetch commit listing (cap flag)</span><span class="node">load baton.yml</span></div></div>
+        <div class="ring core"><div class="rl">Pure core — no I/O, clock, or randomness</div><div class="nodes"><span class="node">ComputeIssuePolicy → decision</span><span class="node">ComputePullRequestPolicy → decision</span></div></div>
+        <div class="ring"><div class="rl">Translate — apply effects + exit code</div><div class="nodes"><span class="node">set labels + upsert one marker comment</span><span class="node">map decision → exit code</span></div></div>
+      </div>
+      <p class="faint" style="font-size:12.5px;text-align:center">Decisions are sorted &amp; de-duplicated, carry <code>schemaVersion</code> + <code>kind</code>, and are reproducible: same input → same bytes.</p>
+
+      <h3>Two halves, opposite philosophies</h3>
+      <div class="seg" id="policySeg" style="margin-bottom:8px">
+        <button data-pol="issue" class="active">Issue policy — corrective</button>
+        <button data-pol="pr">PR policy — a gate</button>
+      </div>
+      <div id="policyPanel"></div>
+
+      <div class="callout truth"><span class="ch">⚑ A common misconception</span>
+        <p>An incomplete or blocked issue does <b>not</b> fail CI. Issue policy always exits <code>0</code> and enforces by writing the <code>agent:blocked</code> label plus one updatable comment. <b>Only PR policy</b> fails the build (exit <code>1</code>). Enforcement is the label, not the exit code.</p>
+      </div>
+
+      <div class="callout"><span class="ch">The branch model is the backbone</span>
+        <p>A <b class="green">work PR</b> targets the <code>agent</code> staging branch, links its issue with the <b>reference</b> keyword (<code>Refs</code>), and must <b>not</b> close it. A <b class="purple">promotion PR</b> goes <code>agent → main</code> and <b>must</b> close the promoted issues (<code>Closes</code>/<code>Fixes</code>/<code>Resolves</code>). The two are mutually exclusive by design — and every keyword, branch, and label name is a <code>baton.yml</code> default, not hardcoded.</p>
+      </div>
+    </section>
+
+    <!-- LEASING -->
+    <section id="leasing">
+      <h2><span class="num">06</span>Isolation by leasing: the worktree boundary</h2>
+      <p class="sub">A lease is the mechanism that makes unattended automation safe. It is a guarded lifecycle, not a folder. Click a state to see its guards and refusals.</p>
+
+      <div class="sm" id="leaseSM">
+        <div class="smnode" data-s="none"><div class="st">NONE</div><div class="stsub">no lease</div></div>
+        <div class="smarrow">→</div>
+        <div class="smnode sel" data-s="active"><div class="st">ACTIVE</div><div class="stsub">acquired · TTL 8h</div></div>
+        <div class="smarrow">→</div>
+        <div class="smnode" data-s="released"><div class="st">RELEASED</div><div class="stsub">done · clean</div></div>
+        <div class="smarrow">→</div>
+        <div class="smnode" data-s="pruned"><div class="st">PRUNED</div><div class="stsub">worktree removed</div></div>
+      </div>
+      <div class="smdetail" id="leaseDetail"></div>
+
+      <h3>Where the edits are allowed to land</h3>
+      <div class="zones">
+        <div class="zone a">
+          <div class="zh">User's primary checkout</div>
+          <div class="zb">The source repo on its current branch. Automation reads project knowledge from its <code>AGENTS.md</code> — but never switches its branch or dirties it.</div>
+          <div class="zbadge">READ-ONLY to automation</div>
+        </div>
+        <div class="zarrow"><span class="big">⤵</span> git&nbsp;worktree&nbsp;add</div>
+        <div class="zone b">
+          <div class="zh"><code>~/.baton/worktrees/&lt;repo-slug&gt;/&lt;id&gt;/&lt;repo&gt;/</code></div>
+          <div class="zb">A dedicated git worktree checkout for exactly one unit. Its lease metadata lives under <code>~/.baton</code> — a sibling <code>leases/&lt;id&gt;.json</code> (status, owner pid+host, <code>expiresAt</code>) plus the <code>leases.lock</code> mutex.</div>
+          <div class="zbadge">the only writable zone</div>
+        </div>
+      </div>
+      <p>The git <b>branch layer</b> is a separate plan/apply pipeline: <code>Inspect</code> reads SHAs, a pure <code>Compute</code> turns them into ordered commands plus errors/warnings, and <code>Apply</code> runs them <b>only if there are no errors</b>. It publishes or fast-forwards the staging branch only when safe, and <b>warns</b> instead of force-resetting a divergent branch. Execution stays outside Baton — acquire returns a path; Codex does the work there. The native git-worktree backend is v1, with the record designed to accept a pluggable backend later.</p>
+    </section>
+
+    <!-- INSTALL TRUST -->
+    <section id="install-trust">
+      <h2><span class="num">07</span>The installer and the CI trust boundary</h2>
+      <p class="sub"><code>baton init</code> scaffolds policy-as-code into a target repo. The PR-policy workflow then runs in a <b>privileged</b> context — which is exactly why it must run <b>trusted</b> code. This is the system's most important safety design.</p>
+
+      <h3>What <code>baton init</code> writes — six managed, editable files</h3>
+      <div class="bands">
+        <div class="band src"><div class="bhead">Policy &amp; intake</div><div class="nodes">
+          <span class="node">.github/baton.yml<span class="r">policy source of truth</span></span>
+          <span class="node">.github/labels.yml<span class="r">label taxonomy</span></span>
+          <span class="node">.github/ISSUE_TEMPLATE/agent-work.yml<span class="r">structured intake form</span></span>
+          <span class="node">.github/ISSUE_WORKFLOW.md<span class="r">human-facing docs</span></span>
+        </div></div>
+        <div class="band cli"><div class="bhead">Automation — thin workflows that just run the pinned binary</div><div class="nodes">
+          <span class="node">.github/workflows/issue-policy.yml<span class="r">on issues · --apply · issues:write</span></span>
+          <span class="node">.github/workflows/pr-policy.yml<span class="r">on pull_request_target · read-only</span></span>
+        </div></div>
+      </div>
+      <p class="faint" style="font-size:12.5px"><code>baton.yml</code> feeds <b>both</b> workflows at runtime. Installs are diff-by-default: <code>--dry-run</code> previews a per-file create/overwrite/unchanged plan; <code>--apply</code> writes but refuses to clobber a locally-edited managed file without <code>--yes</code>.</p>
+
+      <h3>The <code>pull_request_target</code> trust boundary</h3>
+      <p>Flip between the safe design and the vulnerability it closes:</p>
+      <div class="seg" id="trustSeg" style="margin-bottom:8px">
+        <button data-mode="safe" class="active">✅ Baton's design</button>
+        <button data-mode="unsafe">⚠️ The trap it avoids</button>
+      </div>
+      <div class="tab-body" style="padding-top:6px"><div class="seqlist" id="trustSeq"></div></div>
+      <div id="trustRisk"></div>
+
+      <div class="cmp" style="margin-top:24px">
+        <div class="cc danger">
+          <h4>pull_request</h4>
+          <div class="row"><span class="rk">context</span><span class="rv">fork / untrusted</span></div>
+          <div class="row"><span class="rk">token</span><span class="rv">none / read-only</span></div>
+          <div class="row"><span class="rk">code that runs</span><span class="rv">PR head (untrusted)</span></div>
+          <div class="row"><span class="rk">limitation</span><span class="rv">low privilege — can't enforce with writes</span></div>
+        </div>
+        <div class="cc good">
+          <h4>pull_request_target ← Baton's choice</h4>
+          <div class="row"><span class="rk">context</span><span class="rv">base repo / trusted</span></div>
+          <div class="row"><span class="rk">token</span><span class="rv">full, write-capable</span></div>
+          <div class="row"><span class="rk">code that runs</span><span class="rv"><b>base.sha</b> (trusted), not PR head</span></div>
+          <div class="row"><span class="rk">mitigation</span><span class="rv">base-SHA checkout · no persisted creds · read-only perms · pinned binary</span></div>
+        </div>
+        <div class="cmpnote">The power of <code>pull_request_target</code> is exactly why the trusted base-SHA checkout is mandatory.</div>
+      </div>
+    </section>
+
+    <!-- INVARIANTS -->
+    <section id="invariants">
+      <h2><span class="num">08</span>Safety by construction: the invariant ledger</h2>
+      <p class="sub">These rules hold regardless of what the agent decides — each is enforced by a code path, not by advice. Filter by mechanism.</p>
+      <div class="ledfilter" id="ledFilter">
+        <span class="fchip on" data-f="all">all</span>
+        <span class="fchip" data-f="isolation">isolation</span>
+        <span class="fchip" data-f="one-unit">one-unit</span>
+        <span class="fchip" data-f="fail-closed">fail-closed</span>
+        <span class="fchip" data-f="human-first">human-first</span>
+        <span class="fchip" data-f="trusted-CI">trusted-CI</span>
+        <span class="fchip" data-f="deliberate-writes">deliberate-writes</span>
+        <span class="fchip" data-f="authority">authority</span>
+      </div>
+      <div class="invs" id="invList"></div>
+    </section>
+
+    <!-- SURFACES -->
+    <section id="surfaces">
+      <h2><span class="num">09</span>The two surfaces in practice</h2>
+      <p class="sub">The conceptual split shows up as two concrete surfaces: a thin, fact-rendering <b>CLI</b> with a typed contract, and a consent-tiered <b>$baton skill router</b>.</p>
+
+      <h3>The CLI: five command families along the lifecycle</h3>
+      <div class="fam">
+        <div class="lane"><div class="lh">Dashboard</div><div class="cmds">
+          <span class="cmdchip"><span class="dot read"></span>home</span><span class="cmdchip"><span class="dot read"></span>version</span>
+        </div></div>
+        <div class="lane"><div class="lh">Setup / adopt</div><div class="cmds">
+          <span class="cmdchip"><span class="dot ml"></span>init</span><span class="cmdchip"><span class="dot ml"></span>migrate-config</span><span class="cmdchip"><span class="dot mg"></span>sync-labels</span><span class="cmdchip"><span class="dot mg"></span>ensure-branch</span><span class="cmdchip"><span class="dot read"></span>doctor</span><span class="cmdchip"><span class="dot read"></span>labels</span>
+        </div></div>
+        <div class="lane"><div class="lh">Inspect</div><div class="cmds">
+          <span class="cmdchip"><span class="dot read"></span>queue</span><span class="cmdchip"><span class="dot read"></span>prs</span><span class="cmdchip"><span class="dot read"></span>pr</span><span class="cmdchip"><span class="dot read"></span>checks</span><span class="cmdchip"><span class="dot read"></span>review-threads</span><span class="cmdchip"><span class="dot read"></span>next</span>
+        </div></div>
+        <div class="lane"><div class="lh">Act</div><div class="cmds">
+          <span class="cmdchip"><span class="dot ml"></span>lease</span><span class="cmdchip"><span class="dot read"></span>leases</span><span class="cmdchip"><span class="dot ml"></span>release</span><span class="cmdchip"><span class="dot ml"></span>prune</span><span class="cmdchip"><span class="dot mg"></span>complete</span>
+        </div></div>
+        <div class="lane"><div class="lh">Policy</div><div class="cmds">
+          <span class="cmdchip"><span class="dot mg"></span>issue-policy</span><span class="cmdchip"><span class="dot read"></span>pr-policy</span>
+        </div></div>
+      </div>
+      <div class="legend">
+        <span class="li"><span class="dot" style="background:var(--accent)"></span> read-only</span>
+        <span class="li"><span class="dot" style="background:var(--amber)"></span> may mutate GitHub</span>
+        <span class="li"><span class="dot" style="background:var(--purple)"></span> may mutate local state</span>
+      </div>
+      <p class="faint" style="font-size:12.5px"><code>main.go</code> just calls <code>cli.Run</code>; <code>cli.go</code> only parses flags and renders. The decisions live in <code>internal/*</code> (config, policy, queue, lease, doctor, labels, install).</p>
+
+      <h3>Three formats, three consumers — and a typed exit-code contract</h3>
+      <p><b class="green">text</b> for humans · <b class="accent">json</b> the stable automation contract (frozen field names + <code>schemaVersion</code>) · <b class="amber">toon</b> compact agent triage. <code>--json</code> is exactly an alias for <code>--format json</code>.</p>
+      <table class="exit">
+        <thead><tr><th>Exit</th><th>Category</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td class="code">0</td><td class="cat">success</td><td class="meaning">Success, including a clean no-op.</td></tr>
+          <tr><td class="code">1</td><td class="cat">policy</td><td class="meaning">Policy failure or unsafe state.</td></tr>
+          <tr><td class="code">2</td><td class="cat">usage</td><td class="meaning">Invalid CLI usage.</td></tr>
+          <tr><td class="code">3</td><td class="cat">config</td><td class="meaning">Config error — e.g. enforcement run with no <code>baton.yml</code>.</td></tr>
+          <tr><td class="code">4</td><td class="cat">auth</td><td class="meaning">GitHub auth error.</td></tr>
+          <tr><td class="code">5</td><td class="cat">github</td><td class="meaning">GitHub API error. <span class="retry">retryable</span></td></tr>
+          <tr><td class="code">6</td><td class="cat">localGit</td><td class="meaning">Local git / worktree error.</td></tr>
+        </tbody>
+      </table>
+      <p class="faint" style="font-size:12.5px">In JSON/TOON modes, failures print to <b>stdout</b> as an <code>errorResult</code> (<code>category</code>, <code>exitCode</code>, <code>retryable</code>, …); stderr carries only raw diagnostics.</p>
+
+      <h3>The $baton router: consent that never escalates</h3>
+      <p>The word after <code>$baton</code> selects the whole workflow; the rest is the true argument. Side effects climb one controlled rung at a time — and merge is fenced off above the top.</p>
+      <div class="ceiling"><span class="mk">⛔</span> <b>merge</b> — only on an explicit user request <em>and</em> repo policy. Never inferred from Baton output.</div>
+      <div class="rungs" id="consentRungs"></div>
+      <div class="callout"><span class="ch">Adoption escalates the same way</span><p>observe (read-only) → dry-run setup → a single manual <code>$baton run</code> → only then a scheduled one-unit worker. Note: <code>$baton todo</code> / <code>todos</code> are <b>skill-only</b> workflows (<code>baton issue-policy</code> + <code>gh issue create</code>) — the Go binary has no such subcommands.</p></div>
+
+      <h3>Two sides, four runtime flows</h3>
+      <p>Agent-side loops and CI-side enforcement are separate, complementary paths:</p>
+      <div class="tabs" id="flowTabs"></div>
+      <div class="tab-body"><div class="seqlist" id="flowSeq"></div></div>
+    </section>
+
+    <!-- GLOSSARY -->
+    <section id="glossary">
+      <h2><span class="num">10</span>Glossary</h2>
+      <p class="sub">The vocabulary, in one place.</p>
+      <div class="glosswrap" id="glossList"></div>
+    </section>
+
+    <footer>
+      <p><b>Baton — the big picture.</b> A conceptual map of how a deterministic CLI and a judgment-making agent turn GitHub Issues into safe, unattended work. For exact commands, flags, and JSON shapes, see the <a href="tutorial.html">CLI tutorial</a>, <a href="../ARCHITECTURE.md">ARCHITECTURE.md</a>, and <a href="CLI_SPEC.md">CLI_SPEC.md</a>.</p>
+      <p class="faint">Every claim here is grounded in the repository source as of the Baton v0.1.4 line. Behavior described is the implemented code, noting where it intentionally differs from aspirational prose.</p>
+    </footer>
+  </main>
+</div>
+
+<script>
+/* ---------- scroll meter + active nav ---------- */
+(function(){
+  const meter = document.getElementById('meter');
+  const links = [...document.querySelectorAll('nav.side a.link')];
+  const map = new Map(links.map(a => [a.getAttribute('href').slice(1), a]));
+  window.addEventListener('scroll', () => {
+    const h = document.documentElement;
+    const p = h.scrollTop / (h.scrollHeight - h.clientHeight);
+    meter.style.width = (p*100).toFixed(1) + '%';
+  }, {passive:true});
+  const obs = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const a = map.get(e.target.id); if (a) a.classList.add('active');
+      }
+    });
+  }, {rootMargin: '-45% 0px -50% 0px'});
+  document.querySelectorAll('main section').forEach(s => obs.observe(s));
+})();
+
+/* ---------- 01 split toggle ---------- */
+(function(){
+  const seg = document.getElementById('splitSeg');
+  const split = document.getElementById('split2');
+  const cli = split.querySelector('.col.cli');
+  const codex = split.querySelector('.col.codex');
+  const down = split.querySelector('.arr.down');
+  const up = split.querySelector('.arr.up');
+  function set(side){
+    [...seg.children].forEach(b => b.classList.toggle('active', b.dataset.side===side));
+    cli.classList.toggle('dim', side==='codex');
+    codex.classList.toggle('dim', side==='cli');
+    down.style.opacity = (side==='codex') ? .25 : 1;
+    up.style.opacity = (side==='cli') ? .25 : 1;
+  }
+  seg.addEventListener('click', e => { const b=e.target.closest('button'); if(b) set(b.dataset.side); });
+  set('cli');
+})();
+
+/* ---------- 03 decision tree ---------- */
+(function(){
+  const state = { branch:'success', pr:'none', issue:'none' };
+  const ctl = document.getElementById('treeControls');
+  const ladder = document.getElementById('treeLadder');
+  const resultEl = document.getElementById('treeResult');
+
+  const PR_REASON = { failure:'failing-checks', pending:'pending-checks', success:'ready-for-review', open:'open-pr' };
+  /* Verbatim Instructions emitted by RecommendNext (internal/queue/queue.go). */
+  const INSTR = {
+    'branch-health': ['Acquire a lease before editing.', 'Fix the shared staging branch before starting new issue work.', 'Do not open unrelated issue PRs until branch health is clear.'],
+    'pr-followup':   ['Acquire a lease before editing.', 'Push to the existing PR branch.', 'Do not open a new PR.'],
+    'issue-implementation': ['Acquire a lease before editing.', 'Open a PR to the staging branch with Refs #N.', 'Do not merge.'],
+    'issue-investigation':  ['Do not edit files unless the user explicitly changes scope.', 'Inspect and comment with findings, evidence, and a recommended next label.'],
+    'none': []
+  };
+
+  function decide(){
+    if (state.branch==='failure' || state.branch==='pending')
+      return { winner:0, action:'branch-health', reason: state.branch+'-staging-branch' };
+    if (state.pr!=='none')
+      return { winner:1, action:'pr-followup', reason: PR_REASON[state.pr] };
+    if (state.issue==='investigation')
+      return { winner:2, action:'issue-investigation', reason:'eligible-investigation' };
+    if (state.issue==='implementation')
+      return { winner:2, action:'issue-implementation', reason:'eligible-issue' };
+    return { winner:3, action:'none', reason:'no eligible issue or PR follow-up' };
+  }
+
+  function render(){
+    const d = decide();
+    [...ladder.children].forEach((row, i) => {
+      row.classList.remove('win','passed','preempted');
+      const st = row.querySelector('.tstate');
+      if (i === d.winner) { row.classList.add('win'); st.textContent = 'selected'; }
+      else if (i < d.winner) { row.classList.add('passed'); st.textContent = 'no match'; }
+      else { row.classList.add('preempted'); st.textContent = 'not reached'; }
+    });
+    const instr = INSTR[d.action] || [];
+    resultEl.innerHTML =
+      '<div class="rtop"><span class="faint" style="font-family:var(--mono);font-size:12px">baton next →</span>'
+      + '<span class="raction">' + d.action + '</span>'
+      + '<span class="rreason">' + d.reason + '</span></div>'
+      + (instr.length
+          ? '<ol>' + instr.map(s => '<li>'+s+'</li>').join('') + '</ol>'
+          : '<div class="empty">No instructions — report the state and stop. Zero mutation.</div>');
+  }
+
+  ctl.addEventListener('click', e => {
+    const b = e.target.closest('.opts button'); if(!b) return;
+    const key = b.parentElement.dataset.key;
+    [...b.parentElement.children].forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    state[key] = b.dataset.v;
+    render();
+  });
+  render();
+})();
+
+/* ---------- 03 eligibility resolver ---------- */
+(function(){
+  const chips = document.getElementById('eligChips');
+  const out = document.getElementById('eligVerdict');
+  const on = new Set();
+  function resolve(){
+    const hasImpl = on.has('agent:ready-bounded');
+    const hasInvest = on.has('agent:investigate-only');
+    const skips = [...on].filter(l => l==='agent:blocked' || l==='needs:discussion');
+    const linkedPr = on.has('linked-pr');
+
+    let kind = hasImpl ? 'implementation' : (hasInvest ? 'investigation' : null);
+    let eligible = true, why = '';
+
+    if (!kind) { eligible=false; why='no implementation or investigation label'; }
+    else if (skips.length) { eligible=false; why='skip label · '+skips[0]; }
+    else if (kind==='implementation' && linkedPr) { eligible=false; why='active linked PR'; }
+    else { why = (kind==='implementation') ? 'routes to issue-implementation' : 'routes to issue-investigation (a linked PR does not disqualify it)'; }
+
+    out.className = 'everdict ' + (eligible ? 'elig':'inelig');
+    out.innerHTML = '<span class="tag">'+(eligible?'ELIGIBLE':'INELIGIBLE')+'</span><span class="why">'+why+'</span>';
+  }
+  chips.addEventListener('click', e => {
+    const c = e.target.closest('.lchip'); if(!c) return;
+    const l = c.dataset.l;
+    if (on.has(l)) { on.delete(l); c.classList.remove('on'); }
+    else { on.add(l); c.classList.add('on'); }
+    resolve();
+  });
+  resolve();
+})();
+
+/* ---------- 04 lifecycle stepper ---------- */
+(function(){
+  const STEPS = [
+    { t:'Establish context', kind:'read', read:'home · doctor · queue', mutate:'nothing', guard:'reads are free',
+      why:'The agent orients with facts before deciding anything: readiness, the queue, and what would happen — all read-only.' },
+    { t:'Select one action', kind:'read', read:'baton next', mutate:'nothing', guard:'one unit per run',
+      why:'The priority ladder collapses the whole repo into a single recommendation. The agent does not re-discover "what to work on".' },
+    { t:'Branch on the action', kind:'read', read:'the action value', mutate:'maybe nothing', guard:'none / digest → stop',
+      why:'If the action is none (or the reserved digest), the agent reports the summary and STOPS with zero mutation. Otherwise it proceeds.',
+      stop:false },
+    { t:'Acquire a lease', kind:'mutate', read:'lease record', mutate:'creates an isolated worktree', guard:'never the primary checkout',
+      why:'baton lease returns a dedicated worktree path. From here on, edits are physically confined to that directory.',
+      note:'Refused if the branch is already leased, the path exists, or a new branch has no base.' },
+    { t:'Enter the lease', kind:'read', read:'lease.path AGENTS.md', mutate:'cd into lease.path', guard:'edit only inside lease.path',
+      why:'The agent reads the leased checkout’s own AGENTS.md for build/test knowledge. Baton supplies safety rails, not project commands.' },
+    { t:'Do the one unit', kind:'mutate', read:'acceptance criteria', mutate:'code OR an issue comment', guard:'stop if scope is ambiguous',
+      why:'Implement the smallest change that satisfies acceptance criteria, or investigate-and-comment — for exactly that one unit.',
+      note:'Ambiguous scope or a human product/security/schema decision → stop and report.' },
+    { t:'Validate', kind:'read', read:'focused checks', mutate:'nothing', guard:'human review > bot nits',
+      why:'Run focused validation. For PR follow-up: fix failing required checks before bot nits, and weigh unresolved human review threads over bot comments.' },
+    { t:'Act per the action', kind:'mutate', read:'branch model', mutate:'push / open PR / comment', guard:'never auto-merge',
+      why:'A work PR targets the staging branch with Refs #N (never a closing keyword, never closing the issue). A follow-up pushes to the EXISTING PR branch — never a replacement PR.' },
+    { t:'Complete & release', kind:'mutate', read:'lease state', mutate:'complete · release (if clean)', guard:'dirty release refused',
+      why:'Record completion, then release the lease when the worktree is clean. A dirty worktree is retained and reported, not force-released. One unit done — then stop.',
+      note:'Release refuses a dirty worktree unless explicitly kept; prune (later) physically removes it.' },
+  ];
+  const nav = document.getElementById('lifeNav');
+  const panel = document.getElementById('lifePanel');
+  const prev = document.getElementById('lifePrev');
+  const next = document.getElementById('lifeNext');
+  let cur = 0;
+
+  STEPS.forEach((s, i) => {
+    const b = document.createElement('button');
+    b.innerHTML = '<span class="n">'+(i+1)+'</span>'+s.t;
+    if (s.kind==='mutate') b.classList.add('mutate');
+    b.addEventListener('click', () => { cur=i; render(); });
+    nav.appendChild(b);
+  });
+
+  function render(){
+    [...nav.children].forEach((b,i) => b.classList.toggle('active', i===cur));
+    const s = STEPS[cur];
+    panel.innerHTML =
+      '<h3>'+(cur+1)+'. '+s.t+'</h3>'
+      + '<p class="why">'+s.why+'</p>'
+      + '<div class="step-meta">'
+        + '<div class="mi read"><span class="k">Reads</span><span class="v">'+s.read+'</span></div>'
+        + '<div class="mi mutate"><span class="k">Mutates</span><span class="v">'+s.mutate+'</span></div>'
+        + '<div class="mi guard"><span class="k">Guardrail</span><span class="v">'+s.guard+'</span></div>'
+      + '</div>'
+      + (s.note ? '<div class="note stop">⛔ '+s.note+'</div>' : '');
+    prev.disabled = cur===0; next.disabled = cur===STEPS.length-1;
+  }
+  prev.addEventListener('click', () => { if(cur>0){cur--;render();} });
+  next.addEventListener('click', () => { if(cur<STEPS.length-1){cur++;render();} });
+  render();
+})();
+
+/* ---------- 05 policy corrective-vs-gate ---------- */
+(function(){
+  const seg = document.getElementById('policySeg');
+  const panel = document.getElementById('policyPanel');
+  const DATA = {
+    issue: { tag:'corrective', color:'var(--green)', rows:[
+      ['trigger','issues opened / edited'],
+      ['output','labelsToAdd / labelsToRemove (controlled groups only) + one updatable policy comment'],
+      ['enforcement','writes agent:blocked when a ready issue is missing required sections'],
+      ['exit code','always 0 — never fails CI'],
+      ['philosophy','reconcile toward a correct state, idempotently'],
+    ]},
+    pr: { tag:'gate', color:'var(--red)', rows:[
+      ['trigger','pull_request_target on agent / main'],
+      ['output','human-readable error strings + referenced / closing issue numbers'],
+      ['enforcement','a failing GitHub check'],
+      ['exit code','1 on any error, else 0 and "PR policy check passed."'],
+      ['philosophy','block anything that does not conform'],
+    ]},
+  };
+  function set(pol){
+    [...seg.children].forEach(b => b.classList.toggle('active', b.dataset.pol===pol));
+    const d = DATA[pol];
+    panel.innerHTML = '<div class="elig" style="border-color:'+d.color+'33">'
+      + '<div style="font-family:var(--mono);font-size:12px;color:'+d.color+';font-weight:700;text-transform:uppercase;letter-spacing:.08em">'+pol+'-policy · '+d.tag+'</div>'
+      + d.rows.map(r => '<div class="cmp" style="margin:0;border:none;display:grid;grid-template-columns:120px 1fr;gap:10px;padding:8px 0;border-top:1px solid var(--line-soft)"><span class="rk faint" style="font-size:12.5px">'+r[0]+'</span><span class="rv" style="font-size:13.5px;color:var(--text)">'+r[1]+'</span></div>').join('')
+      + '</div>';
+  }
+  seg.addEventListener('click', e => { const b=e.target.closest('button'); if(b) set(b.dataset.pol); });
+  set('issue');
+})();
+
+/* ---------- 06 lease state machine ---------- */
+(function(){
+  const sm = document.getElementById('leaseSM');
+  const detail = document.getElementById('leaseDetail');
+  const D = {
+    none: { title:'NONE', meaning:'No lease exists for this unit of work. The default, safe resting state.', guards:[
+      ['allow','Acquire → ACTIVE when: a purpose is set, the headRef is unique among active leases, a base ref is given for a new branch, the worktree path is free, and the leases.lock mutex is held.'],
+    ], note:'Acquisition writes a JSON record under ~/.baton/leases/ and adds a git worktree.' },
+    active: { title:'ACTIVE', meaning:'An isolated worktree is acquired for exactly one unit. The record carries owner {pid, hostname}, createdAt, and an expiresAt TTL (default 8h). The EXPIRED overlay = still active, but now past expiresAt.', guards:[
+      ['refuse','Release is REFUSED on a dirty worktree unless --keep-dirty — it returns the changed files and errors.'],
+      ['allow','Release → RELEASED when the worktree is clean (or kept dirty deliberately).'],
+      ['refuse','A second lease on the same headRef is refused while this one is active.'],
+    ], note:'EXPIRED does not auto-clean anything — expiry only makes the lease a prune CANDIDATE.' },
+    released: { title:'RELEASED', meaning:'The unit is done and the lease is marked released. Note: the worktree is NOT deleted here — release only flips status (and only when clean).', guards:[
+      ['allow','Prune → PRUNED when the path is under the Baton state root and the tree is clean. The live-owner check applies only to still-active leases, so a released lease skips it.'],
+    ], note:'A released lease is a prune candidate, but still must pass every prune gate to be removed.' },
+    pruned: { title:'PRUNED', meaning:'The worktree is physically removed and the lease is retired. This is the only transition that deletes files from disk.', guards:[
+      ['refuse','Prune SKIPS any candidate not under ~/.baton/worktrees, an active lease still owned by a live process, or a dirty tree.'],
+      ['allow','PruneDryRun marks candidates (status != active OR past expiresAt) WITHOUT transitioning — a preview.'],
+    ], note:'Refusal-by-default: Baton must prove a target is managed, idle, and clean before any destructive op.' },
+  };
+  function set(s){
+    [...sm.querySelectorAll('.smnode')].forEach(n => n.classList.toggle('sel', n.dataset.s===s));
+    const d = D[s];
+    detail.innerHTML = '<h4>'+d.title+'</h4><div class="meaning">'+d.meaning+'</div>'
+      + '<div class="guards">'+d.guards.map(g => '<div class="g '+g[0]+'"><span class="mk">'+(g[0]==='allow'?'→':'⛔')+'</span><span>'+g[1]+'</span></div>').join('')+'</div>'
+      + '<div class="smnote">'+d.note+'</div>';
+  }
+  sm.addEventListener('click', e => { const n=e.target.closest('.smnode'); if(n) set(n.dataset.s); });
+  set('active');
+})();
+
+/* ---------- 07 trust-boundary sequence ---------- */
+(function(){
+  const seg = document.getElementById('trustSeg');
+  const seq = document.getElementById('trustSeq');
+  const risk = document.getElementById('trustRisk');
+  const SAFE = [
+    ['PR opened/synced on a fork', 'mutate', 'pull_request_target fires in the BASE repo context (branches agent / main)'],
+    ['Checkout base.sha', 'trust', 'actions/checkout with ref = github.event.pull_request.base.sha, persist-credentials: false — trusted commit, NOT the PR head'],
+    ['Install pinned baton', 'trust', 'setup-go, then install a version-pinned binary into an isolated dir — deterministic, not silently upgraded'],
+    ['Run pr-policy (read-only)', 'read', 'baton pr-policy --event "$GITHUB_EVENT_PATH" with read-only permissions'],
+    ['Read PR data as input', 'read', 'PR / commit / issue data is read via the token + baton.yml — PR-authored code is event data, never executed'],
+    ['Exit 0 or 1', 'read', 'pass (exit 0) or fail the check (exit 1) — purely a signal, no writes'],
+  ];
+  const UNSAFE = [
+    ['PR opened/synced on a fork', 'mutate', 'pull_request_target still fires WITH secrets and a write-capable token'],
+    ['Checkout PR head ⚠️', 'stop', 'If the workflow checked out github.event.pull_request.head — attacker-controlled code is now on disk'],
+    ['Run a build/script step', 'stop', 'Any script the PR author edited now executes in the privileged base context'],
+    ['Token & secrets exposed', 'stop', 'The write token and repo secrets can be exfiltrated — a classic pwn-request'],
+  ];
+  function set(mode){
+    [...seg.children].forEach(b => b.classList.toggle('active', b.dataset.mode===mode));
+    const rows = mode==='safe' ? SAFE : UNSAFE;
+    seq.innerHTML = rows.map((r,i) =>
+      '<div class="seqstep"><span class="sn">'+(i+1)+'</span><div><div class="stxt">'+r[0]+'</div><div class="ann '+r[1]+'">'+r[2]+'</div></div></div>'
+    ).join('');
+    risk.innerHTML = mode==='safe'
+      ? '<div class="callout"><span class="ch">The boundary holds</span><p>PR-authored code is never on disk in the privileged job. The job reads PR content as event data, runs trusted base-branch logic, and only signals pass/fail. Writes (labels, comments) are confined to the separate, read-scoped <code>issue-policy</code> workflow.</p></div>'
+      : '<div class="callout stop"><span class="ch">⛔ Why Baton refuses this</span><p>Checking out the PR head under <code>pull_request_target</code> runs untrusted code with the repo’s write token and secrets. Baton closes this by pinning to <code>base.sha</code>, not persisting credentials, and keeping <code>pr-policy</code> permissions read-only.</p></div>';
+  }
+  seg.addEventListener('click', e => { const b=e.target.closest('button'); if(b) set(b.dataset.mode); });
+  set('safe');
+})();
+
+/* ---------- 08 invariant ledger ---------- */
+(function(){
+  const INV = [
+    { t:'Automation never mutates the primary checkout — edits happen only inside a Baton worktree lease.', by:'lease.path is a separate git worktree; it is the only writable zone.', th:['isolation'] },
+    { t:'One automation run claims at most one unit of work.', by:'RecommendNext returns at the first matching tier of the priority ladder.', th:['one-unit'] },
+    { t:'Target-repo .github/baton.yml is the policy source of truth.', by:'enforcement commands fail with exit 3 when no config exists; defaults are bootstrap-only.', th:['authority'] },
+    { t:'The CLI returns facts and policy decisions; Codex performs all code changes.', by:'the binary has no code-generation path; the skill forbids re-deriving GitHub state.', th:['authority'] },
+    { t:'Every mutating path has a brake — a dry-run mode, a pure planner, or an explicit --apply / --yes gate.', by:'init requires --dry-run|--apply; branch/lease ops plan before they apply.', th:['deliberate-writes'] },
+    { t:'Policy fails closed when it cannot fully validate.', by:'reaching GitHub’s 250-commit listing cap is a hard error by default — commit hygiene can no longer be verified.', th:['fail-closed'] },
+    { t:'Tokens are never printed in any output.', by:'the token is only ever set as an Authorization request header — it is never inserted into an error string, log line, or rendered result.', th:['fail-closed'] },
+    { t:'Human review comments outrank bot comments; unresolved blocking threads and failing required checks block merge.', by:'review-thread classification marks human vs bot; follow-up fixes required checks before nits.', th:['human-first'] },
+    { t:'Baton never auto-merges a PR without an explicit user request and repo policy.', by:'no command performs a merge; the skill router fences merge above its top consent tier.', th:['human-first','deliberate-writes'] },
+    { t:'Baton never auto-resolves review threads.', by:'review-threads is strictly read/report; resolution stays a human action.', th:['human-first'] },
+    { t:'PR policy runs trusted base-SHA code in pull_request_target.', by:'the workflow checks out github.event.pull_request.base.sha with persist-credentials:false and read-only perms.', th:['trusted-CI'] },
+    { t:'No destructive git/worktree op runs without proof the target is managed, idle, and clean.', by:'prune skips anything not under the state root, owned by a live process, or dirty.', th:['isolation','fail-closed'] },
+  ];
+  const list = document.getElementById('invList');
+  const filter = document.getElementById('ledFilter');
+  list.innerHTML = INV.map(v =>
+    '<div class="inv" data-th="'+v.th.join(' ')+'"><div class="it">'+v.t+'</div><div class="iby">'+v.by+'</div><div class="themes">'+v.th.map(x => '<span class="tt">'+x+'</span>').join('')+'</div></div>'
+  ).join('');
+  filter.addEventListener('click', e => {
+    const c = e.target.closest('.fchip'); if(!c) return;
+    [...filter.children].forEach(x => x.classList.remove('on'));
+    c.classList.add('on');
+    const f = c.dataset.f;
+    list.querySelectorAll('.inv').forEach(el => {
+      el.classList.toggle('hide', f!=='all' && !el.dataset.th.split(' ').includes(f));
+    });
+  });
+})();
+
+/* ---------- 09 consent ladder ---------- */
+(function(){
+  const RUNGS = [
+    { t:0, tier:'read-only', cmds:'$baton · status · next · queue · adopt · automate', may:['Read readiness, the queue, and the next action','Preview setup (adopt) and prepare automation (automate) with dry-run / read-only checks only'], maynot:['Mutate anything','Auto-run mutating work','Apply setup or schedule implementation before a manual run succeeds'] },
+    { t:1, tier:'issue-create', cmds:'todo · todos', may:['Create GitHub issues (skill-only: baton issue-policy + gh issue create)'], maynot:['Create branches, leases, or PRs','Implement anything'] },
+    { t:2, tier:'comment-only', cmds:'investigate', may:['Comment findings on an issue'], maynot:['Edit files (unless the user explicitly changes scope)'] },
+    { t:3, tier:'lease-gated edit', cmds:'implement · follow-up · run', may:['Edit code — but ONLY after acquiring a lease and entering lease.path'], maynot:['Touch the primary checkout','Merge'] },
+  ];
+  const wrap = document.getElementById('consentRungs');
+  wrap.innerHTML = RUNGS.map(r =>
+    '<div class="rung" data-t="'+r.t+'">'
+    + '<div class="rhead"><span class="rtier">'+r.tier+'</span><span class="rcmds">'+r.cmds+'</span><span class="rchev">▸</span></div>'
+    + '<div class="rbody"><div class="mm"><div class="may"><div class="h">may</div><ul>'+r.may.map(x=>'<li>'+x+'</li>').join('')+'</ul></div>'
+    + '<div class="maynot"><div class="h">may not</div><ul>'+r.maynot.map(x=>'<li>'+x+'</li>').join('')+'</ul></div></div></div>'
+    + '</div>'
+  ).join('');
+  wrap.addEventListener('click', e => { const h=e.target.closest('.rhead'); if(h) h.parentElement.classList.toggle('open'); });
+  wrap.querySelector('.rung').classList.add('open');
+})();
+
+/* ---------- 09 runtime-flow tabs ---------- */
+(function(){
+  const FLOWS = {
+    'Scheduled issue run': [
+      ['baton home / doctor / next', 'read', 'establish context and select ONE action (agent side)'],
+      ['acquire a lease', 'mutate', 'isolated worktree — never the primary checkout'],
+      ['implement inside lease.path', 'mutate', 'smallest change for one unit; read that checkout’s AGENTS.md'],
+      ['open a work PR → staging', 'mutate', 'Refs #N, no closing keyword; do not merge'],
+      ['complete & release', 'mutate', 'release when clean, then stop'],
+    ],
+    'PR follow-up': [
+      ['baton pr / checks / review-threads', 'read', 'inspect the existing PR (agent side)'],
+      ['lease the EXISTING PR branch', 'mutate', 'no replacement PR'],
+      ['fix failing required checks first', 'mutate', 'then bot nits; human threads may force a stop'],
+      ['push to the same branch', 'mutate', 'never open a new PR'],
+      ['complete & release', 'mutate', 'report and stop'],
+    ],
+    'issue-policy CI (on issues)': [
+      ['issues event fires', 'read', 'GitHub Actions, base context'],
+      ['baton issue-policy --apply', 'mutate', 'issues: write permission'],
+      ['reconcile controlled labels', 'mutate', 'add/remove only labels Baton manages'],
+      ['upsert one policy comment', 'mutate', 'agent:blocked + comment if required sections missing'],
+      ['exit 0', 'read', 'corrective — NEVER fails CI'],
+    ],
+    'pr-policy CI (on pull_request_target)': [
+      ['pull_request_target fires', 'read', 'privileged base-repo context'],
+      ['checkout base.sha', 'trust', 'persist-credentials:false — trusted code, not PR head'],
+      ['install pinned baton', 'trust', 'deterministic binary'],
+      ['baton pr-policy (read-only)', 'read', 'validate branch direction, keywords, linked issues, commit quality'],
+      ['exit 0 / 1', 'read', 'a gate — exit 1 blocks the PR'],
+    ],
+  };
+  const tabs = document.getElementById('flowTabs');
+  const body = document.getElementById('flowSeq');
+  const names = Object.keys(FLOWS);
+  names.forEach((n,i) => {
+    const b = document.createElement('button');
+    b.textContent = n;
+    b.addEventListener('click', () => set(i));
+    tabs.appendChild(b);
+  });
+  function set(i){
+    [...tabs.children].forEach((b,j) => b.classList.toggle('active', i===j));
+    const rows = FLOWS[names[i]];
+    body.innerHTML = rows.map((r,k) =>
+      '<div class="seqstep"><span class="sn">'+(k+1)+'</span><div><div class="stxt">'+r[0]+'</div><div class="ann '+r[1]+'">'+r[2]+'</div></div></div>'
+    ).join('');
+  }
+  set(0);
+})();
+
+/* ---------- 10 glossary ---------- */
+(function(){
+  const G = [
+    ['Two-brain split','Baton’s central design: the CLI owns reproducible facts (GitHub/git state, policy, leases); Codex owns judgment (code, ambiguity, escalation). Neither side does the other’s job.'],
+    ['Operational queue','GitHub Issues/PRs/labels/checks plus an agent staging branch ARE the work state — Baton adds no database, dashboard, or task system.'],
+    ['Staging branch (agent)','A shared integration branch (default agent) that work PRs target; its CI health gates whether new work may start.'],
+    ['Work PR vs promotion PR','A work PR targets the staging branch and uses Refs #N (never closing the issue). A promotion PR goes staging→base and must close issues with Closes #N.'],
+    ['Worktree lease','An acquired, isolated git worktree for exactly one unit, persisted as JSON with status active/released/pruned, owner identity, and a TTL. Edits only inside the returned path; the primary checkout is never touched.'],
+    ['Next action (nextAction)','The single recommendation from the priority ladder: an action enum value plus a reason, optional pr/issue refs, and an instruction list. Produced by RecommendNext, rendered by baton next.'],
+    ['Queue snapshot (queueSnapshot)','The full classified view of the repo’s queue — per-issue eligibility/reasons/linked PRs and per-PR referenced issues. Produced by BuildSnapshot, rendered by baton queue.'],
+    ['Agent mode','A least-permissive label on an issue — Ready trivial, Ready bounded, Investigate only, or Needs discussion — bounding what an agent may do.'],
+    ['agent:blocked','The quality-gate label issue policy adds when a ready issue is missing required sections; removed automatically on the next edit once the form is complete. Enforced via the label, never via a failing exit code.'],
+    ['Controlled label groups','The label sets Baton owns and may remove during reconciliation, so policy never strips human-applied labels it does not manage.'],
+    ['Policy engine','Two pure functions — ComputeIssuePolicy and ComputePullRequestPolicy — that turn a materialized input into a sorted, schema-versioned decision struct with zero side effects.'],
+    ['Reference vs closing keyword','Work PRs link issues with the reference keyword (default Refs) and must not close them; promotion PRs use a closing keyword (Closes/Fixes/Resolves) to actually close them. Both are config-driven.'],
+    ['pull_request_target trust boundary','The PR-policy workflow runs in the privileged base-repo context but checks out the trusted base SHA with credentials not persisted, so PR-authored code is read as event data only and never executed with the write token.'],
+    ['baton.yml','The per-repo .github/baton.yml that is the policy source of truth: branch names, label taxonomy, issue-form section IDs, keyword/label mappings, and fail-closed toggles. CLI defaults are bootstrap only.'],
+    ['baton init','The installer that previews (--dry-run) or writes (--apply) six managed-but-editable policy files into a target repo’s .github/, including the two GitHub Actions workflows.'],
+    ['TOON / --format toon','A compact agent-context output mode preserving kind/schemaVersion/identity/counts while dropping expensive fields like full bodies; distinct from JSON, the stable automation contract.'],
+    ['Exit-code contract','The fixed mapping 0 success, 1 policy/unsafe, 2 usage, 3 config, 4 auth, 5 github, 6 local-git; only GitHub errors are retryable.'],
+    ['$baton command router','The skill’s 12-command intent router: the word after $baton selects a whole workflow, the rest is the true argument, and each command carries a fixed, non-escalating consent tier.'],
+    ['Consent tier','The permission level encoded per skill command — read-only, issue-create, comment-only, lease-gated edit — that a command may never silently exceed; merge is always off without an explicit user request and repo policy.'],
+    ['RecommendNext','The pure classifier that walks the priority ladder and returns at the first match — guaranteeing a single recommendation and "one unit per run".'],
+    ['Promotion vs work flow','Work flows stage changes onto agent; a promotion flow later moves agent→main and closes issues. Note: in v0.1.4 the PR gate treats EVERY PR targeting the base branch (main) as a promotion PR — it must come from the staging branch and close issues. Narrowing that to Baton-managed flows (so ordinary human PRs into main fall back to normal CI and branch protection) is a tracked, not-yet-shipped change.'],
+  ];
+  const wrap = document.getElementById('glossList');
+  wrap.innerHTML = G.map(g =>
+    '<details class="gloss"><summary>'+g[0]+'</summary><div class="gb">'+g[1]+'</div></details>'
+  ).join('');
+})();
+</script>
+</body>
+</html>
