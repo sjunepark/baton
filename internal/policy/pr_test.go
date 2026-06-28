@@ -11,6 +11,7 @@ func TestComputePullRequestPolicy(t *testing.T) {
 	tests := []struct {
 		name            string
 		input           PRPolicyInput
+		wantFlow        PRFlow
 		wantErrors      []string
 		wantErrorSubstr string
 	}{
@@ -21,6 +22,7 @@ func TestComputePullRequestPolicy(t *testing.T) {
 				ReferencedIssues: []ReferencedIssue{issue(123, "agent:ready-trivial")},
 				CommitMessages:   []string{"Document issue policy"},
 			},
+			wantFlow:   PRFlowWork,
 			wantErrors: []string{},
 		},
 		{
@@ -30,6 +32,7 @@ func TestComputePullRequestPolicy(t *testing.T) {
 				ReferencedIssues: []ReferencedIssue{issue(123, "agent:ready-trivial")},
 				CommitMessages:   []string{"Document issue policy"},
 			},
+			wantFlow:        PRFlowWork,
 			wantErrorSubstr: "Work PR branches into agent must start with agent-work/; agent/... is reserved by the shared staging branch.",
 		},
 		{
@@ -38,6 +41,7 @@ func TestComputePullRequestPolicy(t *testing.T) {
 				PullRequest:    workPullRequest("No linked issue."),
 				CommitMessages: []string{"Document issue policy"},
 			},
+			wantFlow:        PRFlowWork,
 			wantErrorSubstr: "Work PRs into agent must reference at least one issue with Refs #123.",
 		},
 		{
@@ -47,6 +51,7 @@ func TestComputePullRequestPolicy(t *testing.T) {
 				ReferencedIssues: []ReferencedIssue{issue(123, "agent:ready-trivial")},
 				CommitMessages:   []string{"Document issue policy"},
 			},
+			wantFlow:        PRFlowWork,
 			wantErrorSubstr: "Work PRs into agent must use Refs #123, not closing keywords.",
 		},
 		{
@@ -56,6 +61,7 @@ func TestComputePullRequestPolicy(t *testing.T) {
 				ReferencedIssues: []ReferencedIssue{issue(123, "agent:investigate-only")},
 				CommitMessages:   []string{"Document issue policy"},
 			},
+			wantFlow:        PRFlowWork,
 			wantErrorSubstr: "#123 must have one of: agent:ready-trivial, agent:ready-bounded.",
 		},
 		{
@@ -65,6 +71,7 @@ func TestComputePullRequestPolicy(t *testing.T) {
 				ReferencedIssues: []ReferencedIssue{issue(123, "agent:ready-bounded", "needs:discussion")},
 				CommitMessages:   []string{"Document issue policy"},
 			},
+			wantFlow:        PRFlowWork,
 			wantErrorSubstr: "#123 has skip label needs:discussion.",
 		},
 		{
@@ -74,18 +81,35 @@ func TestComputePullRequestPolicy(t *testing.T) {
 				ReferencedIssues: []ReferencedIssue{issue(123, "agent:ready-trivial"), issue(124, "agent:ready-trivial")},
 				CommitMessages:   []string{"Document issue policy"},
 			},
+			wantFlow:        PRFlowWork,
 			wantErrorSubstr: "Multi-issue PRs cannot be all-trivial in v1; split them or use bounded review.",
 		},
 		{
-			name: "promotion PR must come from agent and close issues",
+			name: "direct base branch PR is skipped by default",
 			input: PRPolicyInput{
 				PullRequest:    promotionPullRequest("Refs #123", "feature"),
+				CommitMessages: []string{"fix lint"},
+			},
+			wantFlow:   PRFlowDirectBase,
+			wantErrors: []string{},
+		},
+		{
+			name: "agent-work PR into base branch must target staging branch first",
+			input: PRPolicyInput{
+				PullRequest:    promotionPullRequest("Refs #123", "agent-work/123-issue-policy"),
 				CommitMessages: []string{"Document issue policy"},
 			},
-			wantErrors: []string{
-				"Promotion PRs into main must come from agent.",
-				"Promotion PRs into main must close promoted issues with Closes #123.",
+			wantFlow:        PRFlowInvalidDirectWork,
+			wantErrorSubstr: "Baton work PRs from agent-work/* must target agent before promotion to main.",
+		},
+		{
+			name: "promotion PR from agent requires closing keywords",
+			input: PRPolicyInput{
+				PullRequest:    promotionPullRequest("Refs #123", "agent"),
+				CommitMessages: []string{"Document issue policy"},
 			},
+			wantFlow:        PRFlowPromotion,
+			wantErrorSubstr: "Promotion PRs into main must close promoted issues with Closes #123.",
 		},
 		{
 			name: "promotion PR from agent with closing keywords passes",
@@ -93,6 +117,7 @@ func TestComputePullRequestPolicy(t *testing.T) {
 				PullRequest:    promotionPullRequest("Closes #123", "agent"),
 				CommitMessages: []string{"Document issue policy"},
 			},
+			wantFlow:   PRFlowPromotion,
 			wantErrors: []string{},
 		},
 		{
@@ -102,6 +127,7 @@ func TestComputePullRequestPolicy(t *testing.T) {
 				ReferencedIssues: []ReferencedIssue{issue(123, "agent:ready-trivial")},
 				CommitMessages:   []string{"fix lint"},
 			},
+			wantFlow:        PRFlowWork,
 			wantErrorSubstr: "Commit subject is too vague to keep permanently: \"fix lint\".",
 		},
 		{
@@ -112,6 +138,7 @@ func TestComputePullRequestPolicy(t *testing.T) {
 				CommitMessages:          meaningfulCommits(250),
 				CommitListingReachedCap: true,
 			},
+			wantFlow:        PRFlowWork,
 			wantErrorSubstr: "PR commit listing reached GitHub API cap of 250 commits; commit hygiene cannot be fully verified.",
 		},
 		{
@@ -121,6 +148,7 @@ func TestComputePullRequestPolicy(t *testing.T) {
 				CommitMessages:          meaningfulCommits(250),
 				CommitListingReachedCap: true,
 			},
+			wantFlow:        PRFlowPromotion,
 			wantErrorSubstr: "PR commit listing reached GitHub API cap of 250 commits; commit hygiene cannot be fully verified.",
 		},
 	}
@@ -129,6 +157,9 @@ func TestComputePullRequestPolicy(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.input.Policy = cfg
 			decision := ComputePullRequestPolicy(tt.input)
+			if tt.wantFlow != "" && decision.Flow != tt.wantFlow {
+				t.Fatalf("flow = %q, want %q", decision.Flow, tt.wantFlow)
+			}
 			if tt.wantErrors != nil {
 				assertStringSlices(t, decision.Errors, tt.wantErrors)
 			}
@@ -136,6 +167,24 @@ func TestComputePullRequestPolicy(t *testing.T) {
 				t.Fatalf("errors = %#v, want %q", decision.Errors, tt.wantErrorSubstr)
 			}
 		})
+	}
+}
+
+func TestComputePullRequestPolicyCanRejectDirectBaseBranchPRs(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.PRPolicy.AllowDirectBaseBranchPRs = false
+
+	decision := ComputePullRequestPolicy(PRPolicyInput{
+		PullRequest:    promotionPullRequest("Refs #123", "feature"),
+		CommitMessages: []string{"Document issue policy"},
+		Policy:         cfg,
+	})
+
+	if decision.Flow != PRFlowDirectBase {
+		t.Fatalf("flow = %q, want %q", decision.Flow, PRFlowDirectBase)
+	}
+	if !containsString(decision.Errors, "Direct PRs into main are disabled by Baton policy; target agent for Baton-managed work or use agent for promotion.") {
+		t.Fatalf("errors = %#v, want direct-base policy error", decision.Errors)
 	}
 }
 

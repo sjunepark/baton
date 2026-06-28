@@ -194,6 +194,7 @@ JSON result:
 {
   "schemaVersion": 1,
   "kind": "prPolicyDecision",
+  "flow": "work",
   "errors": [],
   "warnings": [],
   "referencedIssues": [4],

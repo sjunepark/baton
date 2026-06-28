@@ -66,6 +66,9 @@ pr_policy:
     - Closes
     - Fixes
     - Resolves
+  # Ordinary direct PRs into base_branch from non-Baton branches are skipped.
+  # Promotion from staging_branch and work-branch routing are still enforced.
+  allow_direct_base_branch_prs: true
   reject_all_trivial_multi_issue_prs: true
   noisy_commit_subjects:
     - address comments

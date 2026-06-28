@@ -87,6 +87,7 @@ pr_policy:
     - Closes
     - Fixes
     - Resolves
+  allow_direct_base_branch_prs: true
   reject_all_trivial_multi_issue_prs: true
   noisy_commit_subjects:
     - address comments
@@ -133,6 +134,12 @@ Required for v1:
 
 Optional fields use the defaults shown in the top-level shape unless a command
 documents a narrower bootstrap behavior.
+
+`pr_policy.allow_direct_base_branch_prs` controls ordinary PRs directly into
+`repository.base_branch` from branches outside Baton's work branch prefix. When
+true, Baton skips those direct PRs and leaves review, CI, and branch protection
+to the repository. Promotion PRs from `repository.staging_branch` and mistaken
+direct work PRs from `repository.work_branch_prefix` are still enforced.
 
 ## Legacy Mapping
 

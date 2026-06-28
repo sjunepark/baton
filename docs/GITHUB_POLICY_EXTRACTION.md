@@ -60,6 +60,8 @@ Current behavior:
 - Multi-issue all-trivial PRs are rejected.
 - Promotion PRs target `main` from `agent`.
 - Promotion PRs use closing keywords.
+- Direct PRs to `main` from ordinary branches are outside Baton's automation
+  policy by default; `agent-work/*` branches must target `agent` first.
 - Noisy commit subjects are rejected.
 - GitHub commit listing cap fails closed.
 

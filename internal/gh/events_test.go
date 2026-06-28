@@ -40,6 +40,39 @@ func TestParsePullRequestEvent(t *testing.T) {
 	}
 }
 
+func TestParsePullRequestEventBaseBranchFlows(t *testing.T) {
+	tests := []struct {
+		name    string
+		baseRef string
+		headRef string
+	}{
+		{name: "promotion", baseRef: "main", headRef: "agent"},
+		{name: "direct human", baseRef: "main", headRef: "feature-x"},
+		{name: "direct work branch", baseRef: "main", headRef: "agent-work/123-policy"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pr, err := ParsePullRequestEvent([]byte(`{
+  "pull_request": {
+    "number": 9,
+    "title": "Update policy",
+    "body": "Refs #12",
+    "base": {"ref": "` + tt.baseRef + `", "repo": {"full_name": "example-org/example-repo"}},
+    "head": {"ref": "` + tt.headRef + `", "repo": {"full_name": "example-org/example-repo"}}
+  },
+  "repository": {"full_name": "example-org/example-repo"}
+}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if pr.BaseRef != tt.baseRef || pr.HeadRef != tt.headRef || pr.BaseRepositoryFullName != "example-org/example-repo" {
+				t.Fatalf("pr = %#v, want base=%q head=%q repo=example-org/example-repo", pr, tt.baseRef, tt.headRef)
+			}
+		})
+	}
+}
+
 func TestClassifyAuthor(t *testing.T) {
 	tests := map[string]string{
 		"sejunpark":         "human",

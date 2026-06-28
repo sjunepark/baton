@@ -44,10 +44,12 @@ type IssuePolicy struct {
 type PRPolicy struct {
 	RequiredReferenceKeyword        string   `json:"requiredReferenceKeyword" yaml:"required_reference_keyword"`
 	ForbiddenClosingKeywords        []string `json:"forbiddenClosingKeywords" yaml:"forbidden_closing_keywords"`
+	AllowDirectBaseBranchPRs        bool     `json:"allowDirectBaseBranchPRs" yaml:"allow_direct_base_branch_prs"`
 	RejectAllTrivialMultiIssuePRs   bool     `json:"rejectAllTrivialMultiIssuePRs" yaml:"reject_all_trivial_multi_issue_prs"`
 	NoisyCommitSubjects             []string `json:"noisyCommitSubjects" yaml:"noisy_commit_subjects"`
 	FailWhenCommitListingReachesCap bool     `json:"failWhenCommitListingReachesCap" yaml:"fail_when_commit_listing_reaches_cap"`
 
+	allowDirectBaseBranchPRsSet        bool
 	rejectAllTrivialMultiIssuePRsSet   bool
 	failWhenCommitListingReachesCapSet bool
 }
@@ -141,6 +143,8 @@ func (policy *PRPolicy) UnmarshalYAML(value *yaml.Node) error {
 	}
 	for i := 0; i+1 < len(value.Content); i += 2 {
 		switch value.Content[i].Value {
+		case "allow_direct_base_branch_prs":
+			policy.allowDirectBaseBranchPRsSet = true
 		case "reject_all_trivial_multi_issue_prs":
 			policy.rejectAllTrivialMultiIssuePRsSet = true
 		case "fail_when_commit_listing_reaches_cap":
@@ -199,6 +203,9 @@ func (cfg *Config) applyDefaults() {
 	}
 	if len(cfg.PRPolicy.NoisyCommitSubjects) == 0 {
 		cfg.PRPolicy.NoisyCommitSubjects = defaultNoisyCommitSubjects()
+	}
+	if !cfg.PRPolicy.AllowDirectBaseBranchPRs && !cfg.PRPolicy.allowDirectBaseBranchPRsSet {
+		cfg.PRPolicy.AllowDirectBaseBranchPRs = true
 	}
 	if !cfg.PRPolicy.FailWhenCommitListingReachesCap && !cfg.PRPolicy.failWhenCommitListingReachesCapSet {
 		cfg.PRPolicy.FailWhenCommitListingReachesCap = true
@@ -306,6 +313,7 @@ func DefaultConfig() Config {
 		PRPolicy: PRPolicy{
 			RequiredReferenceKeyword:        "Refs",
 			ForbiddenClosingKeywords:        []string{"Closes", "Fixes", "Resolves"},
+			AllowDirectBaseBranchPRs:        true,
 			RejectAllTrivialMultiIssuePRs:   true,
 			NoisyCommitSubjects:             defaultNoisyCommitSubjects(),
 			FailWhenCommitListingReachesCap: true,

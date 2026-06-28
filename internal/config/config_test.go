@@ -55,7 +55,8 @@ func TestLoadPreservesExplicitFalsePRPolicyBooleans(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := strings.ReplaceAll(string(content), "reject_all_trivial_multi_issue_prs: true", "reject_all_trivial_multi_issue_prs: false")
+	text := strings.ReplaceAll(string(content), "allow_direct_base_branch_prs: true", "allow_direct_base_branch_prs: false")
+	text = strings.ReplaceAll(text, "reject_all_trivial_multi_issue_prs: true", "reject_all_trivial_multi_issue_prs: false")
 	text = strings.ReplaceAll(text, "fail_when_commit_listing_reaches_cap: true", "fail_when_commit_listing_reaches_cap: false")
 	path := filepath.Join(t.TempDir(), "baton.yml")
 	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
@@ -65,11 +66,35 @@ func TestLoadPreservesExplicitFalsePRPolicyBooleans(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if cfg.PRPolicy.AllowDirectBaseBranchPRs {
+		t.Fatal("allow_direct_base_branch_prs explicit false was defaulted to true")
+	}
 	if cfg.PRPolicy.RejectAllTrivialMultiIssuePRs {
 		t.Fatal("reject_all_trivial_multi_issue_prs explicit false was defaulted to true")
 	}
 	if cfg.PRPolicy.FailWhenCommitListingReachesCap {
 		t.Fatal("fail_when_commit_listing_reaches_cap explicit false was defaulted to true")
+	}
+}
+
+func TestLoadDefaultsDirectBaseBranchPRsToAllowed(t *testing.T) {
+	content, err := MarshalYAML(DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.ReplaceAll(string(content), "reject_all_trivial_multi_issue_prs: true", "reject_all_trivial_multi_issue_prs: false")
+	text = strings.ReplaceAll(text, "fail_when_commit_listing_reaches_cap: true", "fail_when_commit_listing_reaches_cap: false")
+	text = strings.ReplaceAll(text, "    allow_direct_base_branch_prs: true\n", "")
+	path := filepath.Join(t.TempDir(), "baton.yml")
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.PRPolicy.AllowDirectBaseBranchPRs {
+		t.Fatal("allow_direct_base_branch_prs should default to true")
 	}
 }
 

@@ -37,12 +37,23 @@ type PRPolicyInput struct {
 type PRPolicyDecision struct {
 	SchemaVersion           int      `json:"schemaVersion"`
 	Kind                    string   `json:"kind"`
+	Flow                    PRFlow   `json:"flow"`
 	Errors                  []string `json:"errors"`
 	Warnings                []string `json:"warnings"`
 	ReferencedIssues        []int    `json:"referencedIssues"`
 	ClosingIssues           []int    `json:"closingIssues"`
 	CommitListingReachedCap bool     `json:"commitListingReachedCap"`
 }
+
+type PRFlow string
+
+const (
+	PRFlowWork              PRFlow = "work"
+	PRFlowPromotion         PRFlow = "promotion"
+	PRFlowDirectBase        PRFlow = "directBase"
+	PRFlowInvalidDirectWork PRFlow = "invalidDirectWork"
+	PRFlowUnsupportedTarget PRFlow = "unsupportedTarget"
+)
 
 var (
 	issueNumberPattern = regexp.MustCompile(`#(\d+)`)
@@ -66,24 +77,54 @@ func ComputePullRequestPolicy(input PRPolicyInput) PRPolicyDecision {
 	errors := []string{}
 	targetBranch := firstNonEmpty(cfg.Repository.StagingBranch, "agent")
 	baseBranch := firstNonEmpty(cfg.Repository.BaseBranch, "main")
+	flow := ClassifyPullRequestFlow(input.PullRequest, cfg)
 
-	switch input.PullRequest.BaseRef {
-	case targetBranch:
+	switch flow {
+	case PRFlowWork:
 		validateWorkPullRequest(&errors, input, cfg, referenced, closing, targetBranch)
-	case baseBranch:
+	case PRFlowPromotion:
 		validatePromotionPullRequest(&errors, input, cfg, closing, targetBranch, baseBranch)
-	default:
+	case PRFlowInvalidDirectWork:
+		errors = append(errors, fmt.Sprintf("Baton work PRs from %s* must target %s before promotion to %s.", cfg.Repository.WorkBranchPrefix, targetBranch, baseBranch))
+	case PRFlowDirectBase:
+		if !cfg.PRPolicy.AllowDirectBaseBranchPRs {
+			errors = append(errors, fmt.Sprintf("Direct PRs into %s are disabled by Baton policy; target %s for Baton-managed work or use %s for promotion.", baseBranch, targetBranch, targetBranch))
+		}
+	case PRFlowUnsupportedTarget:
 		errors = append(errors, fmt.Sprintf("PRs must target %s for agent work or %s for promotion.", targetBranch, baseBranch))
 	}
 
 	return PRPolicyDecision{
 		SchemaVersion:           1,
 		Kind:                    "prPolicyDecision",
+		Flow:                    flow,
 		Errors:                  errors,
 		Warnings:                []string{},
 		ReferencedIssues:        referenced,
 		ClosingIssues:           closing,
 		CommitListingReachedCap: input.CommitListingReachedCap,
+	}
+}
+
+func ClassifyPullRequestFlow(pr PullRequest, cfg config.Config) PRFlow {
+	targetBranch := firstNonEmpty(cfg.Repository.StagingBranch, "agent")
+	baseBranch := firstNonEmpty(cfg.Repository.BaseBranch, "main")
+	workBranchPrefix := cfg.Repository.WorkBranchPrefix
+
+	switch pr.BaseRef {
+	case targetBranch:
+		return PRFlowWork
+	case baseBranch:
+		switch {
+		case pr.HeadRef == targetBranch:
+			return PRFlowPromotion
+		case workBranchPrefix != "" && strings.HasPrefix(pr.HeadRef, workBranchPrefix):
+			return PRFlowInvalidDirectWork
+		default:
+			return PRFlowDirectBase
+		}
+	default:
+		return PRFlowUnsupportedTarget
 	}
 }
 
