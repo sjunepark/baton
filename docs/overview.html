@@ -471,7 +471,9 @@
             <li><span class="mk">+</span><span>A <b>local-first coordinator</b> for one solo developer's GitHub repos.</span></li>
             <li><span class="mk">+</span><span>A <b>thin layer</b> over GitHub infrastructure you already trust.</span></li>
             <li><span class="mk">+</span><span>A <b>fact engine</b> (a testable Go binary) plus a <b>judgment agent</b> (Codex + a skill).</span></li>
+            <!-- x-release-please-start-version -->
             <li><span class="mk">+</span><span>One binary: <code>go install github.com/sjunepark/baton/cmd/baton@v0.1.5</code>.</span></li>
+            <!-- x-release-please-end -->
           </ul>
         </div>
         <div class="pane isnt">
@@ -840,7 +842,7 @@
 
     <footer>
       <p><b>Baton — the big picture.</b> A conceptual map of how a deterministic CLI and a judgment-making agent turn GitHub Issues into safe, unattended work. For exact commands, flags, and JSON shapes, see the <a href="tutorial.html">CLI tutorial</a>, <a href="../ARCHITECTURE.md">ARCHITECTURE.md</a>, and <a href="CLI_SPEC.md">CLI_SPEC.md</a>.</p>
-      <p class="faint">Every claim here is grounded in the repository source as of the Baton v0.1.5 line. Behavior described is the implemented code, noting where it intentionally differs from aspirational prose.</p>
+      <p class="faint">Every claim here is grounded in the repository source as of the current Baton release line. Behavior described is the implemented code, noting where it intentionally differs from aspirational prose.</p>
     </footer>
   </main>
 </div>
@@ -1276,7 +1278,7 @@
     ['$baton command router','The skill’s 12-command intent router: the word after $baton selects a whole workflow, the rest is the true argument, and each command carries a fixed, non-escalating consent tier.'],
     ['Consent tier','The permission level encoded per skill command — read-only, issue-create, comment-only, lease-gated edit — that a command may never silently exceed; merge is always off without an explicit user request and repo policy.'],
     ['RecommendNext','The pure classifier that walks the priority ladder and returns at the first match — guaranteeing a single recommendation and "one unit per run".'],
-    ['Promotion vs work flow','Work flows stage changes onto agent; a promotion flow later moves agent→main and closes issues. In v0.1.5 the PR gate classifies base-branch PRs by source: agent→main is promotion, agent-work/*→main is rejected until it targets staging, and ordinary direct PRs fall back to normal CI and branch protection by default.'],
+    ['Promotion vs work flow','Work flows stage changes onto agent; a promotion flow later moves agent→main and closes issues. The PR gate classifies base-branch PRs by source: agent→main is promotion, agent-work/*→main is rejected until it targets staging, and ordinary direct PRs fall back to normal CI and branch protection by default.'],
   ];
   const wrap = document.getElementById('glossList');
   wrap.innerHTML = G.map(g =>

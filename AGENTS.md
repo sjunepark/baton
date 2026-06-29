@@ -34,6 +34,20 @@
 - Preserve target repository config as the source of policy truth. Defaults are
   only bootstrap behavior.
 
+## Release Management
+
+- Release Please owns `CHANGELOG.md`, `.release-please-manifest.json`, release
+  PRs, `vX.Y.Z` tags, GitHub releases, and marked pinned install-target bumps.
+- Use Conventional Commits intentionally: `fix:` for bug fixes, `feat:` for
+  release-worthy additions, `docs:` for docs-only non-release changes, and
+  `feat!:` or `BREAKING CHANGE:` for breaking public behavior.
+- Public SemVer surface includes CLI flags, JSON output, exit codes, config
+  shape, install templates, generated workflows, and the module path.
+- Review every Release Please PR before merge; do not merge solely because it
+  is generated.
+- Manual tags or GitHub releases are an emergency fallback only after explicit
+  confirmation of the exact version.
+
 ## Source References
 
 The initial implementation extracted behavior from `/Users/sejunpark/IT/creo`:

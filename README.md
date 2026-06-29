@@ -25,9 +25,11 @@ Implemented:
 The default generated GitHub Actions install command uses the published module
 path:
 
+<!-- x-release-please-start-version -->
 ```sh
 go install github.com/sjunepark/baton/cmd/baton@v0.1.5
 ```
+<!-- x-release-please-end -->
 
 Use `baton init --go-install` or `baton init --install-command` to pin a
 different trusted source for a consuming repository.
@@ -51,15 +53,19 @@ baton init --dry-run --json
 
 Apply installation files after reviewing the plan:
 
+<!-- x-release-please-start-version -->
 ```sh
 baton init --apply --go-install github.com/sjunepark/baton/cmd/baton@v0.1.5
 ```
+<!-- x-release-please-end -->
 
 For a pinned release or alternate trusted source, pass a full command:
 
+<!-- x-release-please-start-version -->
 ```sh
 baton init --apply --install-command 'go install github.com/sjunepark/baton/cmd/baton@v0.1.5'
 ```
+<!-- x-release-please-end -->
 
 Inspect a repository queue:
 
@@ -116,6 +122,8 @@ installing Baton so PR-modified repository code is not executed.
 - [docs/USER_FLOWS.md](docs/USER_FLOWS.md): human-facing Baton skill and CLI
   workflows.
 - [docs/CONFIG_SPEC.md](docs/CONFIG_SPEC.md): reusable policy config.
+- [docs/RELEASE.md](docs/RELEASE.md): Release Please ownership, commit
+  message rules, and SemVer policy.
 - [docs/GITHUB_POLICY_EXTRACTION.md](docs/GITHUB_POLICY_EXTRACTION.md):
   extraction plan for the original reference workflow.
 - [docs/WORKTREE_LEASING.md](docs/WORKTREE_LEASING.md): automation isolation

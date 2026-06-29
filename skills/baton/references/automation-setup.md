@@ -35,12 +35,14 @@ baton next --format toon --repo owner/name
 
 If setup is incomplete, install Baton repository files first:
 
+<!-- x-release-please-start-version -->
 ```sh
 baton init --dry-run --json
 baton init --apply --go-install github.com/sjunepark/baton/cmd/baton@v0.1.5
 baton ensure-branch --apply
 baton sync-labels --apply --repo owner/name --json
 ```
+<!-- x-release-please-end -->
 
 `baton init` installs or updates the target-repository policy files:
 

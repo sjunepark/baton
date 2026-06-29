@@ -1,0 +1,38 @@
+{
+  "packages": {
+    ".": {
+      "release-type": "go",
+      "include-component-in-tag": false,
+      "include-v-in-tag": true,
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": true,
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        {
+          "type": "generic",
+          "path": "internal/install/install.go"
+        },
+        {
+          "type": "generic",
+          "path": "README.md"
+        },
+        {
+          "type": "generic",
+          "path": "docs/CLI_SPEC.md"
+        },
+        {
+          "type": "generic",
+          "path": "docs/IMPLEMENTATION_PLAN.md"
+        },
+        {
+          "type": "generic",
+          "path": "docs/overview.html"
+        },
+        {
+          "type": "generic",
+          "path": "skills/baton/references/automation-setup.md"
+        }
+      ]
+    }
+  }
+}

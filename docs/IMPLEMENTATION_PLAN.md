@@ -27,8 +27,10 @@
 - Install templates can render a caller-provided trusted Baton install target
   with `baton init --go-install` or a full command with
   `baton init --install-command`.
+<!-- x-release-please-start-version -->
 - The trusted module path `github.com/sjunepark/baton/cmd/baton@v0.1.5` is
   published and validated with `go install`.
+<!-- x-release-please-end -->
 - Generated workflows set up Go and install Baton into a runner-temp bin
   directory that is added to `GITHUB_PATH`.
 - The README now reflects the implemented CLI and documents the trusted install

@@ -28,7 +28,7 @@ type Options struct {
 	InstallCommand string
 }
 
-const defaultGoInstall = "github.com/sjunepark/baton/cmd/baton@v0.1.5"
+const defaultGoInstall = "github.com/sjunepark/baton/cmd/baton@v0.1.5" // x-release-please-version
 const installCommandPlaceholder = "__BATON_INSTALL_COMMAND__"
 
 func Preview(root string) (Plan, error) {
