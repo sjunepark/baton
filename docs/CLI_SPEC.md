@@ -293,7 +293,8 @@ baton checks 12 --json
 
 ### `baton next`
 
-Return one recommended next unit of work.
+Return the highest-priority next candidate set. Agents and users choose exactly
+one returned candidate before acting.
 
 Example:
 
@@ -306,23 +307,33 @@ JSON result:
 
 ```json
 {
-  "schemaVersion": 1,
-  "kind": "nextAction",
+  "schemaVersion": 2,
+  "kind": "nextCandidates",
   "action": "pr-followup",
   "repo": "example-org/example-repo",
   "reason": "failing-checks",
-  "pr": {
-    "number": 8,
-    "url": "https://github.com/example-org/example-repo/pull/8",
-    "headRef": "agent-work/github-agent-branch-policy",
-    "baseRef": "agent"
-  },
-  "issue": {
-    "number": 7,
-    "url": "https://github.com/example-org/example-repo/issues/7"
-  },
+  "selectionRequired": true,
+  "candidates": [
+    {
+      "type": "pullRequest",
+      "number": 8,
+      "title": "Fix branch policy",
+      "url": "https://github.com/example-org/example-repo/pull/8",
+      "headRef": "agent-work/github-agent-branch-policy",
+      "baseRef": "agent"
+    },
+    {
+      "type": "pullRequest",
+      "number": 12,
+      "title": "Update checks",
+      "url": "https://github.com/example-org/example-repo/pull/12",
+      "headRef": "agent-work/checks",
+      "baseRef": "agent"
+    }
+  ],
   "blockedItems": [],
   "instructions": [
+    "Choose exactly one candidate.",
     "Acquire a lease before editing.",
     "Push to the existing PR branch.",
     "Do not open a new PR."
@@ -336,7 +347,6 @@ Allowed `action` values:
 - `branch-health`
 - `issue-implementation`
 - `issue-investigation`
-- `digest`
 - `none`
 
 ### `baton lease`

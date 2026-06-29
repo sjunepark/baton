@@ -81,8 +81,8 @@ Use when deciding what Baton would do without letting it act.
   baton next --format toon --repo owner/name
   ```
 
-- Expected output: eligible and skipped issues/PRs, selected action, reason,
-  and whether action would be read-only, investigation, implementation, or PR
+- Expected output: eligible and skipped issues/PRs, next candidate set, reason,
+  and whether candidates are read-only, investigation, implementation, or PR
   follow-up.
 - Safety boundaries: read-only; no lease, edits, comments, pushes, or merges.
 - Common stop conditions: no eligible work, blocked queue, or missing GitHub

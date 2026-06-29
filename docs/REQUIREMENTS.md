@@ -13,7 +13,7 @@ Baton should extract this workflow into a reusable tool for the user's projects.
 ## Goals
 
 - Reuse the GitHub issue and PR policy workflow across multiple repositories.
-- Let Codex automations ask for one safe next action instead of rediscovering
+- Let Codex automations ask for one safe next candidate set instead of rediscovering
   GitHub state manually.
 - Prevent overlapping automations from corrupting checkouts or switching each
   other's branches.
@@ -66,7 +66,8 @@ Baton should extract this workflow into a reusable tool for the user's projects.
 
 ### Next Action Classification
 
-- Baton must produce a single recommended next unit of work.
+- Baton must produce the highest-priority next candidate set.
+- Automation must choose exactly one returned candidate before acting.
 - PR follow-up must outrank new issue intake when open agent PRs need action.
 - Shared staging branch health problems must block ordinary new work.
 - Human unresolved review threads must outrank bot review threads.

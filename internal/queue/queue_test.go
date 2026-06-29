@@ -1,6 +1,7 @@
 package queue
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/sjunepark/baton/internal/config"
@@ -40,23 +41,30 @@ func TestBuildSnapshotEligibility(t *testing.T) {
 	}
 }
 
-func TestRecommendNextPrefersPRFollowup(t *testing.T) {
+func TestRecommendNextReturnsFailingPRCandidatesBeforeIssues(t *testing.T) {
 	snapshot := Snapshot{
 		SchemaVersion: 1,
 		Kind:          "queueSnapshot",
 		Repo:          "example-org/example-repo",
 		Issues:        []IssueState{{Issue: Issue{Number: 1, URL: "https://example/1"}, Eligible: true}},
 		PullRequests: []PullState{{
-			PullRequest: PullRequest{Number: 10, URL: "https://example/pr/10", BaseRef: "agent", HeadRef: "agent-work/1", CheckState: "failure"},
+			PullRequest: PullRequest{Number: 12, URL: "https://example/pr/12", BaseRef: "agent", HeadRef: "agent-work/12", CheckState: "failure"},
+		}, {
+			PullRequest: PullRequest{Number: 10, URL: "https://example/pr/10", BaseRef: "agent", HeadRef: "agent-work/10", CheckState: "failure"},
+		}, {
+			PullRequest: PullRequest{Number: 11, URL: "https://example/pr/11", BaseRef: "agent", HeadRef: "agent-work/11", CheckState: "pending"},
 		}},
 	}
 	next := RecommendNext(snapshot)
-	if next.Action != "pr-followup" || next.PR == nil || next.PR.Number != 10 {
+	if next.Action != "pr-followup" || next.Reason != "failing-checks" || len(next.Candidates) != 2 || !next.SelectionRequired {
 		t.Fatalf("next = %#v", next)
+	}
+	if next.Candidates[0].Number != 10 || next.Candidates[1].Number != 12 {
+		t.Fatalf("candidates not sorted by number: %#v", next.Candidates)
 	}
 }
 
-func TestRecommendNextPrefersSuccessfulPRFollowupBeforeIssue(t *testing.T) {
+func TestRecommendNextReturnsSuccessfulPRCandidatesBeforeIssues(t *testing.T) {
 	snapshot := Snapshot{
 		SchemaVersion: 1,
 		Kind:          "queueSnapshot",
@@ -64,11 +72,35 @@ func TestRecommendNextPrefersSuccessfulPRFollowupBeforeIssue(t *testing.T) {
 		Issues:        []IssueState{{Issue: Issue{Number: 1, URL: "https://example/1"}, Eligible: true, Action: "issue-implementation"}},
 		PullRequests: []PullState{{
 			PullRequest: PullRequest{Number: 10, URL: "https://example/pr/10", BaseRef: "main", HeadRef: "agent", CheckState: "success"},
+		}, {
+			PullRequest: PullRequest{Number: 11, URL: "https://example/pr/11", BaseRef: "main", HeadRef: "agent", CheckState: "unknown"},
 		}},
 	}
 	next := RecommendNext(snapshot)
-	if next.Action != "pr-followup" || next.Reason != "ready-for-review" || next.PR == nil || next.PR.Number != 10 {
+	if next.Action != "pr-followup" || next.Reason != "ready-for-review" || len(next.Candidates) != 1 || next.Candidates[0].Number != 10 {
 		t.Fatalf("next = %#v", next)
+	}
+}
+
+func TestRecommendNextReturnsPendingPRCandidatesWhenNoFailures(t *testing.T) {
+	snapshot := Snapshot{
+		SchemaVersion: 1,
+		Kind:          "queueSnapshot",
+		Repo:          "example-org/example-repo",
+		PullRequests: []PullState{{
+			PullRequest: PullRequest{Number: 12, URL: "https://example/pr/12", CheckState: "success"},
+		}, {
+			PullRequest: PullRequest{Number: 10, URL: "https://example/pr/10", CheckState: "pending"},
+		}, {
+			PullRequest: PullRequest{Number: 11, URL: "https://example/pr/11", CheckState: "pending"},
+		}},
+	}
+	next := RecommendNext(snapshot)
+	if next.Action != "pr-followup" || next.Reason != "pending-checks" || len(next.Candidates) != 2 {
+		t.Fatalf("next = %#v", next)
+	}
+	if next.Candidates[0].Number != 10 || next.Candidates[1].Number != 11 {
+		t.Fatalf("candidates not sorted by number: %#v", next.Candidates)
 	}
 }
 
@@ -81,7 +113,7 @@ func TestRecommendNextPrefersBranchHealthBeforeIssue(t *testing.T) {
 		Issues:        []IssueState{{Issue: Issue{Number: 1, URL: "https://example/1"}, Eligible: true, Action: "issue-implementation"}},
 	}
 	next := RecommendNext(snapshot)
-	if next.Action != "branch-health" {
+	if next.Action != "branch-health" || len(next.Candidates) != 1 || next.Candidates[0].Type != "branch" || next.Candidates[0].Ref != "agent" {
 		t.Fatalf("next = %#v", next)
 	}
 }
@@ -102,28 +134,86 @@ func TestRecommendNextPrefersBranchHealthBeforePRFollowup(t *testing.T) {
 	}
 }
 
-func TestRecommendNextIssueImplementation(t *testing.T) {
+func TestRecommendNextIssueImplementationCandidates(t *testing.T) {
 	snapshot := Snapshot{
 		SchemaVersion: 1,
 		Kind:          "queueSnapshot",
 		Repo:          "example-org/example-repo",
-		Issues:        []IssueState{{Issue: Issue{Number: 1, URL: "https://example/1"}, Eligible: true}},
+		Issues: []IssueState{
+			{Issue: Issue{Number: 3, URL: "https://example/3", Title: "Third"}, Eligible: true, Action: "issue-implementation"},
+			{Issue: Issue{Number: 1, URL: "https://example/1", Title: "First"}, Eligible: true, Action: "issue-implementation"},
+		},
 	}
 	next := RecommendNext(snapshot)
-	if next.Action != "issue-implementation" || next.Issue == nil || next.Issue.Number != 1 {
+	if next.Action != "issue-implementation" || next.Reason != "eligible-issue" || len(next.Candidates) != 2 || !next.SelectionRequired {
+		t.Fatalf("next = %#v", next)
+	}
+	if next.Candidates[0].Number != 1 || next.Candidates[1].Number != 3 {
+		t.Fatalf("candidates not sorted by number: %#v", next.Candidates)
+	}
+}
+
+func TestRecommendNextImplementationIssuesOutrankInvestigationIssues(t *testing.T) {
+	snapshot := Snapshot{
+		SchemaVersion: 1,
+		Kind:          "queueSnapshot",
+		Repo:          "example-org/example-repo",
+		Issues: []IssueState{
+			{Issue: Issue{Number: 1, URL: "https://example/1"}, Eligible: true, Action: "issue-investigation"},
+			{Issue: Issue{Number: 2, URL: "https://example/2"}, Eligible: true, Action: "issue-implementation"},
+		},
+	}
+	next := RecommendNext(snapshot)
+	if next.Action != "issue-implementation" || len(next.Candidates) != 1 || next.Candidates[0].Number != 2 {
 		t.Fatalf("next = %#v", next)
 	}
 }
 
-func TestRecommendNextIssueInvestigation(t *testing.T) {
+func TestRecommendNextIssueInvestigationCandidates(t *testing.T) {
 	snapshot := Snapshot{
 		SchemaVersion: 1,
 		Kind:          "queueSnapshot",
 		Repo:          "example-org/example-repo",
-		Issues:        []IssueState{{Issue: Issue{Number: 1, URL: "https://example/1"}, Eligible: true, Action: "issue-investigation"}},
+		Issues: []IssueState{
+			{Issue: Issue{Number: 2, URL: "https://example/2"}, Eligible: true, Action: "issue-investigation"},
+			{Issue: Issue{Number: 1, URL: "https://example/1"}, Eligible: true, Action: "issue-investigation"},
+		},
 	}
 	next := RecommendNext(snapshot)
-	if next.Action != "issue-investigation" || next.Issue == nil || next.Issue.Number != 1 {
+	if next.Action != "issue-investigation" || next.Reason != "eligible-investigation" || len(next.Candidates) != 2 {
 		t.Fatalf("next = %#v", next)
+	}
+}
+
+func TestRecommendNextNoWorkHasEmptyCandidates(t *testing.T) {
+	next := RecommendNext(Snapshot{SchemaVersion: 1, Kind: "queueSnapshot", Repo: "example-org/example-repo"})
+	if next.Action != "none" || next.SelectionRequired || len(next.Candidates) != 0 {
+		t.Fatalf("next = %#v", next)
+	}
+}
+
+func TestRecommendNextJSONOmitsLegacySingularFields(t *testing.T) {
+	next := RecommendNext(Snapshot{
+		SchemaVersion: 1,
+		Kind:          "queueSnapshot",
+		Repo:          "example-org/example-repo",
+		Issues:        []IssueState{{Issue: Issue{Number: 1, URL: "https://example/1"}, Eligible: true, Action: "issue-implementation"}},
+	})
+	content, err := json.Marshal(next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(content, &fields); err != nil {
+		t.Fatal(err)
+	}
+	if fields["kind"] != "nextCandidates" || fields["schemaVersion"].(float64) != 2 {
+		t.Fatalf("fields = %#v", fields)
+	}
+	if _, ok := fields["pr"]; ok {
+		t.Fatalf("legacy pr field present: %s", content)
+	}
+	if _, ok := fields["issue"]; ok {
+		t.Fatalf("legacy issue field present: %s", content)
 	}
 }

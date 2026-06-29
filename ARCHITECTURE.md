@@ -52,7 +52,7 @@ GitHub state + repo config
 
 - Queue classifier
   - Combines issues, open agent PRs, CI checks, review threads, and branch health.
-  - Picks one recommended next unit of work.
+  - Returns the highest-priority next candidate set.
   - Does not implement the work.
 
 - Worktree lease manager
@@ -96,12 +96,12 @@ GitHub state + repo config
 
 1. Codex automation starts in a project directory.
 2. The Baton skill tells Codex to call `baton next --json`.
-3. Baton fetches queue state and returns one recommended unit:
-   - PR follow-up for failing checks or unresolved blocking review threads.
+3. Baton fetches queue state and returns the winning candidate set:
    - Branch health fix when the shared agent branch is red.
+   - PR follow-up candidates from the highest check-state tier.
    - Issue intake when no PR follow-up blocks new work.
-   - Digest/report when no mutation is appropriate.
-4. Codex acquires a lease with `baton lease`.
+   - No-op/report when no mutation is appropriate.
+4. Codex chooses exactly one candidate and acquires the appropriate lease.
 5. Codex works only in the leased path.
 6. Codex validates, pushes/comments, and calls `baton complete` or
    `baton release`.

@@ -46,8 +46,7 @@ The skill must instruct Codex to:
 - Work only inside the leased path.
 - Handle exactly one unit of work per automation run.
 - Push to the existing PR branch for PR follow-up.
-- Open a new PR only for issue intake when Baton selected an issue
-  implementation action.
+- Open a new PR only after choosing an issue implementation candidate.
 - Never merge unless explicitly requested.
 - Stop on ambiguous scope, human decision needs, risky data/schema/security
   changes, dirty lease conflicts, or auth failures.
@@ -60,14 +59,14 @@ The bundled skill must expose these concise commands:
 | --- | --- |
 | `$baton` | Show readiness, queue summary, and recommended next commands. Read-only. |
 | `$baton status [repo]` | Run readiness and setup checks. Read-only. |
-| `$baton next [repo]` | Show the next Baton-selected action. Read-only. |
+| `$baton next [repo]` | Show the next Baton candidate set. Read-only. |
 | `$baton queue [repo]` | Show eligible and skipped issues/PRs. Read-only. |
 | `$baton todo <todo>` | Create one Baton-ready GitHub issue. No branch or PR. |
 | `$baton todos <notes-or-file>` | Split notes into Baton-ready GitHub issues. No implementation. |
 | `$baton investigate <issue>` | Investigate/comment on one issue. No edits unless explicitly respecified. |
 | `$baton implement <issue>` | Lease one ready issue, implement it, validate, and open/update a staging PR. |
 | `$baton follow-up <pr>` | Lease an existing PR branch, fix checks or review follow-up, and push there. |
-| `$baton run [repo]` | Let Baton select and handle exactly one safe unit, then stop. |
+| `$baton run [repo]` | Let Baton return candidates, choose exactly one safe unit, then stop. |
 | `$baton adopt [repo]` | Check target-repo Baton setup with dry-run/read-only commands. |
 | `$baton automate [repo]` | Explain or prepare scheduled one-unit automation. |
 
@@ -86,14 +85,16 @@ Routing rules:
 ### General Automation
 
 1. Run `baton next --format toon`.
-2. If action is `none` or `digest`, report the summary and stop.
-3. Run `baton lease` with the selected action.
-4. Change to the lease path.
-5. Read target repo `AGENTS.md`.
-6. Implement or investigate exactly the selected unit.
-7. Validate with focused checks first.
-8. Push/comment according to Baton's selected action.
-9. Release or retain the lease based on cleanliness and result.
+2. If action is `none`, report the summary and stop.
+3. Choose exactly one returned candidate.
+4. Run `baton lease` for the chosen candidate: use the PR `headRef` for
+   follow-up or the issue number for a new issue-work branch.
+5. Change to the lease path.
+6. Read target repo `AGENTS.md`.
+7. Implement or investigate exactly the chosen candidate.
+8. Validate with focused checks first.
+9. Push/comment according to the chosen candidate's action.
+10. Release or retain the lease based on cleanliness and result.
 
 ### PR Follow-Up
 

@@ -215,6 +215,27 @@
   .result ol { margin: 14px 0 0; padding-left: 22px; color: var(--muted); font-size: 13.5px; }
   .result ol li { margin: 5px 0; }
   .result .empty { color: var(--faint); font-style: italic; font-size: 13.5px; margin-top: 12px; }
+  .result .rmeta { font-family: var(--mono); font-size: 12px; color: var(--faint); margin-top: 9px; }
+  .result .rmeta b { color: var(--accent); font-weight: 600; }
+
+  /* Scenario picker (03) */
+  .scn { display: flex; flex-wrap: wrap; gap: 9px; margin: 14px 0 4px; }
+  .scn button { font-family: var(--sans); text-align: left; background: var(--bg-soft); border: 1px solid var(--line-soft); border-radius: 10px; padding: 9px 14px; cursor: pointer; transition: .14s; display: flex; flex-direction: column; gap: 2px; min-width: 140px; }
+  .scn button:hover { border-color: var(--line); background: var(--bg-soft2); }
+  .scn button.active { border-color: var(--accent); background: var(--bg-soft2); box-shadow: 0 0 0 1px rgba(88,166,255,.35); }
+  .scn .sid { font-family: var(--mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
+  .scn button.active .sid { color: var(--accent); }
+  .scn .snm { font-size: 13.5px; font-weight: 600; color: var(--text); }
+  .scn .ssub { font-size: 11.5px; color: var(--faint); }
+
+  /* Agent-outcome panel (03) — the judgment half reacting to the CLI fact */
+  .outcome { border: 1px solid var(--line-soft); border-left: 3px solid var(--purple); border-radius: 0 12px 12px 0; background: rgba(188,140,255,.06); padding: 16px 20px; margin: 14px 0 0; }
+  .outcome .oh { font-size: 11px; text-transform: uppercase; letter-spacing: .09em; color: var(--purple); font-weight: 700; margin-bottom: 9px; }
+  .outcome .ot { font-size: 14.5px; color: var(--text); font-weight: 600; margin-bottom: 8px; }
+  .outcome ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 13.5px; }
+  .outcome li { margin: 5px 0; }
+  .outcome .onote { font-size: 12.5px; color: var(--muted); margin-top: 9px; background: rgba(188,140,255,.09); border-radius: 7px; padding: 8px 11px; }
+  .outcome .ostop { margin-top: 11px; font-size: 12.5px; color: var(--red); border-top: 1px dashed var(--line); padding-top: 9px; }
 
   /* Eligibility resolver */
   .elig { border: 1px solid var(--line-soft); border-radius: 12px; padding: 18px 20px; margin: 18px 0; background: var(--bg-soft); }
@@ -515,7 +536,7 @@
         <div class="mid">
           <div class="spine">
             <div class="arr down" title="facts flow down">▼</div>
-            <div class="obj">nextAction · queueSnapshot · lease · reviewThreads · checks</div>
+            <div class="obj">nextCandidates · queueSnapshot · lease · reviewThreads · checks</div>
             <div class="arr up" title="results flow up">▲</div>
           </div>
         </div>
@@ -523,7 +544,7 @@
           <h3>🧠 Codex + skill</h3>
           <div class="role">Where the thinking lives.</div>
           <ul>
-            <li>Decides <b>how</b> to implement the selected unit</li>
+            <li>Chooses one candidate and decides <b>how</b> to handle it</li>
             <li>Interprets ambiguous review feedback</li>
             <li>Writes code, validates, summarizes</li>
             <li><b>Stops &amp; escalates</b> on human product/security/schema calls</li>
@@ -554,9 +575,14 @@
 
     <!-- NEXT ACTION -->
     <section id="next-action">
-      <h2><span class="num">03</span>One safe next action: the priority ladder</h2>
-      <p class="sub">The CLI collapses the entire repo state into <b>exactly one</b> recommended unit of work via a fixed cascade that returns at the first match. Change the inputs — watch which tier wins.</p>
+      <h2><span class="num">03</span>One safe next candidate set: the priority ladder</h2>
+      <p class="sub">The CLI collapses the entire repo state into the highest-priority candidate set. The agent chooses exactly one candidate from that winning tier.</p>
 
+      <h3 style="margin-top:24px">Try a representative scenario</h3>
+      <p class="faint" style="font-size:12.5px;margin:-2px 0 0">Each sets the facts to a real repo state, resolves the ladder, and shows what the agent does next. Command-level walkthroughs live in <a href="USER_FLOWS.md">USER_FLOWS.md</a>.</p>
+      <div class="scn" id="treeScenarios"></div>
+
+      <h3>Or set the facts yourself <span class="faint" style="font-weight:400;font-size:13px">— the only inputs the selector reads</span></h3>
       <div class="controls" id="treeControls">
         <div class="ctl">
           <div class="lbl">Staging branch CI <small>health of the shared <code>agent</code> branch</small></div>
@@ -568,7 +594,7 @@
           </div>
         </div>
         <div class="ctl">
-          <div class="lbl">Open agent PR <small>any open work PR, and its check state</small></div>
+          <div class="lbl">Open agent PR <small>check state picks the sub-tier</small></div>
           <div class="opts" data-key="pr">
             <button data-v="none" data-tone="neutral" class="active">none</button>
             <button data-v="failure" data-tone="bad">failing</button>
@@ -595,25 +621,31 @@
         </div>
         <div class="tier" data-tier="1">
           <div class="ix">2</div>
-          <div><div class="tname">pr-followup</div><div class="tcond"><b>Any</b> open agent PR — the check state only changes the reason.</div></div>
+          <div><div class="tname">pr-followup</div><div class="tcond">Open PRs, sub-tiered by check state: <code>failing → pending → ready-for-review → open</code>. The top present sub-tier wins; its PRs are the candidates.</div></div>
           <div class="tstate"></div>
         </div>
         <div class="tier" data-tier="2">
           <div class="ix">3</div>
-          <div><div class="tname">issue-investigation / issue-implementation</div><div class="tcond">The first eligible issue, by its label policy.</div></div>
+          <div><div class="tname">issue-implementation</div><div class="tcond">Eligible implementation issues — no skip label, no active linked PR.</div></div>
           <div class="tstate"></div>
         </div>
         <div class="tier" data-tier="3">
           <div class="ix">4</div>
+          <div><div class="tname">issue-investigation</div><div class="tcond">Eligible <code>investigate-only</code> issues.</div></div>
+          <div class="tstate"></div>
+        </div>
+        <div class="tier" data-tier="4">
+          <div class="ix">5</div>
           <div><div class="tname">none</div><div class="tcond">Nothing eligible — report and stop.</div></div>
           <div class="tstate"></div>
         </div>
       </div>
 
       <div class="result" id="treeResult"></div>
+      <div class="outcome" id="treeOutcome"></div>
 
       <div class="callout truth"><span class="ch">⚑ Subtle truths the code reveals</span>
-        <p><b>Any</b> open PR wins over fresh issues — even a fully green PR pre-empts new issue work; the check state only swaps the <code>reason</code> string. The enum reserves a sixth value, <code>digest</code>, but <code>RecommendNext</code> <b>never emits it</b>. And despite the architecture doc, the classifier does <b>not</b> yet read review threads — selection keys only off branch health and PR check state.</p>
+        <p><b>Any</b> open PR tier wins over fresh issues — failing PRs pre-empt pending PRs, which pre-empt ready-for-review PRs. Within the winning tier, <code>RecommendNext</code> returns every tied candidate. Despite the architecture doc, the classifier does <b>not</b> yet read review threads — selection keys only off branch health and PR check state.</p>
       </div>
 
       <h3>What makes an issue "eligible"?</h3>
@@ -1001,10 +1033,10 @@
   const STEPS = [
     { t:'Establish context', kind:'read', read:'home · doctor · queue', mutate:'nothing', guard:'reads are free',
       why:'The agent orients with facts before deciding anything: readiness, the queue, and what would happen — all read-only.' },
-    { t:'Select one action', kind:'read', read:'baton next', mutate:'nothing', guard:'one unit per run',
-      why:'The priority ladder collapses the whole repo into a single recommendation. The agent does not re-discover "what to work on".' },
-    { t:'Branch on the action', kind:'read', read:'the action value', mutate:'maybe nothing', guard:'none / digest → stop',
-      why:'If the action is none (or the reserved digest), the agent reports the summary and STOPS with zero mutation. Otherwise it proceeds.',
+    { t:'Select candidates', kind:'read', read:'baton next', mutate:'nothing', guard:'one unit per run',
+      why:'The priority ladder returns the highest-priority candidate set. The agent chooses exactly one returned candidate.' },
+    { t:'Branch on the action', kind:'read', read:'the action value', mutate:'maybe nothing', guard:'none → stop',
+      why:'If the action is none, the agent reports the summary and STOPS with zero mutation. Otherwise it proceeds with one chosen candidate.',
       stop:false },
     { t:'Acquire a lease', kind:'mutate', read:'lease record', mutate:'creates an isolated worktree', guard:'never the primary checkout',
       why:'baton lease returns a dedicated worktree path. From here on, edits are physically confined to that directory.',
@@ -1156,7 +1188,7 @@
 (function(){
   const INV = [
     { t:'Automation never mutates the primary checkout — edits happen only inside a Baton worktree lease.', by:'lease.path is a separate git worktree; it is the only writable zone.', th:['isolation'] },
-    { t:'One automation run claims at most one unit of work.', by:'RecommendNext returns at the first matching tier of the priority ladder.', th:['one-unit'] },
+    { t:'One automation run claims at most one unit of work.', by:'RecommendNext returns one winning candidate tier; the agent chooses exactly one candidate.', th:['one-unit'] },
     { t:'Target-repo .github/baton.yml is the policy source of truth.', by:'enforcement commands fail with exit 3 when no config exists; defaults are bootstrap-only.', th:['authority'] },
     { t:'The CLI returns facts and policy decisions; Codex performs all code changes.', by:'the binary has no code-generation path; the skill forbids re-deriving GitHub state.', th:['authority'] },
     { t:'Every mutating path has a brake — a dry-run mode, a pure planner, or an explicit --apply / --yes gate.', by:'init requires --dry-run|--apply; branch/lease ops plan before they apply.', th:['deliberate-writes'] },
@@ -1263,7 +1295,7 @@
     ['Staging branch (agent)','A shared integration branch (default agent) that work PRs target; its CI health gates whether new work may start.'],
     ['Work PR vs promotion PR','A work PR targets the staging branch and uses Refs #N (never closing the issue). A promotion PR goes staging→base and must close issues with Closes #N.'],
     ['Worktree lease','An acquired, isolated git worktree for exactly one unit, persisted as JSON with status active/released/pruned, owner identity, and a TTL. Edits only inside the returned path; the primary checkout is never touched.'],
-    ['Next action (nextAction)','The single recommendation from the priority ladder: an action enum value plus a reason, optional pr/issue refs, and an instruction list. Produced by RecommendNext, rendered by baton next.'],
+    ['Next candidates (nextCandidates)','The winning candidate set from the priority ladder: an action enum value, reason, candidate list, and instruction list. Produced by RecommendNext, rendered by baton next.'],
     ['Queue snapshot (queueSnapshot)','The full classified view of the repo’s queue — per-issue eligibility/reasons/linked PRs and per-PR referenced issues. Produced by BuildSnapshot, rendered by baton queue.'],
     ['Agent mode','A least-permissive label on an issue — Ready trivial, Ready bounded, Investigate only, or Needs discussion — bounding what an agent may do.'],
     ['agent:blocked','The quality-gate label issue policy adds when a ready issue is missing required sections; removed automatically on the next edit once the form is complete. Enforced via the label, never via a failing exit code.'],
@@ -1277,7 +1309,7 @@
     ['Exit-code contract','The fixed mapping 0 success, 1 policy/unsafe, 2 usage, 3 config, 4 auth, 5 github, 6 local-git; only GitHub errors are retryable.'],
     ['$baton command router','The skill’s 12-command intent router: the word after $baton selects a whole workflow, the rest is the true argument, and each command carries a fixed, non-escalating consent tier.'],
     ['Consent tier','The permission level encoded per skill command — read-only, issue-create, comment-only, lease-gated edit — that a command may never silently exceed; merge is always off without an explicit user request and repo policy.'],
-    ['RecommendNext','The pure classifier that walks the priority ladder and returns at the first match — guaranteeing a single recommendation and "one unit per run".'],
+    ['RecommendNext','The pure classifier that walks the priority ladder and returns the highest-priority tied candidates; automation still handles exactly one candidate per run.'],
     ['Promotion vs work flow','Work flows stage changes onto agent; a promotion flow later moves agent→main and closes issues. The PR gate classifies base-branch PRs by source: agent→main is promotion, agent-work/*→main is rejected until it targets staging, and ordinary direct PRs fall back to normal CI and branch protection by default.'],
   ];
   const wrap = document.getElementById('glossList');

@@ -2,6 +2,7 @@ package queue
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/sjunepark/baton/internal/config"
 	"github.com/sjunepark/baton/internal/policy"
@@ -64,28 +65,28 @@ type PullState struct {
 	ReferencedIssues []int       `json:"referencedIssues"`
 }
 
-type NextAction struct {
-	SchemaVersion int       `json:"schemaVersion"`
-	Kind          string    `json:"kind"`
-	Action        string    `json:"action"`
-	Repo          string    `json:"repo"`
-	Reason        string    `json:"reason"`
-	PR            *PRRef    `json:"pr,omitempty"`
-	Issue         *IssueRef `json:"issue,omitempty"`
-	BlockedItems  []string  `json:"blockedItems"`
-	Instructions  []string  `json:"instructions"`
+type NextCandidates struct {
+	SchemaVersion     int             `json:"schemaVersion"`
+	Kind              string          `json:"kind"`
+	Action            string          `json:"action"`
+	Repo              string          `json:"repo"`
+	Reason            string          `json:"reason"`
+	SelectionRequired bool            `json:"selectionRequired"`
+	Candidates        []NextCandidate `json:"candidates"`
+	BlockedItems      []string        `json:"blockedItems"`
+	Instructions      []string        `json:"instructions"`
 }
 
-type PRRef struct {
-	Number  int    `json:"number"`
-	URL     string `json:"url"`
-	HeadRef string `json:"headRef"`
-	BaseRef string `json:"baseRef"`
-}
-
-type IssueRef struct {
-	Number int    `json:"number"`
-	URL    string `json:"url"`
+type NextCandidate struct {
+	Type       string `json:"type"`
+	Number     int    `json:"number,omitempty"`
+	Title      string `json:"title,omitempty"`
+	URL        string `json:"url,omitempty"`
+	HeadRef    string `json:"headRef,omitempty"`
+	BaseRef    string `json:"baseRef,omitempty"`
+	Ref        string `json:"ref,omitempty"`
+	SHA        string `json:"sha,omitempty"`
+	CheckState string `json:"checkState,omitempty"`
 }
 
 func BuildSnapshot(repo string, cfg config.Config, issues []Issue, prs []PullRequest) Snapshot {
@@ -160,79 +161,115 @@ func BuildSnapshotWithBranchHealth(repo string, cfg config.Config, issues []Issu
 	}
 }
 
-func RecommendNext(snapshot Snapshot) NextAction {
+func RecommendNext(snapshot Snapshot) NextCandidates {
 	if snapshot.BranchHealth != nil && (snapshot.BranchHealth.CheckState == "failure" || snapshot.BranchHealth.CheckState == "pending") {
-		return NextAction{
-			SchemaVersion: 1,
-			Kind:          "nextAction",
-			Action:        "branch-health",
-			Repo:          snapshot.Repo,
-			Reason:        snapshot.BranchHealth.CheckState + "-staging-branch",
-			BlockedItems:  []string{},
-			Instructions:  []string{"Acquire a lease before editing.", "Fix the shared staging branch before starting new issue work.", "Do not open unrelated issue PRs until branch health is clear."},
-		}
+		return nextCandidates(snapshot.Repo, "branch-health", snapshot.BranchHealth.CheckState+"-staging-branch",
+			[]NextCandidate{{
+				Type:       "branch",
+				Ref:        snapshot.BranchHealth.Ref,
+				SHA:        snapshot.BranchHealth.SHA,
+				CheckState: snapshot.BranchHealth.CheckState,
+			}},
+			[]string{"Acquire a lease before editing.", "Fix the shared staging branch before starting new issue work.", "Do not open unrelated issue PRs until branch health is clear."},
+		)
 	}
-	for _, pr := range snapshot.PullRequests {
-		state := pr.PullRequest.CheckState
-		reason := "ready-for-review"
-		switch state {
-		case "failure":
-			reason = "failing-checks"
-		case "pending":
-			reason = "pending-checks"
-		case "success":
-			reason = "ready-for-review"
-		default:
-			reason = "open-pr"
-		}
-		if state == "failure" || state == "pending" || state == "success" || state == "" || state == "unknown" {
-			return NextAction{
-				SchemaVersion: 1,
-				Kind:          "nextAction",
-				Action:        "pr-followup",
-				Repo:          snapshot.Repo,
-				Reason:        reason,
-				PR:            &PRRef{Number: pr.PullRequest.Number, URL: pr.PullRequest.URL, HeadRef: pr.PullRequest.HeadRef, BaseRef: pr.PullRequest.BaseRef},
-				BlockedItems:  []string{},
-				Instructions:  []string{"Acquire a lease before editing.", "Push to the existing PR branch.", "Do not open a new PR."},
+
+	for _, tier := range []string{"failing-checks", "pending-checks", "ready-for-review", "open-pr"} {
+		candidates := []NextCandidate{}
+		for _, pr := range snapshot.PullRequests {
+			if prFollowupReason(pr.PullRequest.CheckState) != tier {
+				continue
 			}
+			candidates = append(candidates, NextCandidate{
+				Type:    "pullRequest",
+				Number:  pr.PullRequest.Number,
+				Title:   pr.PullRequest.Title,
+				URL:     pr.PullRequest.URL,
+				HeadRef: pr.PullRequest.HeadRef,
+				BaseRef: pr.PullRequest.BaseRef,
+			})
+		}
+		if len(candidates) > 0 {
+			sortCandidates(candidates)
+			return nextCandidates(snapshot.Repo, "pr-followup", tier, candidates,
+				[]string{"Choose exactly one candidate.", "Acquire a lease before editing.", "Push to the existing PR branch.", "Do not open a new PR."},
+			)
 		}
 	}
-	for _, issue := range snapshot.Issues {
-		if issue.Eligible {
-			if issue.Action == "issue-investigation" {
-				return NextAction{
-					SchemaVersion: 1,
-					Kind:          "nextAction",
-					Action:        "issue-investigation",
-					Repo:          snapshot.Repo,
-					Reason:        "eligible-investigation",
-					Issue:         &IssueRef{Number: issue.Issue.Number, URL: issue.Issue.URL},
-					BlockedItems:  []string{},
-					Instructions:  []string{"Do not edit files unless the user explicitly changes scope.", "Inspect and comment with findings, evidence, and a recommended next label."},
-				}
-			}
-			return NextAction{
-				SchemaVersion: 1,
-				Kind:          "nextAction",
-				Action:        "issue-implementation",
-				Repo:          snapshot.Repo,
-				Reason:        "eligible-issue",
-				Issue:         &IssueRef{Number: issue.Issue.Number, URL: issue.Issue.URL},
-				BlockedItems:  []string{},
-				Instructions:  []string{"Acquire a lease before editing.", fmt.Sprintf("Open a PR to the staging branch with Refs #%d.", issue.Issue.Number), "Do not merge."},
-			}
+
+	implementationCandidates := issueCandidates(snapshot.Issues, "issue-implementation")
+	if len(implementationCandidates) > 0 {
+		sortCandidates(implementationCandidates)
+		return nextCandidates(snapshot.Repo, "issue-implementation", "eligible-issue", implementationCandidates,
+			[]string{"Choose exactly one candidate.", "Acquire a lease before editing.", "Open a PR to the staging branch with Refs #<issue-number>.", "Do not merge."},
+		)
+	}
+
+	investigationCandidates := issueCandidates(snapshot.Issues, "issue-investigation")
+	if len(investigationCandidates) > 0 {
+		sortCandidates(investigationCandidates)
+		return nextCandidates(snapshot.Repo, "issue-investigation", "eligible-investigation", investigationCandidates,
+			[]string{"Choose exactly one candidate.", "Do not edit files unless the user explicitly changes scope.", "Inspect and comment with findings, evidence, and a recommended next label."},
+		)
+	}
+
+	return nextCandidates(snapshot.Repo, "none", "no eligible issue or PR follow-up", []NextCandidate{}, []string{})
+}
+
+func prFollowupReason(state string) string {
+	switch state {
+	case "failure":
+		return "failing-checks"
+	case "pending":
+		return "pending-checks"
+	case "success":
+		return "ready-for-review"
+	default:
+		return "open-pr"
+	}
+}
+
+func issueCandidates(issues []IssueState, action string) []NextCandidate {
+	candidates := []NextCandidate{}
+	for _, issue := range issues {
+		if !issue.Eligible {
+			continue
 		}
+		issueAction := issue.Action
+		if issueAction == "" {
+			issueAction = "issue-implementation"
+		}
+		if issueAction != action {
+			continue
+		}
+		candidates = append(candidates, NextCandidate{
+			Type:   "issue",
+			Number: issue.Issue.Number,
+			Title:  issue.Issue.Title,
+			URL:    issue.Issue.URL,
+		})
 	}
-	return NextAction{
-		SchemaVersion: 1,
-		Kind:          "nextAction",
-		Action:        "none",
-		Repo:          snapshot.Repo,
-		Reason:        "no eligible issue or PR follow-up",
-		BlockedItems:  []string{},
-		Instructions:  []string{},
+	return candidates
+}
+
+func nextCandidates(repo, action, reason string, candidates []NextCandidate, instructions []string) NextCandidates {
+	return NextCandidates{
+		SchemaVersion:     2,
+		Kind:              "nextCandidates",
+		Action:            action,
+		Repo:              repo,
+		Reason:            reason,
+		SelectionRequired: len(candidates) > 1,
+		Candidates:        candidates,
+		BlockedItems:      []string{},
+		Instructions:      instructions,
 	}
+}
+
+func sortCandidates(candidates []NextCandidate) {
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return candidates[i].Number < candidates[j].Number
+	})
 }
 
 func referencedIssues(pr PullRequest) []int {

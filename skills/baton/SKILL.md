@@ -14,7 +14,7 @@ contracts, and your judgment for code changes.
 - Run `baton home --format toon` or `baton doctor --format toon` to establish
   local Baton context.
 - Run `baton next --format toon` before selecting unattended work.
-- Handle exactly one Baton-selected unit per automation run.
+- Choose exactly one candidate from `baton next` per automation run.
 - Acquire a lease before editing files: `baton lease ... --json`.
 - Work only inside the returned lease `path`.
 - Never mutate the user's primary checkout for automation work.
@@ -34,14 +34,14 @@ argument.
 | --- | --- |
 | `$baton` | Show readiness, queue summary, and 2-3 recommended next commands. Read-only. |
 | `$baton status [repo]` | Run readiness and setup checks. Read-only. |
-| `$baton next [repo]` | Show the next Baton-selected action. Read-only. |
+| `$baton next [repo]` | Show the next Baton candidate set. Read-only. |
 | `$baton queue [repo]` | Show eligible and skipped issues/PRs. Read-only. |
 | `$baton todo <todo>` | Create one Baton-ready GitHub issue. No branch, lease, commit, or PR. |
 | `$baton todos <notes-or-file>` | Split notes into Baton-ready GitHub issues. No implementation. |
 | `$baton investigate <issue>` | Investigate/comment on one issue. No file edits unless the user explicitly changes scope. |
 | `$baton implement <issue>` | Lease one ready issue, implement it, validate, and open/update a PR to the staging branch. |
 | `$baton follow-up <pr>` | Lease the existing PR branch, fix checks or review follow-up, validate, and push to that branch. |
-| `$baton run [repo]` | Let Baton select and handle exactly one safe unit, then stop. |
+| `$baton run [repo]` | Let Baton return candidates, choose exactly one safe unit, then stop. |
 | `$baton adopt [repo]` | Check target-repo setup with dry-run/read-only commands and recommend next setup commands. |
 | `$baton automate [repo]` | Explain or prepare scheduled one-unit automation. Do not schedule implementation automation before a manual run succeeds. |
 
@@ -89,8 +89,8 @@ argument.
 - `status`: run `baton doctor --format toon`, plus `baton ensure-branch --json`
   and `baton sync-labels --dry-run --repo <repo> --json` when setup is in
   scope. Do not apply setup.
-- `next`: run `baton next --format toon --repo <repo>` and report the selected
-  action without taking it.
+- `next`: run `baton next --format toon --repo <repo>` and report the candidate
+  set without taking it.
 - `queue`: run `baton queue --format toon --repo <repo>` and summarize eligible
   and skipped work.
 - `todo` and `todos`: read `references/todo-creation.md`, create issue bodies
@@ -104,8 +104,9 @@ argument.
 - `follow-up`: run `baton pr <number> --json`, `baton checks <number> --format
   toon`, and `baton review-threads <number> --format toon`; lease the existing
   PR branch before edits and push fixes to that branch.
-- `run`: run `baton next --format toon --repo <repo>`, handle exactly one
-  selected unit according to its action, validate, report, and stop.
+- `run`: run `baton next --format toon --repo <repo>`, choose exactly one
+  candidate from the returned set, handle it according to its action, validate,
+  report the chosen candidate, and stop.
 - `adopt`: run read-only/dry-run setup checks: `baton home --format toon`,
   `baton doctor --format toon`, `baton init --dry-run --json`,
   `baton migrate-config --dry-run` when a legacy policy exists,

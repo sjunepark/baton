@@ -246,7 +246,7 @@
       <div class="grid g3" style="margin-top:40px">
         <div class="card"><h3><span class="ico">📋</span> Facts, not guesses</h3><p>Issues, PRs, checks, and review threads come back as stable JSON — no scraping the GitHub UI by hand.</p></div>
         <div class="card"><h3><span class="ico">🔒</span> Leased isolation</h3><p>Edits only ever happen inside a leased worktree. Your primary checkout is never touched by automation.</p></div>
-        <div class="card"><h3><span class="ico">🎯</span> One unit per run</h3><p><code>baton next</code> picks a single recommended action. No sprawling, multi-task agent runs.</p></div>
+        <div class="card"><h3><span class="ico">🎯</span> One unit per run</h3><p><code>baton next</code> returns the winning candidate set. The agent chooses exactly one candidate.</p></div>
       </div>
     </section>
 
@@ -261,7 +261,7 @@
           <ul>
             <li>Reads GitHub issues, PRs, checks, review threads</li>
             <li>Applies repo <b>policy</b> (labels, branch direction, keywords)</li>
-            <li>Picks <b>one</b> next action via <code>baton next</code></li>
+            <li>Returns the next candidate set via <code>baton next</code></li>
             <li>Hands out &amp; releases <b>worktree leases</b></li>
           </ul>
         </div>
@@ -270,7 +270,7 @@
           <h3>🧠 Codex + skill — the judgment</h3>
           <p style="color:var(--text);font-size:14px;margin-top:2px">Where the thinking lives.</p>
           <ul>
-            <li>Decides <b>how</b> to implement the selected unit</li>
+            <li>Chooses one candidate and decides <b>how</b> to handle it</li>
             <li>Writes code, interprets ambiguous review feedback</li>
             <li>Validates, pushes, comments, summarizes</li>
             <li><b>Stops &amp; escalates</b> on human decisions</li>
@@ -286,7 +286,7 @@
       <p class="sub">Internalize these eight. They are the safety contract of every Baton run.</p>
       <div class="rules">
         <div class="rule"><span class="mk">🧭</span><span><b>Orient first.</b> Run <code>baton home</code> or <code>baton doctor</code> when readiness is uncertain.</span></div>
-        <div class="rule"><span class="mk">1️⃣</span><span><b>Select before acting.</b> Always <code>baton next</code> before unattended work, and handle <b>exactly one</b> selected unit.</span></div>
+        <div class="rule"><span class="mk">1️⃣</span><span><b>Select before acting.</b> Always <code>baton next</code> before unattended work, then choose and handle <b>exactly one</b> candidate.</span></div>
         <div class="rule"><span class="mk">🔑</span><span><b>Lease before editing.</b> <code>baton lease … --json</code> first. Work <b>only</b> inside the returned lease <code>path</code>.</span></div>
         <div class="rule"><span class="mk">🚫</span><span><b>Never touch the primary checkout</b> for automation work.</span></div>
         <div class="rule"><span class="mk">🤝</span><span><b>Never merge</b> unless the user explicitly asks.</span></div>
@@ -448,10 +448,10 @@ const STEPS = [
     why:"Establish local Baton context: is config present, is GitHub auth working, is the repo ready? <code>home</code> won't fail on missing config; <code>doctor</code> checks readiness. Skip only when you already know readiness.",
     note:"Run the narrowest command the task needs — you don't always need both." },
   { t: "Select", icon:"1️⃣", cmd:[["baton next","--format toon"]],
-    why:"Baton classifies the whole queue — open agent PRs, CI checks, review threads, branch health, eligible issues — and returns <b>one</b> recommended <code>action</code>: <code>pr-followup</code>, <code>branch-health</code>, <code>issue-implementation</code>, <code>issue-investigation</code>, <code>digest</code>, or <code>none</code>.",
+    why:"Baton classifies the whole queue — open agent PRs, CI checks, review threads, branch health, eligible issues — and returns the highest-priority candidate set for <code>pr-followup</code>, <code>branch-health</code>, <code>issue-implementation</code>, <code>issue-investigation</code>, or <code>none</code>.",
     note:"Always run this before unattended work. It is the single source of 'what to do next'." },
   { t: "Triage", icon:"🔀", cmd:[],
-    why:"If the action is <code>none</code> or <code>digest</code>, <b>report the summary and stop</b> — there's no safe mutation to make. Otherwise continue to lease the selected unit.",
+    why:"If the action is <code>none</code>, <b>report the summary and stop</b> — there's no safe mutation to make. Otherwise choose exactly one candidate and continue to lease it.",
     note:"This branch point is where most runs legitimately end. Stopping is a success, not a failure." },
   { t: "Lease", icon:"🔑", cmd:[["baton lease","--purpose issue-123 --base origin/agent --new-branch agent-work/123-slug --json"]],
     why:"Acquire an isolated worktree before any edit. For PR follow-up, lease the existing branch (<code>--branch &lt;headRef&gt;</code>); for issue work, create a new branch from staging (<code>--base … --new-branch …</code>). The JSON returns <code>id</code> and <code>path</code>.",
@@ -460,13 +460,13 @@ const STEPS = [
     why:"Change into the returned lease <code>path</code> and read that repo's <code>AGENTS.md</code>. Every edit from here lives inside the lease — the primary checkout stays untouched.",
     note:"Work only inside this directory. That invariant is stronger than wherever the automation happened to launch." },
   { t: "Work", icon:"🛠️", cmd:[],
-    why:"Implement or investigate <b>only the selected unit</b>. This is the judgment half — Baton gave you the facts; you decide implementation shape and handle ambiguity.",
+    why:"Implement or investigate <b>only the chosen candidate</b>. This is the judgment half — Baton gave you the facts; you decide implementation shape and handle ambiguity.",
     note:"Don't widen scope to nearby cleanups. One unit per run keeps reviews small and runs reversible." },
   { t: "Validate", icon:"✅", cmd:[],
     why:"Run focused checks for what you changed — the repo's own test/lint/build commands. Fix failing <i>required</i> checks before review nits.",
     note:"Validation evidence is part of the report. A push without it is incomplete." },
   { t: "Publish", icon:"📤", cmd:[["baton complete","--summary <text> --lease <id> --validation <text> --json"]],
-    why:"Push or comment strictly according to the selected action. For issue intake, open the work PR to staging with <code>Refs #&lt;issue&gt;</code> (not closing keywords). Record completion metadata with <code>baton complete</code>.",
+    why:"Push or comment strictly according to the chosen candidate's action. For issue intake, open the work PR to staging with <code>Refs #&lt;issue&gt;</code> (not closing keywords). Record completion metadata with <code>baton complete</code>.",
     note:"Push follow-up fixes to the existing PR branch — never open a second PR. Never merge unless explicitly asked." },
   { t: "Release", icon:"🧹", cmd:[["baton release","--lease <id> --json"]],
     why:"Release the lease when the worktree is clean. If release refuses because the worktree is dirty, <b>report the lease path and changed files</b> instead of forcing it.",
@@ -562,19 +562,32 @@ document.getElementById('demoPlay').onclick=playDemo;
 document.getElementById('demoReset').onclick=resetDemo;
 
 /* ---------- Format toggle ---------- */
-const TOON = `<span class="out">action:  <span class="k">issue-implementation</span>
-reason:  no PR follow-up blocking; #123 eligible
-issue:   #123  Add --since filter to queue
-do next: baton lease --purpose issue-123 …</span>`;
+const TOON = `<span class="out">kind: nextCandidates
+schemaVersion: 2
+action: issue-implementation
+reason: eligible-issue
+selectionRequired: false
+candidates[1]:
+  - type=issue number=123 title=Add --since filter to queue
+instructions[4]:
+  - Choose exactly one candidate.
+  - Acquire a lease before editing.
+  - Open a PR to the staging branch with Refs #&lt;issue-number&gt;.
+  - Do not merge.</span>`;
 const JSON_ = `<span class="out">{
-  <span class="k">"schemaVersion"</span>: <span class="v">"1"</span>,
-  <span class="k">"kind"</span>: <span class="v">"nextAction"</span>,
+  <span class="k">"schemaVersion"</span>: <span class="v">2</span>,
+  <span class="k">"kind"</span>: <span class="v">"nextCandidates"</span>,
   <span class="k">"repo"</span>: <span class="v">"sjunepark/baton"</span>,
   <span class="k">"action"</span>: <span class="v">"issue-implementation"</span>,
-  <span class="k">"reason"</span>: <span class="v">"no PR follow-up blocking; #123 eligible"</span>,
-  <span class="k">"issue"</span>: { <span class="k">"number"</span>: <span class="v">123</span>, <span class="k">"url"</span>: <span class="v">"…/issues/123"</span> },
-  <span class="k">"instructions"</span>: <span class="v">"lease from staging; Refs #123; do not close"</span>,
-  <span class="k">"help"</span>: <span class="v">"baton lease --purpose issue-123 --base origin/agent …"</span>
+  <span class="k">"reason"</span>: <span class="v">"eligible-issue"</span>,
+  <span class="k">"selectionRequired"</span>: <span class="v">false</span>,
+  <span class="k">"candidates"</span>: [{ <span class="k">"type"</span>: <span class="v">"issue"</span>, <span class="k">"number"</span>: <span class="v">123</span>, <span class="k">"title"</span>: <span class="v">"Add --since filter"</span>, <span class="k">"url"</span>: <span class="v">"…/issues/123"</span> }],
+  <span class="k">"instructions"</span>: [
+    <span class="v">"Choose exactly one candidate."</span>,
+    <span class="v">"Acquire a lease before editing."</span>,
+    <span class="v">"Open a PR to the staging branch with Refs #&lt;issue-number&gt;."</span>,
+    <span class="v">"Do not merge."</span>
+  ]
 }</span>`;
 const fmtBody=document.getElementById('fmtBody'), fmtTitle=document.getElementById('fmtTitle');
 const fmtToon=document.getElementById('fmtToon'), fmtJson=document.getElementById('fmtJson');
@@ -591,7 +604,7 @@ setFmt(true);
 const CMDS=[
   ['baton home','Local context without failing on missing config/auth.','read'],
   ['baton doctor','Check local readiness before acting.','read'],
-  ['baton next','Select one recommended unit of work.','read'],
+  ['baton next','Return the next candidate set.','read'],
   ['baton queue','Inspect eligible and skipped issues.','read'],
   ['baton prs','List open staging PRs.','read'],
   ['baton pr <n>','Inspect one PR (use --json).','read'],

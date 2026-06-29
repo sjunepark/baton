@@ -7,7 +7,7 @@ automation contracts and mutating command results.
 
 - `$baton`: read-only dashboard/menu.
 - `$baton status [repo]`: readiness and setup checks.
-- `$baton next [repo]`: show one selected next action without acting.
+- `$baton next [repo]`: show the next candidate set without acting.
 - `$baton queue [repo]`: show eligible and skipped queue items.
 - `$baton todo <todo>`: create one Baton-ready GitHub issue.
 - `$baton todos <notes-or-file>`: split notes into Baton-ready GitHub issues.
@@ -15,7 +15,7 @@ automation contracts and mutating command results.
 - `$baton implement <issue>`: lease, implement one ready issue, and open/update
   a staging PR.
 - `$baton follow-up <pr>`: lease an existing PR branch and fix PR follow-up.
-- `$baton run [repo]`: select and handle exactly one safe unit.
+- `$baton run [repo]`: choose and handle exactly one safe candidate.
 - `$baton adopt [repo]`: dry-run target-repo setup checks.
 - `$baton automate [repo]`: prepare scheduled one-unit automation.
 
@@ -24,7 +24,7 @@ automation contracts and mutating command results.
 - `baton home --format toon`: show local Baton context without failing on
   missing config or auth.
 - `baton doctor --format toon`: check local readiness.
-- `baton next --format toon`: select one recommended unit.
+- `baton next --format toon`: return the highest-priority candidate set.
 - `baton queue --format toon`: inspect eligible and skipped issues.
 - `baton prs --format toon`: list open staging PRs.
 - `baton pr <number> --json`: inspect one PR.

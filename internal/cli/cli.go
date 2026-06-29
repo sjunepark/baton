@@ -513,7 +513,7 @@ var commandHelps = map[string]commandHelp{
 		Related:  []string{"baton pr <number> --json", "baton checks <number> --json"},
 	},
 	"next": {
-		Purpose:  "Recommend the next Baton action from queue and PR state.",
+		Purpose:  "Return the next Baton candidate set from queue and PR state.",
 		Usage:    "baton next [--repo owner/name] [--config <path>] [--format text|json|toon] [--json]",
 		Flags:    []string{"--repo: GitHub repository owner/name", "--config: policy config path", "--format: output format text, json, or toon", "--json: emit structured JSON"},
 		Examples: []string{"baton next --format toon"},
@@ -1208,7 +1208,14 @@ func runNext(args []string, stdout, stderr io.Writer) int {
 	if format == formatTOON {
 		return writeNextTOON(stdout, next)
 	}
-	fmt.Fprintf(stdout, "Next action: %s\nReason: %s\n", next.Action, next.Reason)
+	fmt.Fprintf(stdout, "Next action: %s\nReason: %s\nCandidates: %d\n", next.Action, next.Reason, len(next.Candidates))
+	for _, candidate := range next.Candidates {
+		if candidate.Number != 0 {
+			fmt.Fprintf(stdout, "- %s #%d %s\n", candidate.Type, candidate.Number, candidate.Title)
+			continue
+		}
+		fmt.Fprintf(stdout, "- %s %s\n", candidate.Type, candidate.Ref)
+	}
 	return exitOK
 }
 
@@ -2005,19 +2012,35 @@ func writeReviewThreadsTOON(w io.Writer, result gh.ReviewThreadResult) int {
 	return exitOK
 }
 
-func writeNextTOON(w io.Writer, next queue.NextAction) int {
-	fmt.Fprintln(w, "kind: nextAction")
+func writeNextTOON(w io.Writer, next queue.NextCandidates) int {
+	fmt.Fprintln(w, "kind: nextCandidates")
 	fmt.Fprintf(w, "schemaVersion: %d\n", next.SchemaVersion)
 	fmt.Fprintf(w, "repo: %s\n", next.Repo)
 	fmt.Fprintf(w, "action: %s\n", next.Action)
 	fmt.Fprintf(w, "reason: %s\n", next.Reason)
-	if next.PR != nil {
-		fmt.Fprintf(w, "pr.number: %d\n", next.PR.Number)
-		fmt.Fprintf(w, "pr.headRef: %s\n", next.PR.HeadRef)
-		fmt.Fprintf(w, "pr.baseRef: %s\n", next.PR.BaseRef)
-	}
-	if next.Issue != nil {
-		fmt.Fprintf(w, "issue.number: %d\n", next.Issue.Number)
+	fmt.Fprintf(w, "selectionRequired: %v\n", next.SelectionRequired)
+	fmt.Fprintf(w, "candidates[%d]:\n", len(next.Candidates))
+	for _, candidate := range next.Candidates {
+		values := []string{"type=" + candidate.Type}
+		if candidate.Number != 0 {
+			values = append(values, fmt.Sprintf("number=%d", candidate.Number))
+		}
+		if candidate.Title != "" {
+			values = append(values, "title="+oneLine(candidate.Title))
+		}
+		if candidate.HeadRef != "" {
+			values = append(values, "headRef="+candidate.HeadRef)
+		}
+		if candidate.BaseRef != "" {
+			values = append(values, "baseRef="+candidate.BaseRef)
+		}
+		if candidate.Ref != "" {
+			values = append(values, "ref="+candidate.Ref)
+		}
+		if candidate.CheckState != "" {
+			values = append(values, "checkState="+candidate.CheckState)
+		}
+		fmt.Fprintf(w, "  - %s\n", strings.Join(values, " "))
 	}
 	fmt.Fprintf(w, "blockedItems[%d]:\n", len(next.BlockedItems))
 	for _, item := range next.BlockedItems {

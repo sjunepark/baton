@@ -17,7 +17,7 @@ Implemented:
 - GitHub workflow, issue template, label, and config installation templates;
 - GitHub issue/PR/check/review-thread queue inspection;
 - `baton home --format toon` and `baton next --format toon` for compact agent
-  context and one recommended automation action;
+  context and the next candidate set;
 - native worktree leasing with release and prune safety gates;
 - `doctor`, `complete`, `migrate-config`, `sync-labels`, and `ensure-branch`;
 - a bundled Codex skill in `skills/baton`.

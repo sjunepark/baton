@@ -67,11 +67,12 @@ autonomous agents should work from the GitHub issue/PR queue:
 
 - Use `$baton` for unattended GitHub issue and PR work.
 - Run `baton next --format toon` before choosing queue work.
-- Handle at most one Baton-selected unit per run.
+- Choose and handle at most one Baton candidate per run.
 - Acquire a Baton lease before editing files: `baton lease ... --json`.
 - Work only inside the returned lease `path`; do not mutate the primary
   checkout for automation work.
-- Push, comment, or open PRs only according to the Baton-selected action.
+- Push, comment, or open PRs only according to the chosen Baton candidate's
+  action.
 - Run focused validation, record completion with `baton complete`, and release
   a clean lease with `baton release --lease <id> --json`.
 - Stop and report on auth failures, lease conflicts, ambiguous requirements,
@@ -110,7 +111,7 @@ Use this request shape:
 Create a project automation named "Baton queue worker" for OWNER/REPO.
 Run it every 30 minutes in a background worktree if that option is available.
 Use the `$baton` skill. The automation should run the command below exactly,
-handle at most one Baton-selected unit, and report findings in Triage.
+choose and handle at most one Baton candidate, and report findings in Triage.
 
 <paste the Default Queue Worker Prompt>
 ```

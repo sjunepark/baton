@@ -315,7 +315,7 @@ help[1]:
 
 Evidence:
 
-- `NextAction.Instructions` already works as operational guidance.
+- `NextCandidates.Instructions` already works as operational guidance.
 - Other outputs force the agent to know the next command or read global help.
 
 Recommended examples:

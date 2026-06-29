@@ -8,13 +8,15 @@ Common fields:
 - `count`, `counts`, or `summary`: precomputed totals for agent triage.
 - `help`: concrete next commands or stop-condition guidance.
 
-`nextAction`:
+`nextCandidates`:
 
 - `action`: one of `pr-followup`, `branch-health`, `issue-implementation`,
-  `issue-investigation`, `digest`, or `none`.
-- `reason`: why Baton selected the action.
-- `pr`: PR number, URL, head ref, and base ref for PR follow-up.
-- `issue`: issue number and URL for issue work.
+  `issue-investigation`, or `none`.
+- `reason`: why Baton selected the candidate tier.
+- `selectionRequired`: whether multiple tied candidates require a choice.
+- `candidates[]`: the highest-priority tied candidates. PR candidates include
+  number, title, URL, head ref, and base ref. Issue candidates include number,
+  title, and URL. Branch candidates include ref, SHA, and check state.
 - `instructions`: operational constraints to follow.
 
 `lease`:

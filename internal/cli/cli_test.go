@@ -227,8 +227,23 @@ func TestTOONRenderersStable(t *testing.T) {
 	}
 
 	stdout.Reset()
-	writeNextTOON(&stdout, queue.NextAction{SchemaVersion: 1, Kind: "nextAction", Repo: "example/repo", Action: "none", Reason: "empty", Instructions: []string{"Inspect queue."}})
-	if !strings.Contains(stdout.String(), "kind: nextAction\n") || !strings.Contains(stdout.String(), "instructions[1]:\n  - Inspect queue.\n") {
+	writeNextTOON(&stdout, queue.NextCandidates{
+		SchemaVersion:     2,
+		Kind:              "nextCandidates",
+		Repo:              "example/repo",
+		Action:            "issue-implementation",
+		Reason:            "eligible-issue",
+		SelectionRequired: true,
+		Candidates: []queue.NextCandidate{
+			{Type: "issue", Number: 7, Title: "Fix flaky test"},
+			{Type: "issue", Number: 9, Title: "Update docs"},
+		},
+		Instructions: []string{"Choose exactly one candidate."},
+	})
+	if !strings.Contains(stdout.String(), "kind: nextCandidates\n") ||
+		!strings.Contains(stdout.String(), "selectionRequired: true\n") ||
+		!strings.Contains(stdout.String(), "candidates[2]:\n  - type=issue number=7 title=Fix flaky test\n  - type=issue number=9 title=Update docs\n") ||
+		!strings.Contains(stdout.String(), "instructions[1]:\n  - Choose exactly one candidate.\n") {
 		t.Fatalf("next toon = %q", stdout.String())
 	}
 
