@@ -75,7 +75,7 @@ Implemented flags:
 baton init --dry-run
 baton init --apply
 baton init --profile default
-baton init --go-install github.com/sjunepark/baton/cmd/baton@v0.2.1
+baton init --go-install github.com/sjunepark/baton/cmd/baton@v0.3.0
 baton init --install-command '<trusted install command>'
 ```
 <!-- x-release-please-end -->
