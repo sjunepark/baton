@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.0](https://github.com/sjunepark/baton/compare/v0.2.1...v0.3.0) (2026-06-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* remove Baton-managed worktree leasing
+
+### Features
+
+* remove Baton-managed worktree leasing ([c15fd2c](https://github.com/sjunepark/baton/commit/c15fd2c0c11e450e900e31573cf60115f58d9542))
+
 ## [0.2.1](https://github.com/sjunepark/baton/compare/v0.2.0...v0.2.1) (2026-06-30)
 
 
