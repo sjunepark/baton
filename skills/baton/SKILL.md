@@ -72,6 +72,8 @@ argument.
 - If creating issues through an API instead of the GitHub form UI, write the
   body with the same `###` headings from the template.
 - Split unrelated work into separate issues.
+- Prefer durable problem and outcome descriptions over exact line numbers,
+  private helper names, or speculative implementation steps.
 - Choose the least-permissive Agent mode that fits:
   - Ready trivial: tiny obvious fix.
   - Ready bounded: scoped implementation work with clear acceptance criteria.

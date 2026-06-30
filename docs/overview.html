@@ -937,33 +937,96 @@
   set('cli');
 })();
 
-/* ---------- 03 decision tree ---------- */
+/* ---------- 03 decision tree + scenarios + agent outcome ---------- */
 (function(){
-  const state = { branch:'success', pr:'none', issue:'none' };
+  /* state mirrors a RecommendNext snapshot: one branch-health value, a list of
+     open-PR check states, and a list of eligible-issue actions. The list shapes
+     let a few scenarios show PR sub-tiering and selectionRequired. */
+  const state = { branch:'success', prs:[], issues:['implementation'] };
   const ctl = document.getElementById('treeControls');
   const ladder = document.getElementById('treeLadder');
   const resultEl = document.getElementById('treeResult');
+  const outcomeEl = document.getElementById('treeOutcome');
+  const scnEl = document.getElementById('treeScenarios');
 
-  const PR_REASON = { failure:'failing-checks', pending:'pending-checks', success:'ready-for-review', open:'open-pr' };
   /* Verbatim Instructions emitted by RecommendNext (internal/queue/queue.go). */
   const INSTR = {
     'branch-health': ['Acquire a lease before editing.', 'Fix the shared staging branch before starting new issue work.', 'Do not open unrelated issue PRs until branch health is clear.'],
-    'pr-followup':   ['Acquire a lease before editing.', 'Push to the existing PR branch.', 'Do not open a new PR.'],
-    'issue-implementation': ['Acquire a lease before editing.', 'Open a PR to the staging branch with Refs #N.', 'Do not merge.'],
-    'issue-investigation':  ['Do not edit files unless the user explicitly changes scope.', 'Inspect and comment with findings, evidence, and a recommended next label.'],
+    'pr-followup':   ['Choose exactly one candidate.', 'Acquire a lease before editing.', 'Push to the existing PR branch.', 'Do not open a new PR.'],
+    'issue-implementation': ['Choose exactly one candidate.', 'Acquire a lease before editing.', 'Open a PR to the staging branch with Refs #&lt;issue-number&gt;.', 'Do not merge.'],
+    'issue-investigation':  ['Choose exactly one candidate.', 'Do not edit files unless the user explicitly changes scope.', 'Inspect and comment with findings, evidence, and a recommended next label.'],
     'none': []
   };
+  /* PR sub-tier order and the checkState → reason map, mirroring prFollowupReason. */
+  const PR_TIERS = ['failing-checks', 'pending-checks', 'ready-for-review', 'open-pr'];
+  function prReason(s){ return s==='failure' ? 'failing-checks' : s==='pending' ? 'pending-checks' : s==='success' ? 'ready-for-review' : 'open-pr'; }
+
+  const SCENARIOS = [
+    { id:'A', nm:'New work',         sub:'core scheduled loop',    branch:'success', prs:[],                    issues:['implementation'] },
+    { id:'B', nm:'PR has failures',  sub:'finish in-flight first', branch:'success', prs:['failure'],           issues:['implementation'] },
+    { id:'C', nm:'Green PR waiting',  sub:'nudge, then stop',       branch:'success', prs:['success'],           issues:['implementation'] },
+    { id:'D', nm:'Broken branch',    sub:'pre-empts everything',   branch:'failure', prs:['success'],           issues:['implementation'] },
+    { id:'E', nm:'Investigate only', sub:'comment, no code',       branch:'success', prs:[],                    issues:['investigation'] },
+    { id:'F', nm:'Nothing to do',    sub:'report and stop',        branch:'success', prs:[],                    issues:[] },
+    { id:'G', nm:'Mixed PRs',        sub:'sub-tier wins',          branch:'success', prs:['failure','success'], issues:['implementation'], note:'Two PRs are open, but only the failing one is a candidate — the green PR waits behind it. Check state sub-tiers the PR queue.' },
+    { id:'H', nm:'Two ready issues', sub:'selectionRequired',      branch:'success', prs:[],                    issues:['implementation','implementation'], note:'Both issues tie in the winning tier, so baton returns both and sets selectionRequired — the agent picks exactly one.' },
+  ];
 
   function decide(){
     if (state.branch==='failure' || state.branch==='pending')
-      return { winner:0, action:'branch-health', reason: state.branch+'-staging-branch' };
-    if (state.pr!=='none')
-      return { winner:1, action:'pr-followup', reason: PR_REASON[state.pr] };
-    if (state.issue==='investigation')
-      return { winner:2, action:'issue-investigation', reason:'eligible-investigation' };
-    if (state.issue==='implementation')
-      return { winner:2, action:'issue-implementation', reason:'eligible-issue' };
-    return { winner:3, action:'none', reason:'no eligible issue or PR follow-up' };
+      return { winner:0, action:'branch-health', reason: state.branch+'-staging-branch', n:1 };
+    for (const tier of PR_TIERS){
+      const c = state.prs.filter(s => prReason(s)===tier);
+      if (c.length) return { winner:1, action:'pr-followup', reason:tier, n:c.length };
+    }
+    const impl = state.issues.filter(x => x==='implementation');
+    if (impl.length) return { winner:2, action:'issue-implementation', reason:'eligible-issue', n:impl.length };
+    const inv = state.issues.filter(x => x==='investigation');
+    if (inv.length) return { winner:3, action:'issue-investigation', reason:'eligible-investigation', n:inv.length };
+    return { winner:4, action:'none', reason:'no eligible issue or PR follow-up', n:0 };
+  }
+
+  /* The judgment half: what Codex does with the CLI's fact, and where it stops. */
+  function outcomeFor(d){
+    switch (d.action) {
+      case 'branch-health': return {
+        ot:'Repair the shared branch before anything else',
+        does:['Lease the staging branch in an isolated worktree.','Fix the failing / pending CI first — issues and other PRs wait.','Leave the primary checkout untouched.'],
+        stop:'Stops & reports if the fix needs a human decision or the lease conflicts.' };
+      case 'pr-followup': return (d.reason==='ready-for-review') ? {
+        ot:'PR is green — nudge it forward, then stop',
+        does:['Lease the EXISTING PR branch — never a new one.','Confirm checks pass and no human review threads are unresolved.','Nothing to fix → post a no-action “ready for review” report.'],
+        stop:'Waits for a human to review / merge. Baton never auto-merges.' } : {
+        ot:'Finish the open PR before starting new work',
+        does:['Pick one candidate, then lease its EXISTING branch — never a replacement PR.','Fix failing REQUIRED checks before bot nits; human threads outrank bots.','Push to the same branch; validate.'],
+        stop:'Stops & reports if feedback needs human judgment.' };
+      case 'issue-implementation': return {
+        ot:'Build the smallest change for one issue',
+        does:['Pick one candidate; lease a NEW branch off the staging branch.','Read the leased checkout’s AGENTS.md; edit only inside lease.path.','Open a work PR → staging with Refs #N (never a closing keyword); validate; complete & release.'],
+        stop:'Stops on ambiguous scope or a product / security / schema call. Never merges.' };
+      case 'issue-investigation': return {
+        ot:'Investigate and comment — no code',
+        does:['Pick one candidate; no lease, no file edits.','Inspect the issue and gather evidence.','Comment findings + a recommended next label.'],
+        stop:'Stops & reports if findings need a human product / security decision.' };
+      default: return {
+        ot:'Nothing eligible',
+        does:['Report the queue snapshot.','Take no action at all.'],
+        stop:'Zero mutation — the run ends here.' };
+    }
+  }
+
+  function firstOr(arr, none){ return arr.length ? arr[0] : none; }
+  function syncControls(){
+    const sel = { branch: state.branch, pr: firstOr(state.prs,'none'), issue: firstOr(state.issues,'none') };
+    [...ctl.querySelectorAll('.opts')].forEach(opts => {
+      const key = opts.dataset.key;
+      [...opts.children].forEach(b => b.classList.toggle('active', b.dataset.v===sel[key]));
+    });
+  }
+  function activeScenario(){
+    return SCENARIOS.find(sc => sc.branch===state.branch
+      && JSON.stringify(sc.prs)===JSON.stringify(state.prs)
+      && JSON.stringify(sc.issues)===JSON.stringify(state.issues));
   }
 
   function render(){
@@ -977,22 +1040,44 @@
     });
     const instr = INSTR[d.action] || [];
     resultEl.innerHTML =
-      '<div class="rtop"><span class="faint" style="font-family:var(--mono);font-size:12px">baton next →</span>'
+      '<div class="rtop"><span class="faint" style="font-family:var(--mono);font-size:12px">⚙️ baton next →</span>'
       + '<span class="raction">' + d.action + '</span>'
       + '<span class="rreason">' + d.reason + '</span></div>'
+      + '<div class="rmeta">candidates: <b>' + d.n + '</b> · selectionRequired: <b>' + (d.n > 1) + '</b></div>'
       + (instr.length
           ? '<ol>' + instr.map(s => '<li>'+s+'</li>').join('') + '</ol>'
           : '<div class="empty">No instructions — report the state and stop. Zero mutation.</div>');
+    const o = outcomeFor(d);
+    const sc = activeScenario();
+    outcomeEl.innerHTML =
+      '<div class="oh">🧠 What the agent does with that fact</div>'
+      + '<div class="ot">' + o.ot + '</div>'
+      + '<ul>' + o.does.map(x => '<li>'+x+'</li>').join('') + '</ul>'
+      + (sc && sc.note ? '<div class="onote">'+sc.note+'</div>' : '')
+      + '<div class="ostop">⛔ ' + o.stop + '</div>';
+    [...scnEl.children].forEach(b => b.classList.toggle('active', !!sc && b.dataset.id===sc.id));
   }
+
+  scnEl.innerHTML = SCENARIOS.map(sc =>
+    '<button data-id="'+sc.id+'"><span class="sid">Case '+sc.id+'</span><span class="snm">'+sc.nm+'</span><span class="ssub">'+sc.sub+'</span></button>'
+  ).join('');
+  scnEl.addEventListener('click', e => {
+    const b = e.target.closest('button'); if(!b) return;
+    const sc = SCENARIOS.find(x => x.id===b.dataset.id); if(!sc) return;
+    state.branch = sc.branch; state.prs = sc.prs.slice(); state.issues = sc.issues.slice();
+    syncControls(); render();
+  });
 
   ctl.addEventListener('click', e => {
     const b = e.target.closest('.opts button'); if(!b) return;
-    const key = b.parentElement.dataset.key;
-    [...b.parentElement.children].forEach(x => x.classList.remove('active'));
-    b.classList.add('active');
-    state[key] = b.dataset.v;
-    render();
+    const key = b.parentElement.dataset.key, v = b.dataset.v;
+    if (key==='branch') state.branch = v;
+    else if (key==='pr') state.prs = (v==='none') ? [] : [v];
+    else if (key==='issue') state.issues = (v==='none') ? [] : [v];
+    syncControls(); render();
   });
+
+  syncControls();
   render();
 })();
 

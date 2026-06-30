@@ -12,6 +12,10 @@ or prepare work for future Baton-managed agents.
   it.
 - Split unrelated work into separate issues.
 - Merge duplicate notes into one issue when they describe the same outcome.
+- Prefer stable problem, outcome, and evidence descriptions over volatile code
+  coordinates. Avoid making exact line numbers, private helper names, or
+  speculative implementation steps part of the required work because the code
+  can drift before the todo is picked up.
 - Choose the least-permissive Agent mode that fits.
 - Use `Ready trivial` only for tiny, obvious fixes.
 - Use `Ready bounded` only when scope, context, and acceptance criteria are
@@ -34,6 +38,11 @@ Fill these fields with concrete, agent-usable detail:
 - Context / evidence: links, logs, screenshots, files, commands, observed
   behavior, or exact examples.
 - Acceptance criteria: concrete bullets or checkboxes.
+
+When source locations help, cite durable anchors such as file paths, symbols,
+tests, commands, issue links, or permalinks tied to a commit. Put volatile
+details in Context / evidence as clues, not in Summary or Acceptance criteria
+as requirements the future agent must follow.
 
 Use optional fields when they materially reduce ambiguity:
 

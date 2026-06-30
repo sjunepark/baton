@@ -40,6 +40,9 @@ The skill must instruct Codex to:
   template when asked to prepare Baton-managed work.
 - Use issue-form-compatible `###` headings when creating issues through an API
   instead of the GitHub form UI.
+- Prefer durable problem and outcome descriptions over volatile code
+  coordinates such as exact line numbers, private helper names, or speculative
+  implementation steps.
 - Choose the least-permissive Agent mode that fits and avoid marking vague work
   ready for implementation.
 - Acquire a lease before any file edits.
@@ -122,12 +125,14 @@ Routing rules:
 2. Use the repository's Agent-readable work item issue template.
 3. Use issue-form-compatible `###` headings when creating issues through an API.
 4. Split unrelated work into separate issues.
-5. Fill Summary, Context / evidence, and Acceptance criteria with actionable
+5. Prefer durable problem and outcome descriptions over volatile code
+   coordinates, because code can drift before the todo is picked up.
+6. Fill Summary, Context / evidence, and Acceptance criteria with actionable
    detail.
-6. Use optional Non-goals / constraints and Validation hints when they reduce
+7. Use optional Non-goals / constraints and Validation hints when they reduce
    ambiguity.
-7. Choose the least-permissive Agent mode that fits.
-8. Do not create branches or PRs when only asked to create todos.
+8. Choose the least-permissive Agent mode that fits.
+9. Do not create branches or PRs when only asked to create todos.
 
 ### Investigation-Only
 
