@@ -28,7 +28,7 @@
   with `baton init --go-install` or a full command with
   `baton init --install-command`.
 <!-- x-release-please-start-version -->
-- The trusted module path `github.com/sjunepark/baton/cmd/baton@v0.2.0` is
+- The trusted module path `github.com/sjunepark/baton/cmd/baton@v0.2.1` is
   published and validated with `go install`.
 <!-- x-release-please-end -->
 - Generated workflows set up Go and install Baton into a runner-temp bin

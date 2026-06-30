@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/sjunepark/baton/compare/v0.2.0...v0.2.1) (2026-06-30)
+
+
+### Features
+
+* rename issue quality gate label to needs-info ([a25dfdd](https://github.com/sjunepark/baton/commit/a25dfddfdf0c888043817bb8a8879ca557d634ad))
+
 ## [0.2.0](https://github.com/sjunepark/baton/compare/v0.1.5...v0.2.0) (2026-06-30)
 
 
