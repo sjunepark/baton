@@ -173,7 +173,7 @@ JSON result:
   "kind": "issuePolicyDecision",
   "isFormIssue": true,
   "labelsToAdd": ["agent:ready-trivial"],
-  "labelsToRemove": ["agent:blocked"],
+  "labelsToRemove": ["needs-info"],
   "missingRequiredSections": [],
   "policyCommentBody": null
 }

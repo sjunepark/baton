@@ -35,7 +35,7 @@ Current behavior:
 - Parse issue form sections from Markdown headings.
 - Detect whether an issue matches the configured form fingerprint.
 - Map form values to work-kind and agent-mode labels.
-- Add `agent:blocked` when ready implementation modes are missing required
+- Add `needs-info` when ready implementation modes are missing required
   sections.
 - Remove stale labels only from controlled label groups.
 - Post or update one policy comment when required fields are missing.

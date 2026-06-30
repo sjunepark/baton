@@ -1550,7 +1550,7 @@ func applyIssueDecisionIfRequested(apply bool, eventPath, repoFlag, eventRepo st
 	if err != nil {
 		return out.Error(exitAuth, err, "")
 	}
-	if err := client.ApplyIssueDecision(repo, issueNumber, decision, cfg.IssuePolicy.PolicyCommentMarker); err != nil {
+	if err := client.ApplyIssueDecision(repo, issueNumber, decision, cfg.IssuePolicy.PolicyCommentMarker, policy.QualityGateLabel(cfg.IssuePolicy)); err != nil {
 		return out.Error(exitGitHub, err, "")
 	}
 	return exitOK

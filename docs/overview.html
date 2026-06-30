@@ -561,7 +561,7 @@
       <p class="sub">Baton stores nothing of its own for work-tracking. Hover each element to see the role it already plays.</p>
       <div class="ghmap">
         <div class="ghnode"><div class="ic">📋</div><div class="nm">Issue</div><div class="role">→ queue item</div><div class="dt">The operational todo queue. <em>"GitHub Issues are the operational queue"</em> is a named architectural invariant.</div></div>
-        <div class="ghnode"><div class="ic">🏷️</div><div class="nm">Label</div><div class="role">→ policy + agent-mode</div><div class="dt"><code>agent:ready-trivial</code>, <code>agent:ready-bounded</code>, <code>agent:investigate-only</code>, <code>agent:blocked</code>, <code>needs:discussion</code>, <code>needs:review</code>.</div></div>
+        <div class="ghnode"><div class="ic">🏷️</div><div class="nm">Label</div><div class="role">→ policy + agent-mode</div><div class="dt"><code>agent:ready-trivial</code>, <code>agent:ready-bounded</code>, <code>agent:investigate-only</code>, <code>needs-info</code>, <code>needs:discussion</code>, <code>needs:review</code>.</div></div>
         <div class="ghnode"><div class="ic">🔀</div><div class="nm">Pull Request</div><div class="role">→ in-flight work</div><div class="dt">Work PRs target the staging branch; their existence pre-empts new issue work.</div></div>
         <div class="ghnode"><div class="ic">✅</div><div class="nm">Check rollup</div><div class="role">→ blocker</div><div class="dt">Failing required checks block merge and steer the next action's reason string.</div></div>
         <div class="ghnode"><div class="ic">💬</div><div class="nm">Review thread</div><div class="role">→ blocker (human &gt; bot)</div><div class="dt">Unresolved human threads outrank bot comments and can force a stop.</div></div>
@@ -654,7 +654,7 @@
         <div class="chiprow" id="eligChips">
           <button class="lchip" data-kind="impl" data-l="agent:ready-bounded">agent:ready-bounded</button>
           <button class="lchip" data-kind="invest" data-l="agent:investigate-only">agent:investigate-only</button>
-          <button class="lchip" data-kind="skip" data-l="agent:blocked">agent:blocked</button>
+          <button class="lchip" data-kind="skip" data-l="needs-info">needs-info</button>
           <button class="lchip" data-kind="skip" data-l="needs:discussion">needs:discussion</button>
           <button class="lchip" data-kind="pr" data-l="linked-pr">active linked PR</button>
         </div>
@@ -701,7 +701,7 @@
       <div id="policyPanel"></div>
 
       <div class="callout truth"><span class="ch">⚑ A common misconception</span>
-        <p>An incomplete or blocked issue does <b>not</b> fail CI. Issue policy always exits <code>0</code> and enforces by writing the <code>agent:blocked</code> label plus one updatable comment. <b>Only PR policy</b> fails the build (exit <code>1</code>). Enforcement is the label, not the exit code.</p>
+        <p>An incomplete or blocked issue does <b>not</b> fail CI. Issue policy always exits <code>0</code> and enforces by writing the <code>needs-info</code> label plus one updatable comment. <b>Only PR policy</b> fails the build (exit <code>1</code>). Enforcement is the label, not the exit code.</p>
       </div>
 
       <div class="callout"><span class="ch">The branch model is the backbone</span>
@@ -1089,7 +1089,7 @@
   function resolve(){
     const hasImpl = on.has('agent:ready-bounded');
     const hasInvest = on.has('agent:investigate-only');
-    const skips = [...on].filter(l => l==='agent:blocked' || l==='needs:discussion');
+    const skips = [...on].filter(l => l==='needs-info' || l==='needs:discussion');
     const linkedPr = on.has('linked-pr');
 
     let kind = hasImpl ? 'implementation' : (hasInvest ? 'investigation' : null);
@@ -1180,7 +1180,7 @@
     issue: { tag:'corrective', color:'var(--green)', rows:[
       ['trigger','issues opened / edited'],
       ['output','labelsToAdd / labelsToRemove (controlled groups only) + one updatable policy comment'],
-      ['enforcement','writes agent:blocked when a ready issue is missing required sections'],
+      ['enforcement','writes needs-info when a ready issue is missing required sections'],
       ['exit code','always 0 — never fails CI'],
       ['philosophy','reconcile toward a correct state, idempotently'],
     ]},
@@ -1342,7 +1342,7 @@
       ['issues event fires', 'read', 'GitHub Actions, base context'],
       ['baton issue-policy --apply', 'mutate', 'issues: write permission'],
       ['reconcile controlled labels', 'mutate', 'add/remove only labels Baton manages'],
-      ['upsert one policy comment', 'mutate', 'agent:blocked + comment if required sections missing'],
+      ['upsert one policy comment', 'mutate', 'needs-info + comment if required sections missing'],
       ['exit 0', 'read', 'corrective — NEVER fails CI'],
     ],
     'pr-policy CI (on pull_request_target)': [
@@ -1383,7 +1383,7 @@
     ['Next candidates (nextCandidates)','The winning candidate set from the priority ladder: an action enum value, reason, candidate list, and instruction list. Produced by RecommendNext, rendered by baton next.'],
     ['Queue snapshot (queueSnapshot)','The full classified view of the repo’s queue — per-issue eligibility/reasons/linked PRs and per-PR referenced issues. Produced by BuildSnapshot, rendered by baton queue.'],
     ['Agent mode','A least-permissive label on an issue — Ready trivial, Ready bounded, Investigate only, or Needs discussion — bounding what an agent may do.'],
-    ['agent:blocked','The quality-gate label issue policy adds when a ready issue is missing required sections; removed automatically on the next edit once the form is complete. Enforced via the label, never via a failing exit code.'],
+    ['needs-info','The quality-gate label issue policy adds when a ready issue is missing required sections; removed automatically on the next edit once the form is complete. Enforced via the label, never via a failing exit code.'],
     ['Controlled label groups','The label sets Baton owns and may remove during reconciliation, so policy never strips human-applied labels it does not manage.'],
     ['Policy engine','Two pure functions — ComputeIssuePolicy and ComputePullRequestPolicy — that turn a materialized input into a sorted, schema-versioned decision struct with zero side effects.'],
     ['Reference vs closing keyword','Work PRs link issues with the reference keyword (default Refs) and must not close them; promotion PRs use a closing keyword (Closes/Fixes/Resolves) to actually close them. Both are config-driven.'],

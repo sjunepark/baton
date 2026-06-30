@@ -136,7 +136,7 @@ controlled_label_groups:
     - agent:investigate-only
     - needs:discussion
   quality_gate:
-    - agent:blocked
+    - needs-info
 
 implementation_labels:
   - agent:ready-trivial
@@ -146,7 +146,7 @@ comment_only_labels:
   - agent:investigate-only
 
 skip_labels:
-  - agent:blocked
+  - needs-info
   - needs:discussion
   - needs:review
 

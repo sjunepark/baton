@@ -332,10 +332,10 @@ func TestBuildIssueReadinessUsesLabels(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.IssuePolicy.ImplementationLabels = []string{"agent:ready-trivial"}
 	cfg.IssuePolicy.CommentOnlyLabels = []string{"agent:needs-investigation"}
-	cfg.IssuePolicy.SkipLabels = []string{"agent:blocked"}
+	cfg.IssuePolicy.SkipLabels = []string{"needs-info"}
 	readiness := buildIssueReadiness([]int{7, 8, 9}, []queue.Issue{
 		{Number: 7, Labels: []string{"agent:ready-trivial"}},
-		{Number: 8, Labels: []string{"agent:ready-trivial", "agent:blocked"}},
+		{Number: 8, Labels: []string{"agent:ready-trivial", "needs-info"}},
 	}, cfg)
 
 	if len(readiness) != 3 {
@@ -344,7 +344,7 @@ func TestBuildIssueReadinessUsesLabels(t *testing.T) {
 	if !readiness[0].Ready || readiness[0].Action != "issue-implementation" {
 		t.Fatalf("ready issue = %#v", readiness[0])
 	}
-	if readiness[1].Ready || !strings.Contains(strings.Join(readiness[1].Reasons, ","), "skip label agent:blocked") {
+	if readiness[1].Ready || !strings.Contains(strings.Join(readiness[1].Reasons, ","), "skip label needs-info") {
 		t.Fatalf("blocked issue = %#v", readiness[1])
 	}
 	if readiness[2].Found || readiness[2].Ready {

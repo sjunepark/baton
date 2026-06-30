@@ -31,7 +31,7 @@ func TestComputeIssuePolicy(t *testing.T) {
 			name:                    "ready bounded missing acceptance criteria",
 			body:                    issueBody(issueBodyInput{AgentMode: "Ready bounded", AcceptanceCriteria: "No response"}),
 			wantFormIssue:           true,
-			wantAdd:                 []string{"agent:blocked", "agent:ready-bounded", "bug"},
+			wantAdd:                 []string{"agent:ready-bounded", "bug", "needs-info"},
 			wantRemove:              []string{},
 			wantMissing:             []string{"Acceptance criteria"},
 			wantPolicyCommentSubstr: "<!-- baton-issue-policy:v1 -->",
@@ -47,10 +47,10 @@ func TestComputeIssuePolicy(t *testing.T) {
 		{
 			name:          "changing agent mode removes previous controlled labels",
 			body:          issueBody(issueBodyInput{WorkKind: "Investigation", AgentMode: "Investigate only", AcceptanceCriteria: "No response"}),
-			currentLabels: []string{"agent:ready-trivial", "agent:blocked", "bug"},
+			currentLabels: []string{"agent:ready-trivial", "needs-info", "bug"},
 			wantFormIssue: true,
 			wantAdd:       []string{"agent:investigate-only"},
-			wantRemove:    []string{"agent:blocked", "agent:ready-trivial", "bug"},
+			wantRemove:    []string{"agent:ready-trivial", "bug", "needs-info"},
 			wantMissing:   []string{},
 		},
 		{

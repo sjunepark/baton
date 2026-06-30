@@ -300,11 +300,11 @@ func DefaultConfig() Config {
 			ControlledLabelGroups: map[string][]string{
 				"work_kind":    {"bug", "documentation", "enhancement", "question"},
 				"agent_mode":   {"agent:ready-trivial", "agent:ready-bounded", "agent:investigate-only", "needs:discussion"},
-				"quality_gate": {"agent:blocked"},
+				"quality_gate": {"needs-info"},
 			},
 			ImplementationLabels: []string{"agent:ready-trivial", "agent:ready-bounded"},
 			CommentOnlyLabels:    []string{"agent:investigate-only"},
-			SkipLabels:           []string{"agent:blocked", "needs:discussion", "needs:review"},
+			SkipLabels:           []string{"needs-info", "needs:discussion", "needs:review"},
 			RequiredSections: map[string][]string{
 				"ready-trivial": {"summary", "context_evidence", "acceptance_criteria"},
 				"ready-bounded": {"summary", "context_evidence", "acceptance_criteria"},

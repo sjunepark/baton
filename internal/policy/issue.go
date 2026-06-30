@@ -59,8 +59,9 @@ func ComputeIssuePolicy(input IssuePolicyInput) IssuePolicyDecision {
 			missing = append(missing, firstNonEmpty(input.Policy.FormSections[sectionID], sectionID))
 		}
 	}
+	qualityGateLabel := QualityGateLabel(input.Policy)
 	if len(missing) > 0 {
-		desiredLabels[blockedLabel(input.Policy)] = struct{}{}
+		desiredLabels[qualityGateLabel] = struct{}{}
 	}
 
 	controlledLabels := map[string]struct{}{}
@@ -91,7 +92,7 @@ func ComputeIssuePolicy(input IssuePolicyInput) IssuePolicyDecision {
 
 	var comment *string
 	if len(missing) > 0 {
-		body := createBlockedComment(missing, input.Policy.PolicyCommentMarker)
+		body := createBlockedComment(missing, input.Policy.PolicyCommentMarker, qualityGateLabel)
 		comment = &body
 	}
 
@@ -162,23 +163,23 @@ func hasUsefulContent(value string) bool {
 	}
 }
 
-func createBlockedComment(missing []string, marker string) string {
+func createBlockedComment(missing []string, marker string, qualityGateLabel string) string {
 	lines := make([]string, len(missing))
 	for i, section := range missing {
 		lines[i] = fmt.Sprintf("- %s", section)
 	}
-	return fmt.Sprintf("%s\n\nThis issue is marked ready for agent work, but the policy gate is blocking implementation.\n\nMissing required sections:\n\n%s\n\nUpdate the issue body and the policy action will remove `agent:blocked` when the form is complete.", marker, strings.Join(lines, "\n"))
+	return fmt.Sprintf("%s\n\nThis issue is marked ready for agent work, but the policy gate is blocking implementation.\n\nMissing required sections:\n\n%s\n\nUpdate the issue body and the policy action will remove `%s` when the form is complete.", marker, strings.Join(lines, "\n"), qualityGateLabel)
 }
 
-func ClearIssuePolicyComment(marker string) string {
-	return marker + "\n\nThe issue policy gate is currently clear. `agent:blocked` is not required."
+func ClearIssuePolicyComment(marker string, qualityGateLabel string) string {
+	return fmt.Sprintf("%s\n\nThe issue policy gate is currently clear. `%s` is not required.", marker, qualityGateLabel)
 }
 
-func blockedLabel(issuePolicy config.IssuePolicy) string {
+func QualityGateLabel(issuePolicy config.IssuePolicy) string {
 	if labels := issuePolicy.ControlledLabelGroups["quality_gate"]; len(labels) > 0 {
 		return labels[0]
 	}
-	return "agent:blocked"
+	return "needs-info"
 }
 
 func normalizeSlug(value string) string {

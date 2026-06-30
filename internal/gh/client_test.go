@@ -48,7 +48,7 @@ func TestApplyIssueDecisionUsesLabelsAndPolicyComment(t *testing.T) {
 			sawAdd = true
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`[]`))
-		case r.Method == http.MethodDelete && r.URL.Path == "/repos/example-org/example-repo/issues/12/labels/agent:blocked":
+		case r.Method == http.MethodDelete && r.URL.Path == "/repos/example-org/example-repo/issues/12/labels/needs-info":
 			sawRemove = true
 			w.WriteHeader(http.StatusNoContent)
 		case r.Method == http.MethodGet && r.URL.Path == "/repos/example-org/example-repo/issues/12/comments":
@@ -68,11 +68,11 @@ func TestApplyIssueDecisionUsesLabelsAndPolicyComment(t *testing.T) {
 	decision := policy.IssuePolicyDecision{
 		IsFormIssue:       true,
 		LabelsToAdd:       []string{"bug"},
-		LabelsToRemove:    []string{"agent:blocked"},
+		LabelsToRemove:    []string{"needs-info"},
 		PolicyCommentBody: nil,
 	}
 	client := NewClient(server.URL, "token", server.Client())
-	if err := client.ApplyIssueDecision("example-org/example-repo", 12, decision, cfg.IssuePolicy.PolicyCommentMarker); err != nil {
+	if err := client.ApplyIssueDecision("example-org/example-repo", 12, decision, cfg.IssuePolicy.PolicyCommentMarker, policy.QualityGateLabel(cfg.IssuePolicy)); err != nil {
 		t.Fatal(err)
 	}
 	if !sawAdd || !sawRemove || !sawPatch {

@@ -7,7 +7,7 @@ func TestParseIssueEvent(t *testing.T) {
   "issue": {
     "number": 12,
     "body": "### Summary\n\nDo the thing.",
-    "labels": [{"name": "bug"}, {"name": "agent:blocked"}]
+    "labels": [{"name": "bug"}, {"name": "needs-info"}]
   },
   "repository": {"full_name": "example-org/example-repo"}
 }`))
@@ -17,7 +17,7 @@ func TestParseIssueEvent(t *testing.T) {
 	if event.Number != 12 || event.Body == "" || event.Repository != "example-org/example-repo" {
 		t.Fatalf("event = %#v", event)
 	}
-	if len(event.Labels) != 2 || event.Labels[0] != "bug" || event.Labels[1] != "agent:blocked" {
+	if len(event.Labels) != 2 || event.Labels[0] != "bug" || event.Labels[1] != "needs-info" {
 		t.Fatalf("labels = %#v", event.Labels)
 	}
 }

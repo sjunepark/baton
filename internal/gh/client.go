@@ -116,7 +116,7 @@ func (c *Client) FetchCommitListing(repo string, prNumber int) ([]string, bool, 
 	return messages, len(commits) >= policy.PRCommitListingCap, nil
 }
 
-func (c *Client) ApplyIssueDecision(repo string, issueNumber int, decision policy.IssuePolicyDecision, marker string) error {
+func (c *Client) ApplyIssueDecision(repo string, issueNumber int, decision policy.IssuePolicyDecision, marker string, qualityGateLabel string) error {
 	if !decision.IsFormIssue {
 		return nil
 	}
@@ -130,7 +130,7 @@ func (c *Client) ApplyIssueDecision(repo string, issueNumber int, decision polic
 			return err
 		}
 	}
-	return c.applyPolicyComment(repo, issueNumber, decision.PolicyCommentBody, marker)
+	return c.applyPolicyComment(repo, issueNumber, decision.PolicyCommentBody, marker, qualityGateLabel)
 }
 
 func (c *Client) AddIssueLabels(repo string, issueNumber int, labelNames []string) error {
@@ -142,7 +142,7 @@ func (c *Client) RemoveIssueLabel(repo string, issueNumber int, label string) er
 	return c.requestNoBody(http.MethodDelete, path, nil, true)
 }
 
-func (c *Client) applyPolicyComment(repo string, issueNumber int, commentBody *string, marker string) error {
+func (c *Client) applyPolicyComment(repo string, issueNumber int, commentBody *string, marker string, qualityGateLabel string) error {
 	var comments []struct {
 		ID   int64  `json:"id"`
 		Body string `json:"body"`
@@ -161,7 +161,7 @@ func (c *Client) applyPolicyComment(repo string, issueNumber int, commentBody *s
 		if existingID == 0 {
 			return nil
 		}
-		clearBody := policy.ClearIssuePolicyComment(marker)
+		clearBody := policy.ClearIssuePolicyComment(marker, qualityGateLabel)
 		return c.patchJSON(fmt.Sprintf("/repos/%s/issues/comments/%d", repo, existingID), map[string]any{"body": clearBody}, nil)
 	}
 	if existingID != 0 {
