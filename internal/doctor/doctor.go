@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/sjunepark/baton/internal/config"
+	"github.com/sjunepark/baton/internal/git"
 	"github.com/sjunepark/baton/internal/lease"
 )
 
@@ -33,16 +34,26 @@ type Check struct {
 
 func Run(configPath string) Result {
 	checks := []Check{}
+	var cfg config.Config
+	configOK := false
 	if configPath != "" {
-		if _, err := config.Load(configPath); err != nil {
+		loaded, err := config.Load(configPath)
+		if err != nil {
 			checks = append(checks, Check{Name: "config", Status: "fail", Message: err.Error()})
 		} else {
+			cfg = loaded
+			configOK = true
 			checks = append(checks, Check{Name: "config", Status: "ok", Message: configPath})
 		}
-	} else if _, err := config.LoadForRepo("."); err != nil {
-		checks = append(checks, Check{Name: "config", Status: "warn", Message: err.Error()})
 	} else {
-		checks = append(checks, Check{Name: "config", Status: "ok"})
+		loaded, err := config.LoadForRepo(".")
+		if err != nil {
+			checks = append(checks, Check{Name: "config", Status: "warn", Message: err.Error()})
+		} else {
+			cfg = loaded
+			configOK = true
+			checks = append(checks, Check{Name: "config", Status: "ok"})
+		}
 	}
 	if _, err := exec.LookPath("git"); err != nil {
 		checks = append(checks, Check{Name: "git", Status: "fail", Message: err.Error()})
@@ -59,6 +70,9 @@ func Run(configPath string) Result {
 	} else {
 		checks = append(checks, Check{Name: "remote", Status: "ok", Message: strings.TrimSpace(out)})
 	}
+	if configOK {
+		checks = append(checks, stagingBranchCheck(cfg))
+	}
 	if os.Getenv("GITHUB_TOKEN") != "" || os.Getenv("GH_TOKEN") != "" {
 		checks = append(checks, Check{Name: "github-auth", Status: "ok"})
 	} else if _, err := exec.Command("gh", "auth", "token").Output(); err == nil {
@@ -74,6 +88,28 @@ func Run(configPath string) Result {
 	}
 	counts := countChecks(checks)
 	return Result{SchemaVersion: 1, Kind: "doctor", ReadyState: readyState(counts), Counts: counts, Checks: checks, Help: helpForChecks(checks)}
+}
+
+func stagingBranchCheck(cfg config.Config) Check {
+	input, err := git.InspectAgentBranchRefs(git.AgentBranchPlanInput{
+		Remote:       cfg.Repository.DefaultRemote,
+		BaseBranch:   cfg.Repository.BaseBranch,
+		TargetBranch: cfg.Repository.StagingBranch,
+	})
+	if err != nil {
+		return Check{Name: "staging-branch", Status: "fail", Message: err.Error()}
+	}
+	plan := git.ComputeAgentBranchPlan(input)
+	if len(plan.Errors) > 0 {
+		return Check{Name: "staging-branch", Status: "fail", Message: strings.Join(plan.Errors, " ")}
+	}
+	if len(plan.ApplyCommands) > 0 {
+		return Check{Name: "staging-branch", Status: "warn", Message: "setup needed; run `baton ensure-branch --json`"}
+	}
+	if len(plan.Warnings) > 0 {
+		return Check{Name: "staging-branch", Status: "warn", Message: strings.Join(plan.Warnings, " ")}
+	}
+	return Check{Name: "staging-branch", Status: "ok", Message: cfg.Repository.StagingBranch}
 }
 
 func (r Result) Failed() bool {
@@ -118,6 +154,12 @@ func helpForChecks(checks []Check) []string {
 			return []string{
 				"Run `baton init --dry-run --json` to preview Baton config.",
 				"Run `baton doctor --config <path> --json` to check a specific config.",
+			}
+		}
+		if check.Name == "staging-branch" && check.Status != "ok" {
+			return []string{
+				"Run `baton ensure-branch --json` to preview staging branch setup.",
+				"Run `baton ensure-branch --apply` after reviewing the plan.",
 			}
 		}
 	}

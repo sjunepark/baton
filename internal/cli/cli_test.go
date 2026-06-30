@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -551,6 +553,46 @@ func TestPolicyCommandFailsWhenRepoConfigMissing(t *testing.T) {
 	}
 	if !strings.Contains(result.Hint, "<path>") {
 		t.Fatalf("hint = %q, want readable placeholder", result.Hint)
+	}
+}
+
+func TestNextMissingStagingBranchReturnsSetupError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/example-org/example-repo/issues":
+			w.Write([]byte(`[]`))
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/example-org/example-repo/pulls":
+			w.Write([]byte(`[]`))
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/example-org/example-repo/git/ref/heads/agent":
+			http.NotFound(w, r)
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	t.Setenv("GH_TOKEN", "token")
+	t.Setenv("GITHUB_API_URL", server.URL)
+	dir := t.TempDir()
+	configPath := writeDefaultConfig(t, dir)
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"next", "--repo", "example-org/example-repo", "--config", configPath, "--json"}, &stdout, &stderr, "test")
+	if code != exitConfig {
+		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitConfig, stdout.String(), stderr.String())
+	}
+	if stderr.String() != "" {
+		t.Fatalf("stderr = %q, want empty structured-mode stderr", stderr.String())
+	}
+	result := decodeErrorResult(t, stdout.String())
+	if result.Category != "config" || result.ExitCode != exitConfig {
+		t.Fatalf("error result = %+v, want config error", result)
+	}
+	if !strings.Contains(result.Message, `staging branch "agent" was not found`) {
+		t.Fatalf("message = %q, want missing staging branch", result.Message)
+	}
+	if !strings.Contains(result.Hint, "baton ensure-branch --json") {
+		t.Fatalf("hint = %q, want ensure-branch guidance", result.Hint)
 	}
 }
 

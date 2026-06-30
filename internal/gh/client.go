@@ -3,6 +3,7 @@ package gh
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -24,6 +25,22 @@ type Client struct {
 	httpClient *http.Client
 }
 
+type APIError struct {
+	Method     string
+	Path       string
+	Status     string
+	StatusCode int
+}
+
+func (err APIError) Error() string {
+	return fmt.Sprintf("GitHub API %s %s failed: %s", err.Method, err.Path, err.Status)
+}
+
+func IsNotFound(err error) bool {
+	var apiErr APIError
+	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound
+}
+
 func NewClientFromEnv() (*Client, error) {
 	token := os.Getenv("GITHUB_TOKEN")
 	if token == "" {
@@ -38,7 +55,7 @@ func NewClientFromEnv() (*Client, error) {
 	if token == "" {
 		return nil, fmt.Errorf("GITHUB_TOKEN, GH_TOKEN, or gh auth token is required")
 	}
-	return &Client{baseURL: defaultAPIBase, token: token, httpClient: http.DefaultClient}, nil
+	return NewClient(os.Getenv("GITHUB_API_URL"), token, http.DefaultClient), nil
 }
 
 func NewClient(baseURL, token string, httpClient *http.Client) *Client {
@@ -226,7 +243,7 @@ func (c *Client) doJSON(method, path string, in any, out any, allowNotFound bool
 		return nil
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return fmt.Errorf("GitHub API %s %s failed: %s", method, path, resp.Status)
+		return APIError{Method: method, Path: path, Status: resp.Status, StatusCode: resp.StatusCode}
 	}
 	if out == nil || resp.StatusCode == http.StatusNoContent {
 		io.Copy(io.Discard, resp.Body)

@@ -1660,6 +1660,13 @@ func fetchQueueSnapshot(repoFlag, configPath string, includeChecks bool, out ren
 	}
 	branchHealth, err := client.GetBranchHealth(repo, cfg.Repository.StagingBranch)
 	if err != nil {
+		if gh.IsNotFound(err) {
+			return queue.Snapshot{}, out.ErrorMessage(
+				exitConfig,
+				fmt.Sprintf("staging branch %q was not found in %s", cfg.Repository.StagingBranch, repo),
+				"Run `baton ensure-branch --json`, then `baton ensure-branch --apply` after reviewing the plan.",
+			)
+		}
 		return queue.Snapshot{}, out.Error(exitGitHub, err, "")
 	}
 	return queue.BuildSnapshotWithBranchHealth(repo, cfg, issues, prs, branchHealth), exitOK
