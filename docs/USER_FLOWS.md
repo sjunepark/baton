@@ -4,8 +4,8 @@ Baton has two surfaces:
 
 - Skill commands such as `$baton run` express the workflow and leave only true
   arguments for the user.
-- CLI commands provide deterministic repository, policy, queue, and lease facts
-  for automation and scripts.
+- CLI commands provide deterministic repository, policy, queue, branch, and
+  completion facts for automation and scripts.
 
 The Go CLI does not provide `baton todo` or `baton todos`; those are skill
 workflows that prepare issue bodies, preflight them with `baton issue-policy`,
@@ -27,7 +27,7 @@ issue queue.
 
 - Expected output: one issue number, title, selected Agent mode, and why that
   mode was chosen.
-- Safety boundaries: creates an issue only; no branch, lease, commit, PR, or
+- Safety boundaries: creates an issue only; no branch, commit, PR, or
   merge.
 - Common stop conditions: missing repository, missing GitHub auth, or a todo so
   vague that even an investigation/discussion issue would be misleading.
@@ -84,7 +84,7 @@ Use when deciding what Baton would do without letting it act.
 - Expected output: eligible and skipped issues/PRs, next candidate set, reason,
   and whether candidates are read-only, investigation, implementation, or PR
   follow-up.
-- Safety boundaries: read-only; no lease, edits, comments, pushes, or merges.
+- Safety boundaries: read-only; no edits, comments, pushes, or merges.
 - Common stop conditions: no eligible work, blocked queue, or missing GitHub
   access.
 
@@ -120,19 +120,19 @@ Use when one ready issue has clear acceptance criteria and no skip label.
 - CLI equivalent:
 
   ```sh
-  baton lease --purpose issue-123 --base origin/agent --new-branch agent-work/123-short-slug --repo owner/name --json
-  cd <returned-path>
+  baton next --format toon --repo owner/name
+  # in a caller-provided isolated checkout:
+  git switch -c agent-work/123-short-slug origin/agent
   # read AGENTS.md, implement, validate, push, and open/update PR
-  baton complete --summary "..." --lease <id> --validation "..." --json
-  baton release --lease <id> --json
+  baton complete --summary "..." --validation "..." --json
   ```
 
 - Expected output: PR URL or update summary, validation result, completion
-  record, and lease release status.
-- Safety boundaries: edits only inside the returned lease path; PR targets the
-  staging branch and references the issue with `Refs #<issue>`.
-- Common stop conditions: lease conflict, ambiguous acceptance criteria, dirty
-  lease release conflict, or a required human decision.
+  record.
+- Safety boundaries: edits only inside the caller-provided isolated checkout;
+  PR targets the staging branch and references the issue with `Refs #<issue>`.
+- Common stop conditions: missing isolated checkout, ambiguous acceptance
+  criteria, unrelated dirty state, or a required human decision.
 
 ## Follow Up On A PR
 
@@ -147,19 +147,18 @@ feedback.
   baton pr <number> --json --repo owner/name
   baton checks <number> --format toon --repo owner/name
   baton review-threads <number> --format toon --repo owner/name
-  baton lease --purpose pr-<number> --branch <head-ref> --repo owner/name --json
-  cd <returned-path>
+  # in a caller-provided isolated checkout:
+  git switch <head-ref>
   # fix only the PR follow-up, validate, and push to the same branch
-  baton complete --summary "..." --lease <id> --validation "..." --json
-  baton release --lease <id> --json
+  baton complete --summary "..." --validation "..." --json
   ```
 
 - Expected output: pushed fixes or a no-action report, validation result,
-  completion record, and lease release status.
+  completion record.
 - Safety boundaries: no replacement PR and no merge; push only to the existing
-  PR branch after leasing it.
+  PR branch from the isolated checkout.
 - Common stop conditions: review feedback needs human judgment, checks are red
-  for unrelated reasons, or the PR branch cannot be leased.
+  for unrelated reasons, or the PR branch cannot be checked out safely.
 
 ## Adopt Baton In A Target Repo
 
@@ -186,7 +185,7 @@ Use when preparing a repository for Baton-managed issue and PR automation.
 ## Set Up Scheduled Automation
 
 Use after at least one manual Baton run has selected the right repository and
-respected lease boundaries.
+respected checkout isolation boundaries.
 
 - Required input: repository, cadence, automation scope, and whether the first
   automation should be read-only or implementation-capable.
@@ -205,7 +204,7 @@ respected lease boundaries.
 - Expected output: automation prompt, prerequisites status, recommended cadence,
   and first-run review checklist.
 - Safety boundaries: start with read-only automation when uncertain; scheduled
-  implementation still must handle one unit, acquire a lease before edits, and
-  never merge.
+  implementation still must handle one unit, run in an isolated checkout before
+  edits, and never merge.
 - Common stop conditions: manual run has not succeeded, auth is missing,
-  overlapping runs could lease-conflict, or the target repo is not Baton-ready.
+  isolated execution is unavailable, or the target repo is not Baton-ready.

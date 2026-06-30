@@ -18,7 +18,7 @@ Draft description:
 
 ```yaml
 name: baton
-description: Use the Baton CLI to run reusable GitHub issue/PR agent workflows, including creating Baton-ready GitHub issue todos, queue triage, PR follow-up, review-thread inspection, CI check handling, safe worktree leasing, policy-gated issue intake, and scheduled Baton-managed Codex automation. Use when asked to create, convert, or triage todos for Baton-managed agents, run or inspect Baton-managed agent work, automate GitHub issue intake, follow up agent PRs, set up recurring Codex automation with Baton, migrate Baton policy, or operate inside a Baton lease.
+description: Use the Baton CLI to run reusable GitHub issue/PR agent workflows, including creating Baton-ready GitHub issue todos, queue triage, PR follow-up, review-thread inspection, CI check handling, policy-gated issue intake, branch/ref guidance, and scheduled Baton-managed Codex automation. Use when asked to create, convert, or triage todos for Baton-managed agents, run or inspect Baton-managed agent work, automate GitHub issue intake, follow up agent PRs, set up recurring Codex automation with Baton, or migrate Baton policy.
 ```
 
 ## Required Skill Behavior
@@ -45,14 +45,14 @@ The skill must instruct Codex to:
   implementation steps.
 - Choose the least-permissive Agent mode that fits and avoid marking vague work
   ready for implementation.
-- Acquire a lease before any file edits.
-- Work only inside the leased path.
+- Verify a caller-provided isolated checkout before any file edits.
+- Work only inside that isolated checkout.
 - Handle exactly one unit of work per automation run.
 - Push to the existing PR branch for PR follow-up.
 - Open a new PR only after choosing an issue implementation candidate.
 - Never merge unless explicitly requested.
 - Stop on ambiguous scope, human decision needs, risky data/schema/security
-  changes, dirty lease conflicts, or auth failures.
+  changes, missing isolation, unrelated dirty state, or auth failures.
 
 ## Skill Command Router
 
@@ -67,8 +67,8 @@ The bundled skill must expose these concise commands:
 | `$baton todo <todo>` | Create one Baton-ready GitHub issue. No branch or PR. |
 | `$baton todos <notes-or-file>` | Split notes into Baton-ready GitHub issues. No implementation. |
 | `$baton investigate <issue>` | Investigate/comment on one issue. No edits unless explicitly respecified. |
-| `$baton implement <issue>` | Lease one ready issue, implement it, validate, and open/update a staging PR. |
-| `$baton follow-up <pr>` | Lease an existing PR branch, fix checks or review follow-up, and push there. |
+| `$baton implement <issue>` | In a caller-provided isolated checkout, implement one ready issue, validate, and open/update a staging PR. |
+| `$baton follow-up <pr>` | In a caller-provided isolated checkout, fix checks or review follow-up on the existing PR branch. |
 | `$baton run [repo]` | Let Baton return candidates, choose exactly one safe unit, then stop. |
 | `$baton adopt [repo]` | Check target-repo Baton setup with dry-run/read-only commands. |
 | `$baton automate [repo]` | Explain or prepare scheduled one-unit automation. |
@@ -80,8 +80,8 @@ Routing rules:
   prompt; for example, "create a Baton todo for X" maps to `$baton todo X`.
 - If two mutating commands could fit, ask one short clarification.
 - `todo` and `todos` may create GitHub issues only.
-- `implement`, `follow-up`, and `run` may edit only after acquiring a Baton
-  lease and changing to the returned lease path.
+- `implement`, `follow-up`, and `run` may edit only inside a caller-provided
+  isolated checkout.
 
 ## Skill Workflow
 
@@ -90,14 +90,14 @@ Routing rules:
 1. Run `baton next --format toon`.
 2. If action is `none`, report the summary and stop.
 3. Choose exactly one returned candidate.
-4. Run `baton lease` for the chosen candidate: use the PR `headRef` for
-   follow-up or the issue number for a new issue-work branch.
-5. Change to the lease path.
+4. Verify the current working directory is a caller-provided isolated checkout.
+5. Check out the PR `headRef` for follow-up or create an issue-work branch from
+   the configured staging branch.
 6. Read target repo `AGENTS.md`.
 7. Implement or investigate exactly the chosen candidate.
 8. Validate with focused checks first.
 9. Push/comment according to the chosen candidate's action.
-10. Release or retain the lease based on cleanliness and result.
+10. Record completion with `baton complete` when useful, then stop.
 
 ### PR Follow-Up
 
@@ -144,7 +144,7 @@ Routing rules:
 
 Stop and report instead of editing when:
 
-- Baton cannot acquire a lease.
+- A caller-provided isolated checkout is not available.
 - The selected work conflicts with target repo policy.
 - Requirements are ambiguous.
 - A human review comment requires product judgment.

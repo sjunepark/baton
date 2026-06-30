@@ -17,14 +17,8 @@ Common fields:
 - `candidates[]`: the highest-priority tied candidates. PR candidates include
   number, title, URL, head ref, and base ref. Issue candidates include number,
   title, and URL. Branch candidates include ref, SHA, and check state.
-- `instructions`: operational constraints to follow.
-
-`lease`:
-
-- `id`: lease identifier used by `baton release`.
-- `path`: only directory where automation edits may happen.
-- `headRef` and `baseRef`: branch context.
-- `expiresAt`: stale lease threshold.
+- `instructions`: operational constraints to follow, including caller-provided
+  checkout isolation before edits.
 
 `queueSnapshot`:
 

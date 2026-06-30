@@ -18,7 +18,6 @@ type Config struct {
 	IssuePolicy   IssuePolicy      `json:"issuePolicy" yaml:"issue_policy"`
 	PRPolicy      PRPolicy         `json:"prPolicy" yaml:"pr_policy"`
 	Labels        LabelsConfig     `json:"labels" yaml:"labels"`
-	Worktrees     WorktreesConfig  `json:"worktrees" yaml:"worktrees"`
 	Automation    AutomationConfig `json:"automation" yaml:"automation"`
 }
 
@@ -56,13 +55,6 @@ type PRPolicy struct {
 
 type LabelsConfig struct {
 	Manifest string `json:"manifest" yaml:"manifest"`
-}
-
-type WorktreesConfig struct {
-	Backend    string `json:"backend" yaml:"backend"`
-	Root       string `json:"root" yaml:"root"`
-	MaxLeases  int    `json:"maxLeases" yaml:"max_leases"`
-	StaleAfter string `json:"staleAfter" yaml:"stale_after"`
 }
 
 type AutomationConfig struct {
@@ -216,18 +208,6 @@ func (cfg *Config) applyDefaults() {
 	if cfg.Labels.Manifest == "" {
 		cfg.Labels.Manifest = ".github/labels.yml"
 	}
-	if cfg.Worktrees.Backend == "" {
-		cfg.Worktrees.Backend = "native"
-	}
-	if cfg.Worktrees.Root == "" {
-		cfg.Worktrees.Root = "~/.baton/worktrees"
-	}
-	if cfg.Worktrees.MaxLeases == 0 {
-		cfg.Worktrees.MaxLeases = 8
-	}
-	if cfg.Worktrees.StaleAfter == "" {
-		cfg.Worktrees.StaleAfter = "8h"
-	}
 }
 
 func (cfg Config) Validate() error {
@@ -319,12 +299,6 @@ func DefaultConfig() Config {
 			FailWhenCommitListingReachesCap: true,
 		},
 		Labels: LabelsConfig{Manifest: ".github/labels.yml"},
-		Worktrees: WorktreesConfig{
-			Backend:    "native",
-			Root:       "~/.baton/worktrees",
-			MaxLeases:  8,
-			StaleAfter: "8h",
-		},
 		Automation: AutomationConfig{
 			PreferPRFollowupBeforeIssueIntake: true,
 			AllowMerge:                        false,

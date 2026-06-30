@@ -19,7 +19,6 @@ import (
 	"github.com/sjunepark/baton/internal/git"
 	"github.com/sjunepark/baton/internal/install"
 	"github.com/sjunepark/baton/internal/labels"
-	"github.com/sjunepark/baton/internal/lease"
 	"github.com/sjunepark/baton/internal/policy"
 	"github.com/sjunepark/baton/internal/queue"
 )
@@ -118,21 +117,6 @@ type pullRequestReviewSummary struct {
 	Summary gh.ThreadSummary `json:"summary"`
 }
 
-type leasesResult struct {
-	SchemaVersion int            `json:"schemaVersion"`
-	Kind          string         `json:"kind"`
-	Count         int            `json:"count"`
-	Counts        leaseCounts    `json:"counts"`
-	Leases        []lease.Record `json:"leases"`
-	Help          []string       `json:"help,omitempty"`
-}
-
-type leaseCounts struct {
-	Active   int `json:"active"`
-	Released int `json:"released"`
-	Pruned   int `json:"pruned"`
-}
-
 type configMigrationResult struct {
 	SchemaVersion    int    `json:"schemaVersion"`
 	Kind             string `json:"kind"`
@@ -150,7 +134,6 @@ type completionResult struct {
 	SchemaVersion       int       `json:"schemaVersion"`
 	Kind                string    `json:"kind"`
 	ID                  string    `json:"id"`
-	LeaseID             string    `json:"leaseId,omitempty"`
 	Summary             string    `json:"summary"`
 	SummaryChars        int       `json:"summaryChars"`
 	SummaryTruncated    bool      `json:"summaryTruncated"`
@@ -164,21 +147,15 @@ type completionResult struct {
 }
 
 type homeResult struct {
-	SchemaVersion int        `json:"schemaVersion"`
-	Kind          string     `json:"kind"`
-	Bin           string     `json:"bin"`
-	Description   string     `json:"description"`
-	Repo          string     `json:"repo"`
-	Config        string     `json:"config"`
-	Auth          string     `json:"auth"`
-	Leases        homeLeases `json:"leases"`
-	Next          string     `json:"next"`
-	Help          []string   `json:"help"`
-}
-
-type homeLeases struct {
-	Active int `json:"active"`
-	Total  int `json:"total"`
+	SchemaVersion int      `json:"schemaVersion"`
+	Kind          string   `json:"kind"`
+	Bin           string   `json:"bin"`
+	Description   string   `json:"description"`
+	Repo          string   `json:"repo"`
+	Config        string   `json:"config"`
+	Auth          string   `json:"auth"`
+	Next          string   `json:"next"`
+	Help          []string `json:"help"`
 }
 
 func newRenderer(stdout, stderr io.Writer, structured bool) renderer {
@@ -358,14 +335,6 @@ func Run(args []string, stdout, stderr io.Writer, version string) int {
 		return runReviewThreads(args[1:], stdout, stderr)
 	case "next":
 		return runNext(args[1:], stdout, stderr)
-	case "lease":
-		return runLease(args[1:], stdout, stderr)
-	case "release":
-		return runRelease(args[1:], stdout, stderr)
-	case "leases":
-		return runLeases(args[1:], stdout, stderr)
-	case "prune":
-		return runPrune(args[1:], stdout, stderr)
 	case "complete":
 		return runComplete(args[1:], stdout, stderr)
 	case "ensure-branch":
@@ -399,18 +368,13 @@ Usage:
   baton checks <number> [--repo owner/name] [--config <path>] [--fields a,b] [--format text|json|toon] [--json]
   baton review-threads <number> [--repo owner/name] [--config <path>] [--full] [--body-limit <chars>] [--format text|json|toon] [--json]
   baton next [--repo owner/name] [--config <path>] [--format text|json|toon] [--json]
-  baton lease --purpose <purpose> --branch <ref> [--repo owner/name] [--format text|json|toon] [--json]
-  baton lease --purpose <purpose> --base <ref> --new-branch <ref> [--repo owner/name] [--format text|json|toon] [--json]
-  baton release --lease <id>|--path <path> [--keep-dirty]
-  baton leases --json
-  baton prune --dry-run|--yes --json
-  baton complete --summary <text> [--lease <id>] [--validation <text>] [--comment --repo owner/name --issue N|--pr N] [--full] [--body-limit <chars>] [--json]
+  baton complete --summary <text> [--validation <text>] [--comment --repo owner/name --issue N|--pr N] [--full] [--body-limit <chars>] [--json]
   baton ensure-branch [--apply] [--remote origin] [--base main] [--target agent] [--json]
   baton labels --file <path> [--json]
 
 The current implementation includes policy checks, install planning, GitHub
-label/policy writes, read-only queue inspection, branch setup, and native
-worktree leases.
+label/policy writes, read-only queue inspection, and branch setup. Callers own
+checkout isolation and execution context.
 `)
 }
 
@@ -482,7 +446,7 @@ var commandHelps = map[string]commandHelp{
 		Usage:    "baton queue [--repo owner/name] [--config <path>] [--fields a,b] [--format text|json|toon] [--json]",
 		Flags:    []string{"--repo: GitHub repository owner/name", "--config: policy config path", "--fields: compact fields, for example number,title,action,reasons", "--format: output format text, json, or toon", "--json: emit structured JSON"},
 		Examples: []string{"baton queue --format toon", "baton queue --fields number,title,action,reasons --format toon", "baton queue --repo owner/name --config .github/baton.yml --json"},
-		Related:  []string{"baton next --json", "baton prs --json", "baton lease --purpose <purpose> --base <ref> --new-branch <ref> --json"},
+		Related:  []string{"baton next --json", "baton prs --json"},
 	},
 	"prs": {
 		Purpose:  "List open pull requests relevant to Baton queue work.",
@@ -517,42 +481,14 @@ var commandHelps = map[string]commandHelp{
 		Usage:    "baton next [--repo owner/name] [--config <path>] [--format text|json|toon] [--json]",
 		Flags:    []string{"--repo: GitHub repository owner/name", "--config: policy config path", "--format: output format text, json, or toon", "--json: emit structured JSON"},
 		Examples: []string{"baton next --format toon"},
-		Related:  []string{"baton queue --json", "baton lease --purpose <purpose> --base <ref> --new-branch <ref> --json"},
-	},
-	"lease": {
-		Purpose:  "Acquire a managed Baton worktree lease before editing.",
-		Usage:    "baton lease --purpose <purpose> --branch <ref>|--base <ref> --new-branch <ref> [--repo owner/name] [--format text|json|toon] [--json]",
-		Flags:    []string{"--purpose: lease purpose", "--branch: existing branch/ref", "--base: base ref for a new branch", "--new-branch: new branch name", "--format: output format text, json, or toon", "--json: emit structured JSON"},
-		Examples: []string{"baton lease --purpose issue-123 --base origin/agent --new-branch agent-work/issue-123 --format toon"},
-		Related:  []string{"baton leases --json", "baton release --lease <id>"},
-	},
-	"release": {
-		Purpose:  "Release a managed Baton worktree lease.",
-		Usage:    "baton release --lease <id>|--path <path> [--keep-dirty] [--json]",
-		Flags:    []string{"--lease: lease id", "--path: lease worktree path", "--keep-dirty: mark dirty lease released", "--json: emit structured JSON"},
-		Examples: []string{"baton release --lease <id>", "baton release --path <path> --keep-dirty --json"},
-		Related:  []string{"baton leases --json", "baton prune --dry-run --json"},
-	},
-	"leases": {
-		Purpose:  "List managed Baton worktree leases.",
-		Usage:    "baton leases [--state-root <path>] [--format text|json|toon] [--json]",
-		Flags:    []string{"--state-root: Baton state root", "--format: output format text, json, or toon", "--json: emit structured JSON"},
-		Examples: []string{"baton leases --format toon", "baton leases --json"},
-		Related:  []string{"baton lease --purpose <purpose> --base <ref> --new-branch <ref> --json", "baton prune --dry-run --json"},
-	},
-	"prune": {
-		Purpose:  "Preview or remove safe managed worktree prune candidates.",
-		Usage:    "baton prune --dry-run|--yes [--state-root <path>] [--json]",
-		Flags:    []string{"--dry-run: preview prune candidates", "--yes: remove clean managed candidates", "--state-root: Baton state root", "--json: emit structured JSON"},
-		Examples: []string{"baton prune --dry-run --json", "baton prune --yes --json"},
-		Related:  []string{"baton leases --json"},
+		Related:  []string{"baton queue --json", "baton prs --json"},
 	},
 	"complete": {
 		Purpose:  "Record completion details and optionally post a GitHub comment.",
-		Usage:    "baton complete --summary <text> [--lease <id>] [--validation <text>] [--comment --repo owner/name --issue N|--pr N] [--full] [--body-limit <chars>] [--json]",
+		Usage:    "baton complete --summary <text> [--validation <text>] [--comment --repo owner/name --issue N|--pr N] [--full] [--body-limit <chars>] [--json]",
 		Flags:    []string{"--summary: completion summary", "--validation: validation performed", "--comment: post a GitHub comment", "--full: include full summary and validation text", "--body-limit: maximum default text characters", "--json: emit structured JSON"},
 		Examples: []string{"baton complete --summary done --validation 'go test ./...' --json", "baton complete --summary done --full --json"},
-		Related:  []string{"baton release --lease <id>"},
+		Related:  []string{"baton next --json"},
 	},
 	"ensure-branch": {
 		Purpose:  "Plan or apply Baton staging branch setup.",
@@ -598,7 +534,6 @@ func runHome(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("home", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	formats := addFormatFlags(fs)
-	stateRoot := fs.String("state-root", "", "Baton state root")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
@@ -606,7 +541,7 @@ func runHome(args []string, stdout, stderr io.Writer) int {
 	if code != exitOK {
 		return code
 	}
-	result := buildHomeResult(*stateRoot)
+	result := buildHomeResult()
 	switch format {
 	case formatJSON:
 		return out.JSON(result)
@@ -1219,174 +1154,9 @@ func runNext(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-func runLease(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("lease", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	purpose := fs.String("purpose", "", "lease purpose")
-	branch := fs.String("branch", "", "existing branch/ref")
-	base := fs.String("base", "", "base ref for new branch")
-	newBranch := fs.String("new-branch", "", "new branch name")
-	repo := fs.String("repo", "", "repository owner/name for lease metadata")
-	repoName := fs.String("repo-name", "", "repository name for lease metadata")
-	stateRoot := fs.String("state-root", "", "Baton state root")
-	formats := addFormatFlags(fs)
-	if err := fs.Parse(args); err != nil {
-		return exitUsage
-	}
-	out, format, code := rendererFromFormatFlags(stdout, stderr, formats)
-	if code != exitOK {
-		return code
-	}
-	manager := lease.NewManager(*stateRoot)
-	record, err := manager.Acquire(lease.AcquireRequest{
-		Purpose:   *purpose,
-		BaseRef:   *base,
-		HeadRef:   *branch,
-		NewBranch: *newBranch,
-		Repo:      firstNonEmpty(*repo, *repoName),
-	})
-	if err != nil {
-		return out.Error(exitLocalGit, err, "")
-	}
-	if format == formatJSON {
-		return out.JSON(record)
-	}
-	if format == formatTOON {
-		return writeLeaseTOON(stdout, record)
-	}
-	fmt.Fprintf(stdout, "Lease %s: %s\n", record.ID, record.WorktreePath)
-	return exitOK
-}
-
-func runRelease(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("release", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	leaseID := fs.String("lease", "", "lease id")
-	path := fs.String("path", "", "lease worktree path")
-	keepDirty := fs.Bool("keep-dirty", false, "mark dirty lease released")
-	stateRoot := fs.String("state-root", "", "Baton state root")
-	jsonOut := fs.Bool("json", false, "emit JSON")
-	if err := fs.Parse(args); err != nil {
-		return exitUsage
-	}
-	out := newRenderer(stdout, stderr, *jsonOut)
-	if (*leaseID == "") == (*path == "") {
-		return out.ErrorMessage(exitUsage, "release requires exactly one of --lease or --path", "Run `baton release --lease <id>` or `baton release --path <path>`.")
-	}
-	manager := lease.NewManager(*stateRoot)
-	var (
-		result lease.ReleaseResult
-		err    error
-	)
-	if *leaseID != "" {
-		result, err = manager.ReleaseByID(*leaseID, *keepDirty)
-	} else {
-		result, err = manager.ReleaseByPath(*path, *keepDirty)
-	}
-	if err != nil {
-		if result.Dirty && !out.Structured() {
-			out.JSON(result)
-		}
-		return out.Error(exitLocalGit, err, "")
-	}
-	if *jsonOut {
-		return out.JSON(result)
-	}
-	fmt.Fprintf(stdout, "Released %s\n", result.Lease.ID)
-	return exitOK
-}
-
-func runLeases(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("leases", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	stateRoot := fs.String("state-root", "", "Baton state root")
-	formats := addFormatFlags(fs)
-	if err := fs.Parse(args); err != nil {
-		return exitUsage
-	}
-	out, format, code := rendererFromFormatFlags(stdout, stderr, formats)
-	if code != exitOK {
-		return code
-	}
-	records, err := lease.NewManager(*stateRoot).List()
-	if err != nil {
-		return out.Error(exitLocalGit, err, "")
-	}
-	result := buildLeasesResult(records)
-	if format == formatJSON {
-		return out.JSON(result)
-	}
-	if format == formatTOON {
-		return writeLeasesTOON(stdout, result)
-	}
-	if len(result.Leases) == 0 {
-		fmt.Fprintln(stdout, "leases[0]:")
-		fmt.Fprintln(stdout, "help[1]: Run `baton lease --purpose <purpose> --base <ref> --new-branch <ref>`")
-		return exitOK
-	}
-	for _, record := range result.Leases {
-		fmt.Fprintf(stdout, "%s %s %s\n", record.ID, record.Status, record.WorktreePath)
-	}
-	return exitOK
-}
-
-func runPrune(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("prune", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	dryRun := fs.Bool("dry-run", false, "preview prune candidates")
-	yes := fs.Bool("yes", false, "remove clean managed prune candidates")
-	stateRoot := fs.String("state-root", "", "Baton state root")
-	jsonOut := fs.Bool("json", false, "emit JSON")
-	if err := fs.Parse(args); err != nil {
-		return exitUsage
-	}
-	out := newRenderer(stdout, stderr, *jsonOut)
-	if *dryRun == *yes {
-		return out.ErrorMessage(exitUsage, "prune requires exactly one of --dry-run or --yes", "Run `baton prune --dry-run` to preview or `baton prune --yes` to remove safe candidates.")
-	}
-	manager := lease.NewManager(*stateRoot)
-	if *dryRun {
-		plan, err := manager.PruneDryRun(time.Now().UTC())
-		if err != nil {
-			return out.Error(exitLocalGit, err, "")
-		}
-		if *jsonOut {
-			return out.JSON(plan)
-		}
-		if len(plan.Candidates) == 0 {
-			fmt.Fprintln(stdout, "candidates[0]:")
-			return exitOK
-		}
-		for _, record := range plan.Candidates {
-			fmt.Fprintf(stdout, "%s %s\n", record.ID, record.Status)
-		}
-		return exitOK
-	}
-	result, err := manager.Prune(time.Now().UTC())
-	if err != nil {
-		return out.Error(exitLocalGit, err, "")
-	}
-	if *jsonOut {
-		return out.JSON(result)
-	}
-	if len(result.Removed) == 0 && len(result.Skipped) == 0 {
-		fmt.Fprintln(stdout, "removed[0]:")
-		fmt.Fprintln(stdout, "skipped[0]:")
-		return exitOK
-	}
-	for _, record := range result.Removed {
-		fmt.Fprintf(stdout, "pruned %s\n", record.ID)
-	}
-	for _, skipped := range result.Skipped {
-		fmt.Fprintf(stdout, "skipped %s: %s\n", skipped.Lease.ID, skipped.Reason)
-	}
-	return exitOK
-}
-
 func runComplete(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("complete", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	leaseID := fs.String("lease", "", "lease id")
 	summary := fs.String("summary", "", "completion summary")
 	validation := fs.String("validation", "", "validation performed")
 	comment := fs.Bool("comment", false, "post completion as a GitHub issue/PR comment")
@@ -1404,7 +1174,7 @@ func runComplete(args []string, stdout, stderr io.Writer) int {
 	if *bodyLimit < 0 {
 		return out.ErrorMessage(exitUsage, "complete --body-limit must be non-negative", "")
 	}
-	record, err := complete.Write(*stateRoot, *leaseID, *summary, *validation, time.Now().UTC())
+	record, err := complete.Write(*stateRoot, *summary, *validation, time.Now().UTC())
 	if err != nil {
 		return out.Error(exitUsage, err, "")
 	}
@@ -1761,22 +1531,12 @@ func outputFormatFromArgs(args []string) outputFormat {
 	return formatText
 }
 
-func buildHomeResult(stateRoot string) homeResult {
+func buildHomeResult() homeResult {
 	cfgStatus := "missing (.github/baton.yml)"
 	if _, err := config.LoadForRepo("."); err == nil {
 		cfgStatus = "ok"
 	} else if !errors.Is(err, config.ErrConfigNotFound) {
 		cfgStatus = "invalid (" + err.Error() + ")"
-	}
-	records, err := lease.NewManager(stateRoot).List()
-	leases := homeLeases{}
-	if err == nil {
-		leases.Total = len(records)
-		for _, record := range records {
-			if record.Status == "active" {
-				leases.Active++
-			}
-		}
 	}
 	next := "run `baton next --format toon`"
 	if !strings.HasPrefix(cfgStatus, "ok") {
@@ -1790,7 +1550,6 @@ func buildHomeResult(stateRoot string) homeResult {
 		Repo:          localRepoName(),
 		Config:        cfgStatus,
 		Auth:          localAuthStatus(),
-		Leases:        leases,
 		Next:          next,
 		Help: []string{
 			"Run `baton init --dry-run --format toon`.",
@@ -1882,7 +1641,6 @@ func writeHomeText(w io.Writer, result homeResult) int {
 	fmt.Fprintf(w, "repo: %s\n", result.Repo)
 	fmt.Fprintf(w, "config: %s\n", result.Config)
 	fmt.Fprintf(w, "auth: %s\n", result.Auth)
-	fmt.Fprintf(w, "leases: %d active, %d total\n", result.Leases.Active, result.Leases.Total)
 	fmt.Fprintf(w, "next: %s\n", result.Next)
 	writeHelpLines(w, result.Help)
 	return exitOK
@@ -1896,8 +1654,6 @@ func writeHomeTOON(w io.Writer, result homeResult) int {
 	fmt.Fprintf(w, "repo: %s\n", result.Repo)
 	fmt.Fprintf(w, "config: %s\n", result.Config)
 	fmt.Fprintf(w, "auth: %s\n", result.Auth)
-	fmt.Fprintf(w, "leases.active: %d\n", result.Leases.Active)
-	fmt.Fprintf(w, "leases.total: %d\n", result.Leases.Total)
 	fmt.Fprintf(w, "next: %s\n", result.Next)
 	writeHelpLines(w, result.Help)
 	return exitOK
@@ -2057,39 +1813,6 @@ func writeNextTOON(w io.Writer, next queue.NextCandidates) int {
 	for _, instruction := range next.Instructions {
 		fmt.Fprintf(w, "  - %s\n", oneLine(instruction))
 	}
-	return exitOK
-}
-
-func writeLeaseTOON(w io.Writer, record lease.Record) int {
-	fmt.Fprintln(w, "kind: lease")
-	fmt.Fprintf(w, "schemaVersion: %d\n", record.SchemaVersion)
-	fmt.Fprintf(w, "id: %s\n", record.ID)
-	fmt.Fprintf(w, "repo: %s\n", record.Repo)
-	fmt.Fprintf(w, "path: %s\n", homeRelative(record.Path))
-	fmt.Fprintf(w, "purpose: %s\n", record.Purpose)
-	fmt.Fprintf(w, "baseRef: %s\n", record.BaseRef)
-	fmt.Fprintf(w, "headRef: %s\n", record.HeadRef)
-	fmt.Fprintf(w, "status: %s\n", record.Status)
-	help := []string{
-		fmt.Sprintf("Run `cd %s` before editing.", homeRelative(record.Path)),
-		fmt.Sprintf("Run `baton release --lease %s` when work is complete.", record.ID),
-	}
-	writeHelpLines(w, help)
-	return exitOK
-}
-
-func writeLeasesTOON(w io.Writer, result leasesResult) int {
-	fmt.Fprintln(w, "kind: leases")
-	fmt.Fprintf(w, "schemaVersion: %d\n", result.SchemaVersion)
-	fmt.Fprintf(w, "count: %d\n", result.Count)
-	fmt.Fprintf(w, "counts.active: %d\n", result.Counts.Active)
-	fmt.Fprintf(w, "counts.released: %d\n", result.Counts.Released)
-	fmt.Fprintf(w, "counts.pruned: %d\n", result.Counts.Pruned)
-	fmt.Fprintf(w, "leases[%d]:\n", len(result.Leases))
-	for _, record := range result.Leases {
-		fmt.Fprintf(w, "  - id=%s status=%s path=%s purpose=%s headRef=%s\n", record.ID, record.Status, homeRelative(record.Path), oneLine(record.Purpose), record.HeadRef)
-	}
-	writeHelpLines(w, result.Help)
 	return exitOK
 }
 
@@ -2389,17 +2112,6 @@ func pullRequestsHelp(prs []queue.PullState) []string {
 	}
 }
 
-func buildLeasesResult(records []lease.Record) leasesResult {
-	return leasesResult{
-		SchemaVersion: schemaVersionV1,
-		Kind:          "leases",
-		Count:         len(records),
-		Counts:        countLeases(records),
-		Leases:        records,
-		Help:          leasesHelp(records),
-	}
-}
-
 func truncateReviewThreadBodies(result gh.ReviewThreadResult, limit int, full bool) gh.ReviewThreadResult {
 	threads := make([]gh.ReviewThread, len(result.Threads))
 	copy(threads, result.Threads)
@@ -2448,7 +2160,6 @@ func completionResultFromRecord(record complete.Record, limit int, full bool) co
 		SchemaVersion:       record.SchemaVersion,
 		Kind:                record.Kind,
 		ID:                  record.ID,
-		LeaseID:             record.LeaseID,
 		Summary:             summary,
 		SummaryChars:        summaryChars,
 		SummaryTruncated:    summaryTruncated,
@@ -2474,39 +2185,6 @@ func limitString(value string, limit int, full bool) (string, int, bool) {
 		return value, len(runes), false
 	}
 	return string(runes[:limit]), len(runes), true
-}
-
-func countLeases(records []lease.Record) leaseCounts {
-	counts := leaseCounts{}
-	for _, record := range records {
-		switch record.Status {
-		case "active":
-			counts.Active++
-		case "released":
-			counts.Released++
-		case "pruned":
-			counts.Pruned++
-		}
-	}
-	return counts
-}
-
-func leasesHelp(records []lease.Record) []string {
-	if len(records) == 0 {
-		return []string{"Run `baton lease --purpose <purpose> --base <ref> --new-branch <ref> --format toon` to acquire a worktree lease."}
-	}
-	help := []string{}
-	for _, record := range records {
-		if record.Status == "active" {
-			help = append(help, fmt.Sprintf("Run `cd %s` before editing lease %s.", homeRelative(record.Path), record.ID))
-			break
-		}
-	}
-	help = append(help,
-		"Run `baton release --lease <id>` when work is complete.",
-		"Run `baton prune --dry-run --json` to inspect cleanup candidates.",
-	)
-	return help
 }
 
 func exitCategory(code int) string {
@@ -2546,7 +2224,7 @@ func defaultErrorHint(code int, message string) string {
 	case exitGitHub:
 		return "Check GitHub API access and retry after the upstream issue is resolved."
 	case exitLocalGit:
-		return "Inspect the local git or worktree state, then retry."
+		return "Inspect the local git state, then retry."
 	case exitPolicy:
 		return "Inspect the policy decision output before continuing."
 	default:

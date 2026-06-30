@@ -2,12 +2,13 @@
 
 Baton is a Go CLI and companion Codex skill for reusable GitHub issue/PR agent
 workflows. It turns repository-local agent workflow policy into deterministic
-commands for policy checks, queue inspection, safe worktree leasing, and
-target-repository installation.
+commands for policy checks, queue inspection, branch planning, completion
+records, and target-repository installation.
 
-The CLI owns deterministic GitHub, git, policy, and lease state. Codex keeps
-the judgment work: deciding implementation shape, handling ambiguous review
-feedback, and reporting decisions back to the user.
+The CLI owns deterministic GitHub, git, policy, queue, and completion facts.
+The caller owns checkout isolation. Codex keeps the judgment work: deciding
+implementation shape, handling ambiguous review feedback, and reporting
+decisions back to the user.
 
 ## Status
 
@@ -18,7 +19,6 @@ Implemented:
 - GitHub issue/PR/check/review-thread queue inspection;
 - `baton home --format toon` and `baton next --format toon` for compact agent
   context and the next candidate set;
-- native worktree leasing with release and prune safety gates;
 - `doctor`, `complete`, `migrate-config`, `sync-labels`, and `ensure-branch`;
 - a bundled Codex skill in `skills/baton`.
 
@@ -78,11 +78,11 @@ baton next --format toon --repo owner/name
 Use `--json` instead of `--format toon` when a script needs the stable
 automation contract.
 
-Acquire and release an isolated worktree:
+Record completion metadata after working in a caller-provided isolated
+checkout:
 
 ```sh
-baton lease --purpose issue-123 --base origin/agent --new-branch agent-work/issue-123 --repo owner/name --json
-baton release --lease <id> --json
+baton complete --summary "Implemented issue 123" --validation "go test ./..." --json
 ```
 
 ## Target Repository Workflows
@@ -124,10 +124,10 @@ installing Baton so PR-modified repository code is not executed.
 - [docs/CONFIG_SPEC.md](docs/CONFIG_SPEC.md): reusable policy config.
 - [docs/RELEASE.md](docs/RELEASE.md): Release Please ownership, commit
   message rules, and SemVer policy.
+- [docs/EXECUTION_CONTEXT.md](docs/EXECUTION_CONTEXT.md): checkout isolation
+  boundary and why Baton does not manage worktrees.
 - [docs/GITHUB_POLICY_EXTRACTION.md](docs/GITHUB_POLICY_EXTRACTION.md):
   extraction plan for the original reference workflow.
-- [docs/WORKTREE_LEASING.md](docs/WORKTREE_LEASING.md): automation isolation
-  design.
 - [docs/SKILL_SPEC.md](docs/SKILL_SPEC.md): companion skill requirements.
 - [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md): current progress
   and remaining migration work.

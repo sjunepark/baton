@@ -8,8 +8,8 @@ Baton-managed automation.
 ## Fit
 
 Use a Baton automation when a Codex app run should periodically inspect a
-repository, choose one policy-safe action, acquire an isolated Baton lease,
-work only that item, validate, report, and stop.
+repository, choose one policy-safe action, work on only that item in a
+caller-provided isolated checkout, validate, report, and stop.
 
 Prefer a standalone or project automation for recurring queue work. Each run
 should start fresh, call Baton, and produce an independent result in Codex
@@ -68,16 +68,15 @@ autonomous agents should work from the GitHub issue/PR queue:
 - Use `$baton` for unattended GitHub issue and PR work.
 - Run `baton next --format toon` before choosing queue work.
 - Choose and handle at most one Baton candidate per run.
-- Acquire a Baton lease before editing files: `baton lease ... --json`.
-- Work only inside the returned lease `path`; do not mutate the primary
-  checkout for automation work.
+- Verify the automation is running in an isolated checkout before editing
+  files; do not mutate the primary checkout for automation work.
 - Push, comment, or open PRs only according to the chosen Baton candidate's
   action.
-- Run focused validation, record completion with `baton complete`, and release
-  a clean lease with `baton release --lease <id> --json`.
-- Stop and report on auth failures, lease conflicts, ambiguous requirements,
-  human product/security/schema decisions, unrelated red branch health, or dirty
-  lease release conflicts.
+- Run focused validation and record completion with `baton complete` when
+  useful.
+- Stop and report on auth failures, missing isolation, ambiguous requirements,
+  human product/security/schema decisions, unrelated red branch health, or
+  unsafe branch/dirty checkout state.
 - Never merge unless explicitly requested.
 ```
 
@@ -90,20 +89,20 @@ The automation environment needs:
 - the Baton skill available, normally triggered as `$baton`;
 - local `baton`, or the ability to run the repository's Baton binary;
 - GitHub auth through `GITHUB_TOKEN`, `GH_TOKEN`, or `gh auth token`;
-- `git` and network access for queue reads, leases, pushes, and comments;
+- `git` and network access for queue reads, pushes, and comments;
 - access to the target project path when the automation runs.
 
 For project-scoped Codex app automations, the local machine must be powered on,
 Codex must be running, and the selected project must still exist on disk at run
 time. If Codex offers a background worktree option for the automation, prefer it
-over running directly in the user's active checkout. Baton must still acquire a
-lease before editing because Baton's safety invariant is stronger than the
-Codex app run location.
+over running directly in the user's active checkout. Baton does not create or
+clean up worktrees; the automation platform owns that execution context.
 
 ## Create In Codex App
 
 Create or update the scheduled job from a normal Codex thread by naming the
-project, cadence, automation type, worktree preference, and durable prompt.
+project, cadence, automation type, execution-context preference, and durable
+prompt.
 
 Use this request shape:
 
@@ -118,7 +117,8 @@ choose and handle at most one Baton candidate, and report findings in Triage.
 
 For a quick trial, ask Codex to run the same prompt once manually before
 scheduling it. Only schedule implementation work after the manual run selected
-the expected project, used Baton state, and respected lease boundaries.
+the expected project, used Baton state, and respected checkout isolation
+boundaries.
 
 ## Cadence
 
@@ -129,9 +129,9 @@ first few runs.
 - General queue worker: every 30 to 120 minutes.
 - Daily digest or readiness report: once per day.
 
-Avoid overlapping runs. If `baton lease` reports an active lease, the
-automation should report the conflict and stop rather than trying to clean or
-reuse it.
+Avoid overlapping implementation runs for the same repository or branch. If the
+automation platform cannot provide isolated execution, report that and stop
+instead of editing the active checkout.
 
 ## Default Queue Worker Prompt
 
@@ -144,8 +144,8 @@ $baton run --repo OWNER/REPO
 Replace `OWNER/REPO` with the target repository. Keep `--repo OWNER/REPO` in
 the prompt when the automation may run from a Codex-created worktree or any
 directory where remote detection could be ambiguous. The skill command expands
-to the one-unit lease/validate/report/release workflow and keeps the no-merge
-boundary.
+to the one-unit select/validate/report workflow and keeps the no-merge
+boundary. The automation platform still owns checkout isolation.
 
 ## PR Follow-Up Prompt
 
@@ -173,25 +173,18 @@ cadence. Check that each run:
 - loaded `$baton`;
 - ran `baton next` before selecting work;
 - handled zero or one unit;
-- acquired a Baton lease before edits;
-- worked only in the returned lease path;
+- verified isolated checkout context before edits;
+- worked only in that isolated checkout;
 - stopped on human decision points;
-- reported validation and release status.
+- reported validation status.
 
-If the run edits without a Baton lease, broadens scope beyond one item, or
+If the run edits the primary checkout, broadens scope beyond one item, or
 ignores stop conditions, update the automation prompt before letting it run
 again.
 
 ## Cleanup
 
-Use Baton cleanup commands for Baton-managed worktrees:
-
-```sh
-baton leases --format toon
-baton prune --dry-run --json
-baton prune --yes --json
-```
-
-Frequent Codex app worktree automations can also create Codex-managed
-background worktrees. Archive automation runs that no longer need their
-worktrees, and do not pin runs unless their worktree state should be retained.
+Frequent Codex app worktree automations can create Codex-managed background
+worktrees. Archive automation runs that no longer need their worktrees, and do
+not pin runs unless their worktree state should be retained. Use the owning
+tool, not Baton, for worktree cleanup.

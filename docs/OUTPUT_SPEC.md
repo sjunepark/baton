@@ -45,7 +45,7 @@ It should preserve:
 - `kind`
 - `schemaVersion`
 - `repo` when known
-- stable item identity such as issue number, PR number, lease ID, or check name
+- stable item identity such as issue number, PR number, branch ref, or check name
 - counts and summaries
 - truncation metadata
 - concrete `help[]` next commands
@@ -107,7 +107,6 @@ Initial targets:
 - `review-threads`: total, unresolved, human unresolved, bot unresolved, and
   outdated totals.
 - `labels` and `sync-labels`: counts by planned action.
-- `leases` and `prune`: counts by lease status or cleanup action.
 - `doctor`: counts by status plus an overall readiness state.
 
 Empty structured outputs should still include `count: 0` or an equivalent
@@ -152,7 +151,7 @@ Examples:
 {
   "help": [
     "Run `baton next --format toon`.",
-    "Run `baton lease --purpose issue-123 --base origin/agent --new-branch agent-work/issue-123 --json`."
+    "Prepare an isolated checkout before editing the selected branch."
   ]
 }
 ```
@@ -178,7 +177,6 @@ description: Coordinate GitHub issue/PR agent workflows for this repository
 repo: sjunepark/baton
 config: missing (.github/baton.yml)
 auth: ok (gh auth token)
-leases: 0 active
 next: unavailable (config missing)
 help[3]:
   Run `baton init --dry-run --format toon`

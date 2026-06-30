@@ -13,7 +13,6 @@ import (
 	"github.com/sjunepark/baton/internal/config"
 	"github.com/sjunepark/baton/internal/doctor"
 	"github.com/sjunepark/baton/internal/gh"
-	"github.com/sjunepark/baton/internal/lease"
 	"github.com/sjunepark/baton/internal/queue"
 )
 
@@ -60,7 +59,6 @@ func TestSubcommandHelpExitsZeroOnStdout(t *testing.T) {
 	commands := [][]string{
 		{"queue", "--help"},
 		{"next", "--help"},
-		{"lease", "--help"},
 		{"help", "queue"},
 	}
 
@@ -124,7 +122,7 @@ func TestUnknownSubcommandHelpReturnsUsage(t *testing.T) {
 
 func TestHomeFormatTOON(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	code := Run([]string{"home", "--state-root", t.TempDir(), "--format", "toon"}, &stdout, &stderr, "test")
+	code := Run([]string{"home", "--format", "toon"}, &stdout, &stderr, "test")
 	if code != exitOK {
 		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitOK, stdout.String(), stderr.String())
 	}
@@ -132,10 +130,13 @@ func TestHomeFormatTOON(t *testing.T) {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}
 	output := stdout.String()
-	for _, want := range []string{"kind: home", "schemaVersion: 1", "leases.active:", "help[3]:"} {
+	for _, want := range []string{"kind: home", "schemaVersion: 1", "next:", "help[3]:"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("home toon = %q, want %q", output, want)
 		}
+	}
+	if strings.Contains(output, "lease") {
+		t.Fatalf("home toon = %q, want no lease fields", output)
 	}
 }
 
@@ -187,10 +188,6 @@ func TestNumberedCommandMissingNumberHonorsTOONFormat(t *testing.T) {
 
 func TestTOONRenderersStable(t *testing.T) {
 	var stdout bytes.Buffer
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatal(err)
-	}
 	snapshot := queue.Snapshot{
 		SchemaVersion: 1,
 		Kind:          "queueSnapshot",
@@ -272,19 +269,6 @@ func TestTOONRenderersStable(t *testing.T) {
 	if !strings.Contains(stdout.String(), "kind: doctor\n") || !strings.Contains(stdout.String(), "checks[1]:\n  - name=git status=ok\n") {
 		t.Fatalf("doctor toon = %q", stdout.String())
 	}
-
-	stdout.Reset()
-	record := lease.Record{SchemaVersion: 1, Kind: "lease", ID: "lease-1", Repo: "example/repo", Path: filepath.Join(home, "work", "repo"), Purpose: "issue-1", BaseRef: "origin/agent", HeadRef: "agent-work/1", Status: "active"}
-	writeLeaseTOON(&stdout, record)
-	if !strings.Contains(stdout.String(), "path: ~/work/repo\n") || !strings.Contains(stdout.String(), "Run `cd ~/work/repo` before editing.") {
-		t.Fatalf("lease toon = %q", stdout.String())
-	}
-
-	stdout.Reset()
-	writeLeasesTOON(&stdout, buildLeasesResult([]lease.Record{record}))
-	if !strings.Contains(stdout.String(), "counts.active: 1\n") || !strings.Contains(stdout.String(), "leases[1]:\n  - id=lease-1 status=active path=~/work/repo purpose=issue-1 headRef=agent-work/1\n") {
-		t.Fatalf("leases toon = %q", stdout.String())
-	}
 }
 
 func TestParseFieldsRejectsUnknownField(t *testing.T) {
@@ -352,17 +336,21 @@ func TestBuildIssueReadinessUsesLabels(t *testing.T) {
 	}
 }
 
-func TestLeasesFormatTOONEmpty(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	code := Run([]string{"leases", "--state-root", t.TempDir(), "--format", "toon"}, &stdout, &stderr, "test")
-	if code != exitOK {
-		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitOK, stdout.String(), stderr.String())
-	}
-	if stderr.String() != "" {
-		t.Fatalf("stderr = %q, want empty", stderr.String())
-	}
-	if !strings.Contains(stdout.String(), "kind: leases\n") || !strings.Contains(stdout.String(), "count: 0\n") {
-		t.Fatalf("leases toon = %q", stdout.String())
+func TestRemovedLeaseCommandsReturnUsage(t *testing.T) {
+	for _, command := range []string{"lease", "leases", "release", "prune"} {
+		t.Run(command, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := Run([]string{command}, &stdout, &stderr, "test")
+			if code != exitUsage {
+				t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitUsage, stdout.String(), stderr.String())
+			}
+			if stdout.String() != "" {
+				t.Fatalf("stdout = %q, want empty", stdout.String())
+			}
+			if !strings.Contains(stderr.String(), `unknown command "`+command+`"`) {
+				t.Fatalf("stderr = %q, want unknown command", stderr.String())
+			}
+		})
 	}
 }
 

@@ -32,9 +32,8 @@ Mutating plan/apply commands must use one of:
 --yes
 ```
 
-depending on whether they apply a computed plan or confirm destructive cleanup.
-Lease acquire/release commands are explicit state transitions and must still
-return structured JSON for automation.
+depending on whether they apply a computed plan or require explicit
+confirmation.
 
 ## Exit Codes
 
@@ -44,7 +43,7 @@ return structured JSON for automation.
 - `3`: config error.
 - `4`: auth error.
 - `5`: GitHub API error.
-- `6`: local git/worktree error.
+- `6`: local git error.
 
 ## Core Commands
 
@@ -109,8 +108,7 @@ Checks:
 - GitHub auth works;
 - remote repository can be resolved;
 - staging branch state is known;
-- labels are present or diffable;
-- worktree root is writable.
+- labels are present or diffable.
 
 ### `baton migrate-config`
 
@@ -334,7 +332,7 @@ JSON result:
   "blockedItems": [],
   "instructions": [
     "Choose exactly one candidate.",
-    "Acquire a lease before editing.",
+    "Work in a caller-provided isolated checkout.",
     "Push to the existing PR branch.",
     "Do not open a new PR."
   ]
@@ -348,63 +346,6 @@ Allowed `action` values:
 - `issue-implementation`
 - `issue-investigation`
 - `none`
-
-### `baton lease`
-
-Acquire an isolated worktree.
-
-Examples:
-
-```sh
-baton lease --purpose pr-followup --branch agent-work/foo --format toon
-baton lease --purpose issue-4 --base origin/agent --new-branch agent-work/4-title --json
-```
-
-JSON result:
-
-```json
-{
-  "schemaVersion": 1,
-  "kind": "lease",
-  "id": "20260622T103000Z-pr-8",
-  "path": "/Users/example/.baton/worktrees/example-repo/lease-abc123/example-repo",
-  "repo": "example-org/example-repo",
-  "headRef": "agent-work/foo",
-  "baseRef": "agent",
-  "expiresAt": "2026-06-22T18:30:00Z"
-}
-```
-
-Compact output renders `path` home-relative and includes `cd <path>` and
-release guidance. JSON keeps both `path` and `worktreePath` for compatibility.
-
-### `baton leases`
-
-List managed worktree leases.
-
-Examples:
-
-```sh
-baton leases --format toon
-baton leases --json
-```
-
-Compact output includes lease counts, home-relative paths, release guidance,
-and prune guidance.
-
-### `baton release`
-
-Release a lease.
-
-Examples:
-
-```sh
-baton release --lease 20260622T103000Z-pr-8
-baton release --path /path/to/worktree
-```
-
-Default behavior must refuse dirty releases unless `--keep-dirty` or a later
-explicit cleanup command is used.
 
 ### `baton complete`
 
@@ -420,8 +361,8 @@ Text output should be concise and actionable:
 Next action: PR #8 follow-up
 Reason: Typecheck failing
 Branch: agent-work/github-agent-branch-policy
-Lease required: yes
-Stop conditions: unresolved human review, ambiguous scope, dirty lease conflict
+Isolation: caller-provided checkout required before edits
+Stop conditions: unresolved human review, ambiguous scope, missing isolated checkout
 ```
 
 ## GitHub Actions Usage

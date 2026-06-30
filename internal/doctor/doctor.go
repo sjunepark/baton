@@ -3,12 +3,10 @@ package doctor
 import (
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/sjunepark/baton/internal/config"
 	"github.com/sjunepark/baton/internal/git"
-	"github.com/sjunepark/baton/internal/lease"
 )
 
 type Result struct {
@@ -79,12 +77,6 @@ func Run(configPath string) Result {
 		checks = append(checks, Check{Name: "github-auth", Status: "ok", Message: "gh auth token"})
 	} else {
 		checks = append(checks, Check{Name: "github-auth", Status: "warn", Message: "GITHUB_TOKEN, GH_TOKEN, or gh auth token is not available"})
-	}
-	root := filepath.Join(lease.DefaultStateRoot(), "worktrees")
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		checks = append(checks, Check{Name: "worktree-root", Status: "fail", Message: err.Error()})
-	} else {
-		checks = append(checks, Check{Name: "worktree-root", Status: "ok", Message: root})
 	}
 	counts := countChecks(checks)
 	return Result{SchemaVersion: 1, Kind: "doctor", ReadyState: readyState(counts), Counts: counts, Checks: checks, Help: helpForChecks(checks)}

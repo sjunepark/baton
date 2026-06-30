@@ -17,8 +17,10 @@
 - Prefer GitHub GraphQL or REST APIs through a typed internal client over
   scraping `gh` output. Shell out to `gh` only when it materially reduces auth
   or platform complexity.
-- Treat repository mutation as unsafe unless it happens inside a Baton worktree
-  lease.
+- Treat repository mutation as unsafe unless the caller has provided an
+  isolated checkout for that work.
+- Do not add worktree leasing or cleanup back into Baton; Coda, Treehouse,
+  Codex, or the user owns checkout lifecycle.
 - Keep commands JSON-first for automation; human text output can wrap the same
   internal result objects.
 
@@ -27,8 +29,7 @@
 - Never mutate a user's primary checkout for automation work.
 - Never merge PRs unless the user explicitly asks and the target repo policy
   allows it.
-- Never delete, reset, or prune worktrees unless Baton can prove the candidate
-  is managed, idle, clean, and safe.
+- Never delete, reset, or prune caller-owned worktrees from Baton.
 - GitHub Actions policy commands must run trusted Baton code, not PR-modified
   repository code.
 - Preserve target repository config as the source of policy truth. Defaults are
@@ -71,7 +72,7 @@ investigating a behavior gap.
 
 - Add table-driven unit tests for policy parsing and decisions.
 - Add tests for GitHub event fixtures.
-- Add dry-run tests for branch/worktree plans.
+- Add dry-run tests for branch plans.
 - Add integration tests only behind explicit env gates for live GitHub calls.
 - Every command that mutates GitHub or git state must have a dry-run path or a
   pure planner that can be tested without side effects.

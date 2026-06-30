@@ -107,12 +107,6 @@ pr_policy:
 labels:
   manifest: .github/labels.yml
 
-worktrees:
-  backend: native
-  root: ~/.baton/worktrees
-  max_leases: 8
-  stale_after: 8h
-
 automation:
   prefer_pr_followup_before_issue_intake: true
   allow_merge: false

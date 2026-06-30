@@ -170,7 +170,7 @@ func RecommendNext(snapshot Snapshot) NextCandidates {
 				SHA:        snapshot.BranchHealth.SHA,
 				CheckState: snapshot.BranchHealth.CheckState,
 			}},
-			[]string{"Acquire a lease before editing.", "Fix the shared staging branch before starting new issue work.", "Do not open unrelated issue PRs until branch health is clear."},
+			[]string{"Work in a caller-provided isolated checkout.", "Fix the shared staging branch before starting new issue work.", "Do not open unrelated issue PRs until branch health is clear."},
 		)
 	}
 
@@ -192,7 +192,7 @@ func RecommendNext(snapshot Snapshot) NextCandidates {
 		if len(candidates) > 0 {
 			sortCandidates(candidates)
 			return nextCandidates(snapshot.Repo, "pr-followup", tier, candidates,
-				[]string{"Choose exactly one candidate.", "Acquire a lease before editing.", "Push to the existing PR branch.", "Do not open a new PR."},
+				[]string{"Choose exactly one candidate.", "Work in a caller-provided isolated checkout.", "Push to the existing PR branch.", "Do not open a new PR."},
 			)
 		}
 	}
@@ -201,7 +201,7 @@ func RecommendNext(snapshot Snapshot) NextCandidates {
 	if len(implementationCandidates) > 0 {
 		sortCandidates(implementationCandidates)
 		return nextCandidates(snapshot.Repo, "issue-implementation", "eligible-issue", implementationCandidates,
-			[]string{"Choose exactly one candidate.", "Acquire a lease before editing.", "Open a PR to the staging branch with Refs #<issue-number>.", "Do not merge."},
+			[]string{"Choose exactly one candidate.", "Work in a caller-provided isolated checkout.", "Open a PR to the staging branch with Refs #<issue-number>.", "Do not merge."},
 		)
 	}
 
@@ -310,7 +310,7 @@ func snapshotHelp(issues []IssueState, prs []PullState) []string {
 	}
 	for _, issue := range issues {
 		if issue.Eligible {
-			help = append(help, fmt.Sprintf("Run `baton lease --purpose issue-%d --base <ref> --new-branch <ref> --json` before editing.", issue.Issue.Number))
+			help = append(help, fmt.Sprintf("Prepare an isolated checkout, then create a work branch for issue %d from the configured staging branch.", issue.Issue.Number))
 			return help
 		}
 	}

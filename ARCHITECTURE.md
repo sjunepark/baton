@@ -4,8 +4,9 @@
 
 Baton is a local-first automation coordinator for solo-developer GitHub
 projects. It converts GitHub Issues and PRs into deterministic agent work
-instructions, enforces repository policy, and isolates local execution with
-managed worktree leases.
+instructions and enforces repository policy. Local execution isolation belongs
+to the caller: a Coda job, Treehouse checkout, Codex background checkout, or
+user-managed worktree provides the working directory before code edits happen.
 
 The system is intentionally split:
 
@@ -16,7 +17,7 @@ GitHub state + repo config
     Baton CLI
   deterministic facts,
   policy decisions,
-  worktree leases
+  branch guidance
         |
         v
    Codex + Baton skill
@@ -54,12 +55,6 @@ GitHub state + repo config
   - Combines issues, open agent PRs, CI checks, review threads, and branch health.
   - Returns the highest-priority next candidate set.
   - Does not implement the work.
-
-- Worktree lease manager
-  - Acquires an isolated working directory for one automation unit.
-  - Refuses dirty, in-use, or unsafe candidates.
-  - Records lease metadata and release state.
-  - Supports a native backend first, with optional Treehouse backend later.
 
 - Installer and templates
   - Writes GitHub workflows, issue templates, label manifests, and policy config
@@ -101,10 +96,11 @@ GitHub state + repo config
    - PR follow-up candidates from the highest check-state tier.
    - Issue intake when no PR follow-up blocks new work.
    - No-op/report when no mutation is appropriate.
-4. Codex chooses exactly one candidate and acquires the appropriate lease.
-5. Codex works only in the leased path.
-6. Codex validates, pushes/comments, and calls `baton complete` or
-   `baton release`.
+4. Codex chooses exactly one candidate.
+5. Codex verifies it is already operating in a caller-provided isolated
+   checkout before editing.
+6. Codex validates, pushes/comments, and calls `baton complete` to record the
+   outcome when useful.
 
 ## Code Map
 
@@ -125,10 +121,7 @@ internal/queue/
   queue snapshots and next-action classifier
 
 internal/git/
-  branch planning, refs, worktree operations
-
-internal/lease/
-  lease records, acquisition, release, stale detection
+  branch planning and refs
 
 internal/install/
   embedded target-repo templates and init planning
@@ -143,6 +136,8 @@ skills/baton/
 ## Invariants
 
 - Automation work never mutates the user's primary checkout.
+- Baton does not create, delete, prune, or lease worktrees.
+- The caller owns checkout isolation and lifecycle.
 - One automation run claims at most one unit of work.
 - GitHub Issues are the operational queue.
 - Target repo config is the policy source of truth.
@@ -159,4 +154,3 @@ skills/baton/
 - Local `git`.
 - Optional `gh` fallback for auth or operations that are too costly to
   duplicate initially.
-- Optional Treehouse backend for pooled worktrees after native leasing works.

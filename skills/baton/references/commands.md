@@ -12,9 +12,10 @@ automation contracts and mutating command results.
 - `$baton todo <todo>`: create one Baton-ready GitHub issue.
 - `$baton todos <notes-or-file>`: split notes into Baton-ready GitHub issues.
 - `$baton investigate <issue>`: investigate/comment without edits.
-- `$baton implement <issue>`: lease, implement one ready issue, and open/update
-  a staging PR.
-- `$baton follow-up <pr>`: lease an existing PR branch and fix PR follow-up.
+- `$baton implement <issue>`: in a caller-provided isolated checkout,
+  implement one ready issue and open/update a staging PR.
+- `$baton follow-up <pr>`: in a caller-provided isolated checkout, fix PR
+  follow-up on the existing branch.
 - `$baton run [repo]`: choose and handle exactly one safe candidate.
 - `$baton adopt [repo]`: dry-run target-repo setup checks.
 - `$baton automate [repo]`: prepare scheduled one-unit automation.
@@ -32,13 +33,6 @@ automation contracts and mutating command results.
 - `baton review-threads <number> --format toon`: inspect resolved/outdated
   review threads, author kinds, and truncation metadata. Add `--full` when the
   bounded body preview is insufficient.
-- `baton lease --purpose <purpose> --branch <ref> --repo owner/name --json`:
-  lease an existing PR branch.
-- `baton lease --purpose <purpose> --base <ref> --new-branch <ref> --repo
-  owner/name --json`: create and lease a new work branch.
-- `baton release --lease <id> --json`: release a clean lease.
-- `baton release --lease <id> --keep-dirty --json`: retain/release dirty state
-  only when reporting it is acceptable.
 - `baton issue-policy --event "$GITHUB_EVENT_PATH" --apply`: apply issue labels
   and policy comments in GitHub Actions.
 - `baton pr-policy --event "$GITHUB_EVENT_PATH"`: check PR policy in GitHub
@@ -49,5 +43,6 @@ automation contracts and mutating command results.
   record completion metadata and optionally post an explicit GitHub timeline
   comment.
 
-Mutating commands require explicit `--apply`, `--yes`, or a lease/release
-operation. Do not infer permission to merge from any Baton output.
+Mutating commands require explicit `--apply`, `--yes`, or user-provided
+execution context plus explicit user/workflow intent. Do not infer permission
+to merge from any Baton output.

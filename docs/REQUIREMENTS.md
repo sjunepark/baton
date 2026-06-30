@@ -15,8 +15,8 @@ Baton should extract this workflow into a reusable tool for the user's projects.
 - Reuse the GitHub issue and PR policy workflow across multiple repositories.
 - Let Codex automations ask for one safe next candidate set instead of rediscovering
   GitHub state manually.
-- Prevent overlapping automations from corrupting checkouts or switching each
-  other's branches.
+- Avoid instructing automations to mutate a user's primary checkout. Checkout
+  isolation is supplied by the caller rather than managed by Baton.
 - Keep policy and queue state inspectable through GitHub Issues, PRs, comments,
   checks, and labels.
 - Make the CLI useful to humans and agents.
@@ -30,6 +30,7 @@ Baton should extract this workflow into a reusable tool for the user's projects.
 - Replacing GitHub Issues or Projects.
 - Fully autonomous merge by default.
 - Code generation inside the CLI.
+- Worktree leasing, pooling, pruning, or checkout lifecycle management.
 - Support for non-GitHub forges in v1.
 
 ## Users
@@ -74,14 +75,14 @@ Baton should extract this workflow into a reusable tool for the user's projects.
 - Failing required checks must be actionable before review nits.
 - Baton must return "no-op/report" when no safe mutation exists.
 
-### Worktree Leasing
+### Execution Context
 
-- Baton must acquire a dedicated worktree for automation work.
-- Baton must not mutate the caller's current checkout for work execution.
-- Baton must refuse dirty managed worktrees.
-- Baton must detect in-use leases.
-- Baton must write lease metadata that survives process crashes.
-- Baton must provide safe release and prune operations.
+- Baton must not create, delete, prune, or lease worktrees.
+- Baton must not instruct automation to mutate the user's primary checkout.
+- Baton must expose enough branch/ref facts for a caller-provided execution
+  context to do one selected unit safely.
+- Baton must work well when invoked from Coda, Treehouse, Codex background
+  checkouts, or manually prepared worktrees.
 
 ### GitHub Writes
 
@@ -95,15 +96,16 @@ Baton should extract this workflow into a reusable tool for the user's projects.
 ### Skill Packaging
 
 - Baton must include a `skills/baton` skill package.
-- The skill must instruct Codex to use Baton for deterministic state and leases.
+- The skill must instruct Codex to use Baton for deterministic state and to
+  require caller-provided checkout isolation before edits.
 - The skill must define stop conditions and escalation rules.
 - The skill must not duplicate long config schemas or GitHub API details that
   are already enforced by the CLI.
 
 ## Safety Requirements
 
-- Git destructive operations require proof that the target is Baton-managed.
-- Dry-run must be available for install, label sync, branch setup, and prune.
+- Baton must not perform destructive worktree cleanup.
+- Dry-run must be available for install, label sync, and branch setup.
 - `pull_request_target` workflows must execute trusted Baton code, not
   untrusted PR-modified scripts.
 - Baton must fail closed when GitHub API pagination limits prevent complete
@@ -128,10 +130,9 @@ Baton should extract this workflow into a reusable tool for the user's projects.
 
 ## Observability Requirements
 
-- Baton should record local lease lifecycle events.
 - Baton should expose enough state to answer:
   - why this item was selected;
   - why other items were skipped;
-  - what checkout path is leased;
+  - which branch/ref should be used for the selected item;
   - what GitHub writes were made;
   - what remains blocked.

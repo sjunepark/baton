@@ -141,7 +141,8 @@ Completed compatibility path:
 4. Update Creo GitHub workflows to call Baton.
 5. Keep old scripts for one trial period.
 6. Remove old scripts after policy checks pass in CI.
-7. Update Codex automation prompts to use Baton next-action and leases.
+7. Update Codex automation prompts to use Baton next-action output and
+   caller-provided isolated checkouts.
 
 ## Template Design Requirements
 

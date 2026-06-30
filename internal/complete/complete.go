@@ -7,15 +7,12 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/sjunepark/baton/internal/lease"
 )
 
 type Record struct {
 	SchemaVersion int       `json:"schemaVersion"`
 	Kind          string    `json:"kind"`
 	ID            string    `json:"id"`
-	LeaseID       string    `json:"leaseId,omitempty"`
 	Summary       string    `json:"summary"`
 	Validation    string    `json:"validation,omitempty"`
 	CreatedAt     time.Time `json:"createdAt"`
@@ -26,13 +23,10 @@ func CommentBody(record Record) string {
 	if strings.TrimSpace(record.Validation) != "" {
 		body += "\n\nValidation:\n" + record.Validation
 	}
-	if strings.TrimSpace(record.LeaseID) != "" {
-		body += "\n\nLease: `" + record.LeaseID + "`"
-	}
 	return body
 }
 
-func Write(stateRoot, leaseID, summary, validation string, now time.Time) (Record, error) {
+func Write(stateRoot, summary, validation string, now time.Time) (Record, error) {
 	if strings.TrimSpace(summary) == "" {
 		return Record{}, fmt.Errorf("summary is required")
 	}
@@ -40,13 +34,17 @@ func Write(stateRoot, leaseID, summary, validation string, now time.Time) (Recor
 		now = time.Now().UTC()
 	}
 	if stateRoot == "" {
-		stateRoot = lease.DefaultStateRoot()
+		home, err := os.UserHomeDir()
+		if err != nil {
+			stateRoot = ".baton"
+		} else {
+			stateRoot = filepath.Join(home, ".baton")
+		}
 	}
 	record := Record{
 		SchemaVersion: 1,
 		Kind:          "completion",
 		ID:            now.UTC().Format("20060102T150405Z"),
-		LeaseID:       leaseID,
 		Summary:       summary,
 		Validation:    validation,
 		CreatedAt:     now.UTC(),

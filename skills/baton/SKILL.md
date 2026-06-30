@@ -1,11 +1,11 @@
 ---
 name: baton
-description: Use the Baton CLI to run reusable GitHub issue/PR agent workflows, including creating Baton-ready GitHub issue todos, queue triage, PR follow-up, review-thread inspection, CI check handling, safe worktree leasing, policy-gated issue intake, and scheduled Baton-managed Codex automation. Use when asked to create, convert, or triage todos for Baton-managed agents, run or inspect Baton-managed agent work, automate GitHub issue intake, follow up agent PRs, set up recurring Codex automation with Baton, migrate Baton policy, or operate inside a Baton lease.
+description: Use the Baton CLI to run reusable GitHub issue/PR agent workflows, including creating Baton-ready GitHub issue todos, queue triage, PR follow-up, review-thread inspection, CI check handling, policy-gated issue intake, branch/ref guidance, and scheduled Baton-managed Codex automation. Use when asked to create, convert, or triage todos for Baton-managed agents, run or inspect Baton-managed agent work, automate GitHub issue intake, follow up agent PRs, set up recurring Codex automation with Baton, or migrate Baton policy.
 ---
 
 # Baton
 
-Baton provides deterministic GitHub, git, policy, queue, and worktree facts.
+Baton provides deterministic GitHub, git, policy, queue, and branch/ref facts.
 Use Baton compact output for agent context, Baton JSON for automation
 contracts, and your judgment for code changes.
 
@@ -15,14 +15,15 @@ contracts, and your judgment for code changes.
   local Baton context.
 - Run `baton next --format toon` before selecting unattended work.
 - Choose exactly one candidate from `baton next` per automation run.
-- Acquire a lease before editing files: `baton lease ... --json`.
-- Work only inside the returned lease `path`.
+- Verify you are in a caller-provided isolated checkout before editing files.
+- Work only inside that isolated checkout.
 - Never mutate the user's primary checkout for automation work.
 - Never merge unless the user explicitly asks.
 - Prefer Baton compact or JSON output over manual GitHub browsing for issues,
   PRs, checks, and review threads.
-- Stop and report on auth failures, lease conflicts, ambiguous scope, human
-  product/security/schema decisions, or dirty lease release conflicts.
+- Stop and report on auth failures, missing isolation, ambiguous scope, human
+  product/security/schema decisions, unrelated dirty state, or unsafe branch
+  checkout state.
 
 ## Commands
 
@@ -36,11 +37,11 @@ argument.
 | `$baton status [repo]` | Run readiness and setup checks. Read-only. |
 | `$baton next [repo]` | Show the next Baton candidate set. Read-only. |
 | `$baton queue [repo]` | Show eligible and skipped issues/PRs. Read-only. |
-| `$baton todo <todo>` | Create one Baton-ready GitHub issue. No branch, lease, commit, or PR. |
+| `$baton todo <todo>` | Create one Baton-ready GitHub issue. No branch, commit, or PR. |
 | `$baton todos <notes-or-file>` | Split notes into Baton-ready GitHub issues. No implementation. |
 | `$baton investigate <issue>` | Investigate/comment on one issue. No file edits unless the user explicitly changes scope. |
-| `$baton implement <issue>` | Lease one ready issue, implement it, validate, and open/update a PR to the staging branch. |
-| `$baton follow-up <pr>` | Lease the existing PR branch, fix checks or review follow-up, validate, and push to that branch. |
+| `$baton implement <issue>` | In a caller-provided isolated checkout, implement one ready issue, validate, and open/update a PR to the staging branch. |
+| `$baton follow-up <pr>` | In a caller-provided isolated checkout, fix checks or review follow-up, validate, and push to that branch. |
 | `$baton run [repo]` | Let Baton return candidates, choose exactly one safe unit, then stop. |
 | `$baton adopt [repo]` | Check target-repo setup with dry-run/read-only commands and recommend next setup commands. |
 | `$baton automate [repo]` | Explain or prepare scheduled one-unit automation. Do not schedule implementation automation before a manual run succeeds. |
@@ -57,11 +58,11 @@ argument.
 - Preserve command-level consent boundaries:
   - `$baton`, `status`, `next`, and `queue` are read-only.
   - `todo` and `todos` may create GitHub issues but must not create branches,
-    commits, PRs, leases, or merges.
+    commits, PRs, or merges.
   - `investigate` may comment on an issue but must not edit files unless the
     user explicitly changes scope.
-  - `implement`, `follow-up`, and `run` may edit only after acquiring a Baton
-    lease and changing to the returned lease path.
+  - `implement`, `follow-up`, and `run` may edit only inside a caller-provided
+    isolated checkout.
   - No command may merge unless the user explicitly asks and target repo policy
     allows it.
 
@@ -101,11 +102,11 @@ argument.
 - `investigate`: inspect the issue through Baton/GitHub, confirm investigation
   scope, run focused diagnostics, and comment findings. Do not edit files.
 - `implement`: confirm the issue has an implementation label and no skip label,
-  acquire a lease from the staging branch, work inside the returned `path`,
+  verify the isolated checkout, create a work branch from the staging branch,
   validate, and open/update a PR to the staging branch with `Refs #<issue>`.
 - `follow-up`: run `baton pr <number> --json`, `baton checks <number> --format
-  toon`, and `baton review-threads <number> --format toon`; lease the existing
-  PR branch before edits and push fixes to that branch.
+  toon`, and `baton review-threads <number> --format toon`; verify the
+  isolated checkout, check out the existing PR branch, and push fixes there.
 - `run`: run `baton next --format toon --repo <repo>`, choose exactly one
   candidate from the returned set, handle it according to its action, validate,
   report the chosen candidate, and stop.
@@ -130,7 +131,7 @@ argument.
 ## Issue Intake
 
 - Confirm the issue is implementation-ready and has no skip labels.
-- Create work from the configured staging branch in a Baton lease.
+- Create work from the configured staging branch in the isolated checkout.
 - Open the work PR to the staging branch with `Refs #<issue>`, not closing
   keywords.
 - Do not close issues from work PRs; closure belongs to promotion PRs.

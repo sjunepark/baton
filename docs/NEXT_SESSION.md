@@ -26,6 +26,7 @@ does not already cover with Go tests.
 - Baton is Go-first and ships a bundled skill under `skills/baton/`.
 - Target repositories use `.github/baton.yml`; legacy
   `.github/agent-issue-policy.yml` remains readable for migration.
-- Automation work must happen only inside Baton-managed leases.
+- Automation work must happen only inside caller-provided isolated checkouts.
+- Baton must not manage worktree lease, release, or cleanup lifecycle.
 - Mutating GitHub or git commands need dry-run/planner coverage or explicit
   apply/confirmation gates.
