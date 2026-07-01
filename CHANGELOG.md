@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.3](https://github.com/sjunepark/baton/compare/v0.4.2...v0.4.3) (2026-07-01)
+
+
+### Features
+
+* add Baton adopter update guidance ([41badd1](https://github.com/sjunepark/baton/commit/41badd1090b69020312e44d6b18e95b7aa9788c0))
+
 ## [0.4.2](https://github.com/sjunepark/baton/compare/v0.4.1...v0.4.2) (2026-07-01)
 
 

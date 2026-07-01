@@ -23,7 +23,7 @@ new Baton config model.
 version: 1
 
 setup:
-  baseline_baton_version: v0.4.2 # x-release-please-version
+  baseline_baton_version: v0.4.3 # x-release-please-version
 
 repository:
   default_remote: origin
