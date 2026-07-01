@@ -179,7 +179,7 @@ config: missing (.github/baton.yml)
 auth: ok (gh auth token)
 next: unavailable (config missing)
 help[3]:
-  Run `baton init --dry-run --format toon`
+  Run `baton init --dry-run --json`
   Run `baton doctor --format toon`
   Run `baton --help`
 ```

@@ -106,6 +106,27 @@ func TestNoArgsShowsHomeAndHelpStaysGlobal(t *testing.T) {
 	}
 }
 
+func TestVersionCommandAndFlag(t *testing.T) {
+	for _, args := range [][]string{
+		{"version"},
+		{"--version"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := Run(args, &stdout, &stderr, "v1.2.3")
+			if code != exitOK {
+				t.Fatalf("Run(%v) exit = %d, want %d; stderr=%s", args, code, exitOK, stderr.String())
+			}
+			if stderr.String() != "" {
+				t.Fatalf("stderr = %q, want empty", stderr.String())
+			}
+			if got := stdout.String(); got != "v1.2.3\n" {
+				t.Fatalf("stdout = %q, want version", got)
+			}
+		})
+	}
+}
+
 func TestUnknownSubcommandHelpReturnsUsage(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := Run([]string{"help", "missing"}, &stdout, &stderr, "test")
@@ -135,8 +156,26 @@ func TestHomeFormatTOON(t *testing.T) {
 			t.Fatalf("home toon = %q, want %q", output, want)
 		}
 	}
+	if !strings.Contains(output, "Run `baton init --dry-run --json`.") {
+		t.Fatalf("home toon = %q, want valid init dry-run suggestion", output)
+	}
+	if strings.Contains(output, "baton init --dry-run --format toon") {
+		t.Fatalf("home toon = %q, want no invalid init --format suggestion", output)
+	}
 	if strings.Contains(output, "lease") {
 		t.Fatalf("home toon = %q, want no lease fields", output)
+	}
+}
+
+func TestHomeBinUsesCurrentExecutablePath(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("UserHomeDir: %v", err)
+	}
+
+	result := buildHomeResultForExecutable(filepath.Join(home, "go", "bin", "baton"))
+	if result.Bin != filepath.Join("~", "go", "bin", "baton") {
+		t.Fatalf("home bin = %q, want home-relative executable path", result.Bin)
 	}
 }
 

@@ -279,6 +279,14 @@ func Run(args []string, stdout, stderr io.Writer, version string) int {
 	if len(args) == 0 {
 		return runHome(nil, stdout, stderr)
 	}
+	if args[0] == "--version" {
+		if len(args) > 1 {
+			fmt.Fprintln(stderr, "--version accepts no arguments")
+			return exitUsage
+		}
+		fmt.Fprintln(stdout, version)
+		return exitOK
+	}
 	if args[0] == "--help" || args[0] == "-h" {
 		printHelp(stdout)
 		return exitOK
@@ -353,6 +361,7 @@ func printHelp(w io.Writer) {
 
 Usage:
   baton --help
+  baton --version
   baton version
   baton home [--format text|json|toon] [--json]
   baton init --dry-run|--apply [--profile default] [--go-install module@version|--install-command <cmd>] [--yes] [--json]
@@ -391,7 +400,7 @@ var commandHelps = map[string]commandHelp{
 	"version": {
 		Purpose:  "Print the Baton version.",
 		Usage:    "baton version",
-		Examples: []string{"baton version"},
+		Examples: []string{"baton version", "baton --version"},
 	},
 	"home": {
 		Purpose:  "Show a compact local Baton session dashboard.",
@@ -1540,6 +1549,10 @@ func outputFormatFromArgs(args []string) outputFormat {
 }
 
 func buildHomeResult() homeResult {
+	return buildHomeResultForExecutable(defaultCurrentExecutablePath())
+}
+
+func buildHomeResultForExecutable(executablePath string) homeResult {
 	cfgStatus := "missing (.github/baton.yml)"
 	if _, err := config.LoadForRepo("."); err == nil {
 		cfgStatus = "ok"
@@ -1553,18 +1566,31 @@ func buildHomeResult() homeResult {
 	return homeResult{
 		SchemaVersion: schemaVersionV1,
 		Kind:          "home",
-		Bin:           homeRelative(os.Args[0]),
+		Bin:           homeRelative(executablePath),
 		Description:   "Coordinate GitHub issue/PR agent workflows for this repository",
 		Repo:          localRepoName(),
 		Config:        cfgStatus,
 		Auth:          localAuthStatus(),
 		Next:          next,
 		Help: []string{
-			"Run `baton init --dry-run --format toon`.",
+			"Run `baton init --dry-run --json`.",
 			"Run `baton doctor --format toon`.",
 			"Run `baton --help`.",
 		},
 	}
+}
+
+func defaultCurrentExecutablePath() string {
+	if exe, err := os.Executable(); err == nil && exe != "" {
+		return exe
+	}
+	if len(os.Args) == 0 || os.Args[0] == "" {
+		return ""
+	}
+	if resolved, err := exec.LookPath(os.Args[0]); err == nil && resolved != "" {
+		return resolved
+	}
+	return os.Args[0]
 }
 
 func localRepoName() string {

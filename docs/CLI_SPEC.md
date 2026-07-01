@@ -50,7 +50,8 @@ confirmation.
 ### `baton`
 
 With no arguments, show the local Baton dashboard. Use `baton --help` for
-global command help.
+global command help. Use `baton version` or `baton --version` to print the
+current CLI version.
 
 ### `baton home`
 
