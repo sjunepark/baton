@@ -103,6 +103,11 @@ baton complete --summary "Implemented issue 123" --validation "go test ./..." --
 .github/workflows/pr-policy.yml
 ```
 
+`.github/baton.yml` includes `setup.baseline_baton_version`, which records the
+Baton release the repository setup files were last reviewed or applied against.
+The workflow install command remains the runtime pin, and `version` remains the
+config schema version.
+
 The generated workflows install trusted Baton code, then run:
 
 ```sh
@@ -129,6 +134,8 @@ installing Baton so PR-modified repository code is not executed.
 - [docs/CONFIG_SPEC.md](docs/CONFIG_SPEC.md): reusable policy config.
 - [docs/RELEASE.md](docs/RELEASE.md): Release Please ownership, commit
   message rules, and SemVer policy.
+- [docs/adopter-updates/](docs/adopter-updates/): per-release notes for
+  repositories that have adopted Baton.
 - [docs/EXECUTION_CONTEXT.md](docs/EXECUTION_CONTEXT.md): checkout isolation
   boundary and why Baton does not manage worktrees.
 - [docs/GITHUB_POLICY_EXTRACTION.md](docs/GITHUB_POLICY_EXTRACTION.md):

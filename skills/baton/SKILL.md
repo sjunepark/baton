@@ -1,6 +1,6 @@
 ---
 name: baton
-description: Use the Baton CLI to run reusable GitHub issue/PR agent workflows, including creating Baton-ready GitHub issue todos, queue triage, PR follow-up, review-thread inspection, CI check handling, policy-gated issue intake, branch/ref guidance, and scheduled Baton-managed Codex automation. Use when asked to create, convert, or triage todos for Baton-managed agents, run or inspect Baton-managed agent work, automate GitHub issue intake, follow up agent PRs, set up recurring Codex automation with Baton, or migrate Baton policy.
+description: Use the Baton CLI to run reusable GitHub issue/PR agent workflows, including creating Baton-ready GitHub issue todos, queue triage, PR follow-up, review-thread inspection, CI check handling, policy-gated issue intake, branch/ref guidance, scheduled Baton-managed Codex automation, and adopter updates. Use when asked to create, convert, or triage todos for Baton-managed agents, run or inspect Baton-managed agent work, automate GitHub issue intake, follow up agent PRs, set up recurring Codex automation with Baton, update repositories that adopted Baton, or migrate Baton policy.
 ---
 
 # Baton
@@ -148,3 +148,5 @@ argument.
 - For JSON fields to inspect before acting, read `references/json-contracts.md`.
 - For target-repo setup and scheduled Codex app automations that run Baton, read
   `references/automation-setup.md`.
+- For updating repositories that already adopted Baton, read
+  `references/updating-adopters.md`.

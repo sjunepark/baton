@@ -14,11 +14,23 @@
         },
         {
           "type": "generic",
+          "path": "internal/config/config.go"
+        },
+        {
+          "type": "generic",
+          "path": "internal/install/templates/.github/baton.yml"
+        },
+        {
+          "type": "generic",
           "path": "README.md"
         },
         {
           "type": "generic",
           "path": "docs/CLI_SPEC.md"
+        },
+        {
+          "type": "generic",
+          "path": "docs/CONFIG_SPEC.md"
         },
         {
           "type": "generic",

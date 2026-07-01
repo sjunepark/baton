@@ -36,6 +36,9 @@ func TestLoadLegacyIssuePolicy(t *testing.T) {
 
 func TestDefaultConfigIncludesPriorityPolicy(t *testing.T) {
 	cfg := DefaultConfig()
+	if cfg.Setup.BaselineBatonVersion == "" {
+		t.Fatalf("baseline Baton version = %q", cfg.Setup.BaselineBatonVersion)
+	}
 	if cfg.IssuePolicy.FormSections["priority"] != "Priority" {
 		t.Fatalf("priority form section = %q", cfg.IssuePolicy.FormSections["priority"])
 	}
@@ -69,6 +72,25 @@ func TestLoadOldBatonConfigWithoutPriorityDoesNotEnablePriority(t *testing.T) {
 	}
 	if _, ok := cfg.IssuePolicy.FormSections["priority"]; ok {
 		t.Fatalf("old Baton config unexpectedly added priority form section")
+	}
+	if cfg.Setup.BaselineBatonVersion != "" {
+		t.Fatalf("old Baton config unexpectedly defaulted setup baseline: %q", cfg.Setup.BaselineBatonVersion)
+	}
+}
+
+func TestLoadPreservesSetupBaseline(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "baton.yml")
+	content := strings.Replace(oldBatonPolicyYAML, "version: 1\n", "version: 1\nsetup:\n  baseline_baton_version: v0.4.1\n", 1)
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Setup.BaselineBatonVersion != "v0.4.1" {
+		t.Fatalf("baseline Baton version = %q", cfg.Setup.BaselineBatonVersion)
 	}
 }
 
@@ -126,6 +148,9 @@ func TestMarshalYAMLUsesBatonShape(t *testing.T) {
 	}
 	if contains(text, "schemaVersion") || contains(text, "schemaversion") {
 		t.Fatalf("schemaVersion should not be written to config yaml:\n%s", text)
+	}
+	if !contains(text, "setup:") || !contains(text, "baseline_baton_version: "+DefaultConfig().Setup.BaselineBatonVersion) {
+		t.Fatalf("setup baseline missing from config yaml:\n%s", text)
 	}
 }
 

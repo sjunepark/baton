@@ -8,6 +8,7 @@ Release Please owns Baton releases:
 - `vX.Y.Z` git tags
 - GitHub releases
 - pinned Baton install target references marked with `x-release-please`
+- generated setup baseline references marked with `x-release-please`
 
 Do not manually create tags or GitHub releases during the normal flow. An
 emergency manual fallback requires explicit confirmation of the exact version.
@@ -47,6 +48,16 @@ Pre-1.0 release policy:
 
 Public SemVer surface includes CLI flags, JSON output, exit codes, config
 shape, install templates, generated workflows, and the module path.
+
+## Adopter Updates
+
+When a release affects consuming repositories, add a short file under
+`docs/adopter-updates/vX.Y.Z.md`. Keep it focused on repo action: runtime pin,
+config, templates, labels, and dry-run checks.
+
+Use `CHANGELOG.md` for broad release history. Use adopter update files for
+repositories that need to decide what to update or migrate after a Baton
+release.
 
 ## Commit Messages
 

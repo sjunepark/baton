@@ -22,6 +22,9 @@ new Baton config model.
 ```yaml
 version: 1
 
+setup:
+  baseline_baton_version: v0.4.2 # x-release-please-version
+
 repository:
   default_remote: origin
   base_branch: main
@@ -139,6 +142,10 @@ Required for v1:
 
 Optional fields use the defaults shown in the top-level shape unless a command
 documents a narrower bootstrap behavior.
+
+`setup.baseline_baton_version` records the Baton release the repository's setup
+files were last reviewed or applied against. It is not the config schema
+version, the GitHub Actions runtime pin, or a compatibility guarantee.
 
 `issue_policy.priority_labels` is optional for existing configs. When omitted,
 Baton does not require a Priority form field or apply priority queue ordering.

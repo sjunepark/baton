@@ -44,6 +44,18 @@ func TestApplyWritesTemplatesAndRefusesOverwrite(t *testing.T) {
 	}
 }
 
+func TestBatonConfigTemplateIncludesSetupBaseline(t *testing.T) {
+	content, err := templateContent(".github/baton.yml", Options{}.withDefaults())
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	wantBaseline := "baseline_baton_version: " + config.DefaultConfig().Setup.BaselineBatonVersion
+	if !strings.Contains(text, "setup:") || !strings.Contains(text, wantBaseline) {
+		t.Fatalf("baton config template missing setup baseline:\n%s", text)
+	}
+}
+
 func TestTemplatesSayManagedButEditable(t *testing.T) {
 	for _, path := range templatePaths() {
 		t.Run(path, func(t *testing.T) {

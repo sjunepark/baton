@@ -1,6 +1,9 @@
 # Managed by Baton. Edit in this repository when your policy changes.
 version: 1
 
+setup:
+  baseline_baton_version: v0.4.2 # x-release-please-version
+
 repository:
   default_remote: origin
   base_branch: main

@@ -18,7 +18,7 @@ Draft description:
 
 ```yaml
 name: baton
-description: Use the Baton CLI to run reusable GitHub issue/PR agent workflows, including creating Baton-ready GitHub issue todos, queue triage, PR follow-up, review-thread inspection, CI check handling, policy-gated issue intake, branch/ref guidance, and scheduled Baton-managed Codex automation. Use when asked to create, convert, or triage todos for Baton-managed agents, run or inspect Baton-managed agent work, automate GitHub issue intake, follow up agent PRs, set up recurring Codex automation with Baton, or migrate Baton policy.
+description: Use the Baton CLI to run reusable GitHub issue/PR agent workflows, including creating Baton-ready GitHub issue todos, queue triage, PR follow-up, review-thread inspection, CI check handling, policy-gated issue intake, branch/ref guidance, scheduled Baton-managed Codex automation, and adopter updates. Use when asked to create, convert, or triage todos for Baton-managed agents, run or inspect Baton-managed agent work, automate GitHub issue intake, follow up agent PRs, set up recurring Codex automation with Baton, update repositories that adopted Baton, or migrate Baton policy.
 ```
 
 ## Required Skill Behavior
@@ -164,6 +164,8 @@ The skill may include:
 - `references/json-contracts.md`: key fields Codex should inspect.
 - `references/todo-creation.md`: guidance and prompts for creating
   Baton-ready GitHub issue todos.
+- `references/updating-adopters.md`: guidance for reviewing and updating
+  repositories that already adopted Baton.
 - No scripts initially. The CLI owns scripts.
 
 Keep `SKILL.md` short and point to Baton CLI help for detailed command syntax.

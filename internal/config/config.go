@@ -14,11 +14,16 @@ var ErrConfigNotFound = errors.New("baton config not found")
 type Config struct {
 	SchemaVersion int              `json:"schemaVersion" yaml:"-"`
 	Version       int              `json:"version" yaml:"version"`
+	Setup         SetupConfig      `json:"setup,omitempty" yaml:"setup,omitempty"`
 	Repository    RepositoryConfig `json:"repository" yaml:"repository"`
 	IssuePolicy   IssuePolicy      `json:"issuePolicy" yaml:"issue_policy"`
 	PRPolicy      PRPolicy         `json:"prPolicy" yaml:"pr_policy"`
 	Labels        LabelsConfig     `json:"labels" yaml:"labels"`
 	Automation    AutomationConfig `json:"automation" yaml:"automation"`
+}
+
+type SetupConfig struct {
+	BaselineBatonVersion string `json:"baselineBatonVersion,omitempty" yaml:"baseline_baton_version,omitempty"`
 }
 
 type RepositoryConfig struct {
@@ -284,6 +289,9 @@ func DefaultConfig() Config {
 	cfg := Config{
 		SchemaVersion: 1,
 		Version:       1,
+		Setup: SetupConfig{
+			BaselineBatonVersion: "v0.4.2", // x-release-please-version
+		},
 		Repository: RepositoryConfig{
 			DefaultRemote:    "origin",
 			BaseBranch:       "main",
