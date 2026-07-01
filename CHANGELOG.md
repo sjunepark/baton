@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.4](https://github.com/sjunepark/baton/compare/v0.4.3...v0.4.4) (2026-07-01)
+
+
+### Features
+
+* add Baton update skill command ([df1a0fa](https://github.com/sjunepark/baton/commit/df1a0fac2d70a9d68fb1cd70bf93781e0a352c3f))
+
 ## [0.4.3](https://github.com/sjunepark/baton/compare/v0.4.2...v0.4.3) (2026-07-01)
 
 
