@@ -290,7 +290,7 @@ func DefaultConfig() Config {
 		SchemaVersion: 1,
 		Version:       1,
 		Setup: SetupConfig{
-			BaselineBatonVersion: "v0.4.3", // x-release-please-version
+			BaselineBatonVersion: "v0.4.4", // x-release-please-version
 		},
 		Repository: RepositoryConfig{
 			DefaultRemote:    "origin",
