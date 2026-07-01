@@ -3,6 +3,8 @@
 Use this reference when asked to update or review a repository that already
 uses Baton.
 
+Skill command: `$baton update [repo]`.
+
 ## Version Markers
 
 - `.github/baton.yml` `setup.baseline_baton_version`: the Baton release the
@@ -34,4 +36,3 @@ config, label, or branch changes without explicit approval.
 
 When the repository setup has been reviewed or updated for a Baton release,
 update `setup.baseline_baton_version` to that release in the same PR.
-

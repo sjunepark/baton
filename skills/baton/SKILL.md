@@ -44,6 +44,7 @@ argument.
 | `$baton follow-up <pr>` | In a caller-provided isolated checkout, fix checks or review follow-up, validate, and push to that branch. |
 | `$baton run [repo]` | Let Baton return candidates, choose exactly one safe unit, then stop. |
 | `$baton adopt [repo]` | Check target-repo setup with dry-run/read-only commands and recommend next setup commands. |
+| `$baton update [repo]` | Check and update an existing Baton adoption through a normal reviewed PR. Do not merge. |
 | `$baton automate [repo]` | Explain or prepare scheduled one-unit automation. Do not schedule implementation automation before a manual run succeeds. |
 
 ## Routing
@@ -61,6 +62,8 @@ argument.
     commits, PRs, or merges.
   - `investigate` may comment on an issue but must not edit files unless the
     user explicitly changes scope.
+  - `update` may edit Baton setup files and open/update a normal PR only after
+    reading `references/updating-adopters.md` and running dry-run checks.
   - `implement`, `follow-up`, and `run` may edit only inside a caller-provided
     isolated checkout.
   - No command may merge unless the user explicitly asks and target repo policy
@@ -119,6 +122,11 @@ argument.
   `baton migrate-config --dry-run` when a legacy policy exists,
   `baton sync-labels --dry-run --repo <repo> --json`, and
   `baton ensure-branch --json`.
+- `update`: read `references/updating-adopters.md`, inspect
+  `.github/baton.yml` and `.github/workflows/*`, read the relevant adopter
+  update notes, run the dry-run checks listed in the reference, then open or
+  update a normal reviewed PR for needed Baton runtime, baseline, config,
+  template, or label changes. Do not merge.
 - `automate`: read `references/automation-setup.md`, verify prerequisites with
   read-only commands, and prepare a scheduled automation prompt that uses
   `$baton run --repo owner/name` when repo selection must be explicit.

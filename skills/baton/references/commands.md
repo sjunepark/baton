@@ -18,6 +18,8 @@ automation contracts and mutating command results.
   follow-up on the existing branch.
 - `$baton run [repo]`: choose and handle exactly one safe candidate.
 - `$baton adopt [repo]`: dry-run target-repo setup checks.
+- `$baton update [repo]`: check and update an existing Baton adoption through a
+  normal reviewed PR. Do not merge.
 - `$baton automate [repo]`: prepare scheduled one-unit automation.
 
 ## CLI Commands

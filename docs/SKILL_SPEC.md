@@ -49,7 +49,8 @@ The skill must instruct Codex to:
 - Work only inside that isolated checkout.
 - Handle exactly one unit of work per automation run.
 - Push to the existing PR branch for PR follow-up.
-- Open a new PR only after choosing an issue implementation candidate.
+- Open a new PR only after choosing an issue implementation candidate or when
+  `$baton update` finds adopter-update changes.
 - Never merge unless explicitly requested.
 - Stop on ambiguous scope, human decision needs, risky data/schema/security
   changes, missing isolation, unrelated dirty state, or auth failures.
@@ -71,6 +72,7 @@ The bundled skill must expose these concise commands:
 | `$baton follow-up <pr>` | In a caller-provided isolated checkout, fix checks or review follow-up on the existing PR branch. |
 | `$baton run [repo]` | Let Baton return candidates, choose exactly one safe unit, then stop. |
 | `$baton adopt [repo]` | Check target-repo Baton setup with dry-run/read-only commands. |
+| `$baton update [repo]` | Check and update an existing Baton adoption through a normal reviewed PR. Do not merge. |
 | `$baton automate [repo]` | Explain or prepare scheduled one-unit automation. |
 
 Routing rules:
@@ -80,6 +82,8 @@ Routing rules:
   prompt; for example, "create a Baton todo for X" maps to `$baton todo X`.
 - If two mutating commands could fit, ask one short clarification.
 - `todo` and `todos` may create GitHub issues only.
+- `update` may edit Baton setup files and open/update a normal PR only after
+  reading `references/updating-adopters.md` and running dry-run checks.
 - `implement`, `follow-up`, and `run` may edit only inside a caller-provided
   isolated checkout.
 
