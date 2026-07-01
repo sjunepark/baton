@@ -1,6 +1,9 @@
 package labels
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func TestParseManifest(t *testing.T) {
 	manifest, err := ParseManifest([]byte(`labels:
@@ -48,5 +51,29 @@ func TestPlanSync(t *testing.T) {
 	}
 	if len(plan.Help) == 0 {
 		t.Fatal("plan help should include next command")
+	}
+}
+
+func TestInstallManifestIncludesPriorityLabels(t *testing.T) {
+	content, err := os.ReadFile("../install/templates/.github/labels.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := ParseManifest(content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	labels := map[string]Label{}
+	for _, label := range manifest.Labels {
+		labels[label.Name] = label
+	}
+	for _, name := range []string{"priority:p0", "priority:p1", "priority:p2", "priority:p3"} {
+		label, ok := labels[name]
+		if !ok {
+			t.Fatalf("missing %s in install manifest", name)
+		}
+		if label.Color == "" || label.Description == "" {
+			t.Fatalf("priority label %s lacks color or description: %#v", name, label)
+		}
 	}
 }

@@ -23,7 +23,15 @@ func TestComputeIssuePolicy(t *testing.T) {
 			name:          "ready trivial complete",
 			body:          issueBody(issueBodyInput{WorkKind: "Enhancement", AgentMode: "Ready trivial", AcceptanceCriteria: "- [ ] The typo is fixed."}),
 			wantFormIssue: true,
-			wantAdd:       []string{"agent:ready-trivial", "enhancement"},
+			wantAdd:       []string{"agent:ready-trivial", "enhancement", "priority:p2"},
+			wantRemove:    []string{},
+			wantMissing:   []string{},
+		},
+		{
+			name:          "priority p0 adds mapped label",
+			body:          issueBody(issueBodyInput{Priority: "P0"}),
+			wantFormIssue: true,
+			wantAdd:       []string{"agent:ready-trivial", "bug", "priority:p0"},
 			wantRemove:    []string{},
 			wantMissing:   []string{},
 		},
@@ -31,33 +39,52 @@ func TestComputeIssuePolicy(t *testing.T) {
 			name:                    "ready bounded missing acceptance criteria",
 			body:                    issueBody(issueBodyInput{AgentMode: "Ready bounded", AcceptanceCriteria: "No response"}),
 			wantFormIssue:           true,
-			wantAdd:                 []string{"agent:ready-bounded", "bug", "needs-info"},
+			wantAdd:                 []string{"agent:ready-bounded", "bug", "needs-info", "priority:p2"},
 			wantRemove:              []string{},
 			wantMissing:             []string{"Acceptance criteria"},
+			wantPolicyCommentSubstr: "<!-- baton-issue-policy:v1 -->",
+		},
+		{
+			name:                    "missing priority adds quality gate",
+			body:                    issueBody(issueBodyInput{Priority: "No response"}),
+			wantFormIssue:           true,
+			wantAdd:                 []string{"agent:ready-trivial", "bug", "needs-info"},
+			wantRemove:              []string{},
+			wantMissing:             []string{"Priority"},
+			wantPolicyCommentSubstr: "<!-- baton-issue-policy:v1 -->",
+		},
+		{
+			name:                    "unknown priority adds quality gate without stale cleanup",
+			body:                    issueBody(issueBodyInput{Priority: "P9"}),
+			currentLabels:           []string{"priority:p1"},
+			wantFormIssue:           true,
+			wantAdd:                 []string{"agent:ready-trivial", "bug", "needs-info"},
+			wantRemove:              []string{},
+			wantMissing:             []string{"Priority"},
 			wantPolicyCommentSubstr: "<!-- baton-issue-policy:v1 -->",
 		},
 		{
 			name:          "ready bounded complete without allowed scope",
 			body:          issueBody(issueBodyInput{AgentMode: "Ready bounded", AcceptanceCriteria: "- [ ] The bounded change is complete."}),
 			wantFormIssue: true,
-			wantAdd:       []string{"agent:ready-bounded", "bug"},
+			wantAdd:       []string{"agent:ready-bounded", "bug", "priority:p2"},
 			wantRemove:    []string{},
 			wantMissing:   []string{},
 		},
 		{
 			name:          "changing agent mode removes previous controlled labels",
 			body:          issueBody(issueBodyInput{WorkKind: "Investigation", AgentMode: "Investigate only", AcceptanceCriteria: "No response"}),
-			currentLabels: []string{"agent:ready-trivial", "needs-info", "bug"},
+			currentLabels: []string{"agent:ready-trivial", "needs-info", "bug", "priority:p1"},
 			wantFormIssue: true,
-			wantAdd:       []string{"agent:investigate-only"},
-			wantRemove:    []string{"agent:ready-trivial", "bug", "needs-info"},
+			wantAdd:       []string{"agent:investigate-only", "priority:p2"},
+			wantRemove:    []string{"agent:ready-trivial", "bug", "needs-info", "priority:p1"},
 			wantMissing:   []string{},
 		},
 		{
 			name:          "investigate only does not require implementation sections",
 			body:          issueBody(issueBodyInput{AgentMode: "Investigate only", AcceptanceCriteria: "No response"}),
 			wantFormIssue: true,
-			wantAdd:       []string{"agent:investigate-only", "bug"},
+			wantAdd:       []string{"agent:investigate-only", "bug", "priority:p2"},
 			wantRemove:    []string{},
 			wantMissing:   []string{},
 		},
@@ -102,6 +129,7 @@ func TestParseIssueSections(t *testing.T) {
 type issueBodyInput struct {
 	WorkKind           string
 	AgentMode          string
+	Priority           string
 	Summary            string
 	ContextEvidence    string
 	AcceptanceCriteria string
@@ -110,6 +138,7 @@ type issueBodyInput struct {
 func issueBody(input issueBodyInput) string {
 	workKind := firstNonEmpty(input.WorkKind, "Bug")
 	agentMode := firstNonEmpty(input.AgentMode, "Ready trivial")
+	priority := firstNonEmpty(input.Priority, "P2")
 	summary := firstNonEmpty(input.Summary, "Make the requested change.")
 	contextEvidence := firstNonEmpty(input.ContextEvidence, "The relevant evidence is attached in the issue.")
 	acceptanceCriteria := firstNonEmpty(input.AcceptanceCriteria, "- [ ] The requested change is complete.")
@@ -120,6 +149,10 @@ func issueBody(input issueBodyInput) string {
 ### Agent mode
 
 ` + agentMode + `
+
+### Priority
+
+` + priority + `
 
 ### Summary
 

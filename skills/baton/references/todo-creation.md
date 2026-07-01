@@ -34,6 +34,8 @@ Fill these fields with concrete, agent-usable detail:
 - Work kind: Bug, Documentation, Enhancement, or Question.
 - Agent mode: Ready trivial, Ready bounded, Investigate only, or Needs
   discussion.
+- Priority: P0, P1, P2, or P3. Use P2 for ordinary work unless the user
+  explicitly indicates higher or lower urgency.
 - Summary: the requested outcome in one or two short paragraphs.
 - Context / evidence: links, logs, screenshots, files, commands, observed
   behavior, or exact examples.
@@ -69,6 +71,10 @@ Bug
 ### Agent mode
 
 Ready bounded
+
+### Priority
+
+P2
 
 ### Summary
 

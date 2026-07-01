@@ -33,6 +33,7 @@ type IssuePolicy struct {
 	FormSections          map[string]string   `json:"formSections" yaml:"form_sections"`
 	WorkKindLabels        map[string]string   `json:"workKindLabels" yaml:"work_kind_labels"`
 	AgentModeLabels       map[string]string   `json:"agentModeLabels" yaml:"agent_mode_labels"`
+	PriorityLabels        map[string]string   `json:"priorityLabels,omitempty" yaml:"priority_labels,omitempty"`
 	ControlledLabelGroups map[string][]string `json:"controlledLabelGroups" yaml:"controlled_label_groups"`
 	ImplementationLabels  []string            `json:"implementationLabels" yaml:"implementation_labels"`
 	CommentOnlyLabels     []string            `json:"commentOnlyLabels" yaml:"comment_only_labels"`
@@ -69,6 +70,7 @@ type legacyIssuePolicy struct {
 	FormSections          map[string]string   `yaml:"form_sections"`
 	WorkKindLabels        map[string]string   `yaml:"work_kind_labels"`
 	AgentModeLabels       map[string]string   `yaml:"agent_mode_labels"`
+	PriorityLabels        map[string]string   `yaml:"priority_labels"`
 	ControlledLabelGroups map[string][]string `yaml:"controlled_label_groups"`
 	ImplementationLabels  []string            `yaml:"implementation_labels"`
 	CommentOnlyLabels     []string            `yaml:"comment_only_labels"`
@@ -161,6 +163,7 @@ func normalizeLegacy(legacy legacyIssuePolicy) Config {
 		FormSections:          legacy.FormSections,
 		WorkKindLabels:        legacy.WorkKindLabels,
 		AgentModeLabels:       legacy.AgentModeLabels,
+		PriorityLabels:        legacy.PriorityLabels,
 		ControlledLabelGroups: legacy.ControlledLabelGroups,
 		ImplementationLabels:  legacy.ImplementationLabels,
 		CommentOnlyLabels:     legacy.CommentOnlyLabels,
@@ -240,6 +243,40 @@ func (cfg Config) Validate() error {
 			}
 		}
 	}
+	if len(cfg.IssuePolicy.PriorityLabels) > 0 {
+		if cfg.IssuePolicy.FormSections["priority"] == "" {
+			return errors.New("issue_policy.form_sections.priority is required when priority_labels is set")
+		}
+		priorityGroup := cfg.IssuePolicy.ControlledLabelGroups["priority"]
+		if len(priorityGroup) == 0 {
+			return errors.New("issue_policy.controlled_label_groups.priority is required when priority_labels is set")
+		}
+		groupLabels := map[string]struct{}{}
+		for _, label := range priorityGroup {
+			if label == "" {
+				return errors.New("issue_policy.controlled_label_groups.priority must not contain empty labels")
+			}
+			groupLabels[label] = struct{}{}
+		}
+		mappedLabels := map[string]struct{}{}
+		for value, label := range cfg.IssuePolicy.PriorityLabels {
+			if value == "" || label == "" {
+				return errors.New("issue_policy.priority_labels must not contain empty keys or labels")
+			}
+			if _, ok := groupLabels[label]; !ok {
+				return fmt.Errorf("issue_policy.priority_labels.%s references label %q outside controlled_label_groups.priority", value, label)
+			}
+			if _, duplicate := mappedLabels[label]; duplicate {
+				return fmt.Errorf("issue_policy.priority_labels maps multiple values to %q", label)
+			}
+			mappedLabels[label] = struct{}{}
+		}
+		for _, label := range priorityGroup {
+			if _, ok := mappedLabels[label]; !ok {
+				return fmt.Errorf("issue_policy.controlled_label_groups.priority contains unmapped label %q", label)
+			}
+		}
+	}
 	return nil
 }
 
@@ -258,6 +295,7 @@ func DefaultConfig() Config {
 			FormSections: map[string]string{
 				"work_kind":           "Work kind",
 				"agent_mode":          "Agent mode",
+				"priority":            "Priority",
 				"summary":             "Summary",
 				"context_evidence":    "Context / evidence",
 				"acceptance_criteria": "Acceptance criteria",
@@ -277,9 +315,16 @@ func DefaultConfig() Config {
 				"Investigate only": "agent:investigate-only",
 				"Needs discussion": "needs:discussion",
 			},
+			PriorityLabels: map[string]string{
+				"P0": "priority:p0",
+				"P1": "priority:p1",
+				"P2": "priority:p2",
+				"P3": "priority:p3",
+			},
 			ControlledLabelGroups: map[string][]string{
 				"work_kind":    {"bug", "documentation", "enhancement", "question"},
 				"agent_mode":   {"agent:ready-trivial", "agent:ready-bounded", "agent:investigate-only", "needs:discussion"},
+				"priority":     {"priority:p0", "priority:p1", "priority:p2", "priority:p3"},
 				"quality_gate": {"needs-info"},
 			},
 			ImplementationLabels: []string{"agent:ready-trivial", "agent:ready-bounded"},

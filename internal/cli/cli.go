@@ -1692,7 +1692,7 @@ func writeQueueTOON(w io.Writer, snapshot queue.Snapshot) int {
 
 func writeQueueTOONFields(w io.Writer, snapshot queue.Snapshot, fields []string) int {
 	if len(fields) == 0 {
-		fields = []string{"number", "eligible", "action", "title", "reasons"}
+		fields = []string{"number", "eligible", "action", "priorityLabel", "title", "reasons"}
 	}
 	fmt.Fprintln(w, "kind: queueSnapshot")
 	fmt.Fprintf(w, "schemaVersion: %d\n", snapshot.SchemaVersion)
@@ -1827,6 +1827,9 @@ func writeNextCandidateLines(w io.Writer, key string, candidates []queue.NextCan
 		if candidate.CheckState != "" {
 			values = append(values, "checkState="+candidate.CheckState)
 		}
+		if candidate.PriorityLabel != "" {
+			values = append(values, "priorityLabel="+candidate.PriorityLabel)
+		}
 		fmt.Fprintf(w, "  - %s\n", strings.Join(values, " "))
 	}
 }
@@ -1888,7 +1891,7 @@ func parseFields(value string, allowed map[string]struct{}) ([]string, error) {
 }
 
 func queueFieldSet() map[string]struct{} {
-	return fieldSet("number", "title", "eligible", "action", "reasons", "linkedPrs")
+	return fieldSet("number", "title", "eligible", "action", "priorityLabel", "reasons", "linkedPrs")
 }
 
 func prFieldSet() map[string]struct{} {
@@ -1919,6 +1922,8 @@ func queueFieldValues(issue queue.IssueState, fields []string) []string {
 			values = append(values, fmt.Sprintf("eligible=%v", issue.Eligible))
 		case "action":
 			values = append(values, "action="+issue.Action)
+		case "priorityLabel":
+			values = append(values, "priorityLabel="+issue.PriorityLabel)
 		case "reasons":
 			values = append(values, "reasons="+strings.Join(issue.Reasons, "|"))
 		case "linkedPrs":

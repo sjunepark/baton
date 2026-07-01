@@ -214,7 +214,7 @@ Example:
 
 ```sh
 baton queue --format toon
-baton queue --fields number,title,action,reasons --format toon
+baton queue --fields number,title,action,priorityLabel,reasons --format toon
 baton queue --json
 ```
 
@@ -342,7 +342,8 @@ JSON result:
       "type": "issue",
       "number": 14,
       "title": "Investigate queue drift",
-      "url": "https://github.com/example-org/example-repo/issues/14"
+      "url": "https://github.com/example-org/example-repo/issues/14",
+      "priorityLabel": "priority:p2"
     }
   ],
   "blockedItems": [],
@@ -364,7 +365,8 @@ Allowed `selectedAction` values:
 - `none`
 
 `deferredEligibleItems[]` contains eligible work that Baton did not return in
-`candidates[]` because a higher-priority action or tier took precedence.
+`candidates[]` because a higher-priority action, tier, or configured issue
+priority took precedence. Issue candidates may include `priorityLabel`.
 
 ### `baton complete`
 

@@ -18,7 +18,8 @@ Common fields:
 - `selectionRequired`: whether multiple tied candidates require a choice.
 - `candidates[]`: the highest-priority tied candidates. PR candidates include
   number, title, URL, head ref, and base ref. Issue candidates include number,
-  title, and URL. Branch candidates include ref, SHA, and check state.
+  title, URL, and optional `priorityLabel`. Branch candidates include ref, SHA,
+  and check state.
 - `deferredEligibleItems[]`: eligible lower-priority work not returned in
   `candidates[]` for the selected tier.
 - `instructions`: operational constraints to follow, including caller-provided
@@ -28,6 +29,8 @@ Common fields:
 
 - `counts.eligibleByAction`: eligible issue counts keyed by action.
 - `issues[].eligible`: whether an issue can be started.
+- `issues[].priorityLabel`: the configured priority label Baton selected from
+  issue labels, when priority is enabled and present.
 - `issues[].reasons`: why it is eligible or skipped.
 - `issues[].linkedPrs`: active PRs already referencing that issue.
 - `pullRequests[].referencedIssues`: issue references found in PR title/body.

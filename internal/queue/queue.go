@@ -2,6 +2,7 @@ package queue
 
 import (
 	"fmt"
+	"math"
 	"sort"
 
 	"github.com/sjunepark/baton/internal/config"
@@ -54,11 +55,13 @@ type BranchHealth struct {
 }
 
 type IssueState struct {
-	Issue     Issue    `json:"issue"`
-	Eligible  bool     `json:"eligible"`
-	Action    string   `json:"action,omitempty"`
-	Reasons   []string `json:"reasons"`
-	LinkedPRs []int    `json:"linkedPrs"`
+	Issue         Issue    `json:"issue"`
+	Eligible      bool     `json:"eligible"`
+	Action        string   `json:"action,omitempty"`
+	PriorityLabel string   `json:"priorityLabel,omitempty"`
+	Reasons       []string `json:"reasons"`
+	LinkedPRs     []int    `json:"linkedPrs"`
+	priorityRank  int
 }
 
 type PullState struct {
@@ -81,15 +84,18 @@ type NextCandidates struct {
 }
 
 type NextCandidate struct {
-	Type       string `json:"type"`
-	Number     int    `json:"number,omitempty"`
-	Title      string `json:"title,omitempty"`
-	URL        string `json:"url,omitempty"`
-	HeadRef    string `json:"headRef,omitempty"`
-	BaseRef    string `json:"baseRef,omitempty"`
-	Ref        string `json:"ref,omitempty"`
-	SHA        string `json:"sha,omitempty"`
-	CheckState string `json:"checkState,omitempty"`
+	Type          string `json:"type"`
+	Number        int    `json:"number,omitempty"`
+	Title         string `json:"title,omitempty"`
+	URL           string `json:"url,omitempty"`
+	HeadRef       string `json:"headRef,omitempty"`
+	BaseRef       string `json:"baseRef,omitempty"`
+	Ref           string `json:"ref,omitempty"`
+	SHA           string `json:"sha,omitempty"`
+	CheckState    string `json:"checkState,omitempty"`
+	PriorityLabel string `json:"priorityLabel,omitempty"`
+	action        string
+	priorityRank  int
 }
 
 func BuildSnapshot(repo string, cfg config.Config, issues []Issue, prs []PullRequest) Snapshot {
@@ -117,6 +123,7 @@ func BuildSnapshotWithBranchHealth(repo string, cfg config.Config, issues []Issu
 		}
 		state := IssueState{Issue: issue, Eligible: true, Reasons: []string{}, LinkedPRs: linkedPRs}
 		labels := stringSet(issue.Labels)
+		state.PriorityLabel, state.priorityRank = issuePriority(cfg.IssuePolicy, labels)
 		if hasAny(labels, cfg.IssuePolicy.ImplementationLabels) {
 			state.Action = "issue-implementation"
 		} else if hasAny(labels, cfg.IssuePolicy.CommentOnlyLabels) {
@@ -201,8 +208,12 @@ func RecommendNext(snapshot Snapshot) NextCandidates {
 	implementationCandidates := issueCandidates(snapshot.Issues, "issue-implementation")
 	if len(implementationCandidates) > 0 {
 		sortCandidates(implementationCandidates)
-		return nextCandidates(snapshot.Repo, "issue-implementation", "eligible-issue", implementationCandidates,
-			deferredEligibleItems(snapshot, "issue-implementation", "eligible-issue"),
+		selectedCandidates, lowerPriorityCandidates := highestPriorityCandidates(implementationCandidates)
+		deferred := append([]NextCandidate{}, lowerPriorityCandidates...)
+		deferred = append(deferred, deferredEligibleItems(snapshot, "issue-implementation", "eligible-issue")...)
+		sortCandidates(deferred)
+		return nextCandidates(snapshot.Repo, "issue-implementation", "eligible-issue", selectedCandidates,
+			deferred,
 			[]string{"Choose exactly one candidate.", "Work in a caller-provided isolated checkout.", "Open a PR to the staging branch with Refs #<issue-number>.", "Do not merge."},
 		)
 	}
@@ -210,8 +221,10 @@ func RecommendNext(snapshot Snapshot) NextCandidates {
 	investigationCandidates := issueCandidates(snapshot.Issues, "issue-investigation")
 	if len(investigationCandidates) > 0 {
 		sortCandidates(investigationCandidates)
-		return nextCandidates(snapshot.Repo, "issue-investigation", "eligible-investigation", investigationCandidates,
-			deferredEligibleItems(snapshot, "issue-investigation", "eligible-investigation"),
+		selectedCandidates, lowerPriorityCandidates := highestPriorityCandidates(investigationCandidates)
+		sortCandidates(lowerPriorityCandidates)
+		return nextCandidates(snapshot.Repo, "issue-investigation", "eligible-investigation", selectedCandidates,
+			lowerPriorityCandidates,
 			[]string{"Choose exactly one candidate.", "Do not edit files unless the user explicitly changes scope.", "Inspect and comment with findings, evidence, and a recommended next label."},
 		)
 	}
@@ -222,6 +235,8 @@ func RecommendNext(snapshot Snapshot) NextCandidates {
 func RecommendNextInvestigation(snapshot Snapshot) NextCandidates {
 	candidates := issueCandidates(snapshot.Issues, "issue-investigation")
 	sortCandidates(candidates)
+	selectedCandidates, lowerPriorityCandidates := highestPriorityCandidates(candidates)
+	sortCandidates(lowerPriorityCandidates)
 	instructions := []string{"Choose exactly one candidate from the requested action."}
 	if len(candidates) == 0 {
 		instructions = []string{"Run `baton queue --format toon` to inspect eligible and skipped issues."}
@@ -233,7 +248,7 @@ func RecommendNextInvestigation(snapshot Snapshot) NextCandidates {
 	if len(candidates) == 0 {
 		reason = "no eligible candidates for requested action"
 	}
-	return nextCandidates(snapshot.Repo, "issue-investigation", reason, candidates, []NextCandidate{}, instructions)
+	return nextCandidates(snapshot.Repo, "issue-investigation", reason, selectedCandidates, lowerPriorityCandidates, instructions)
 }
 
 func prFollowupReason(state string) string {
@@ -263,10 +278,13 @@ func issueCandidates(issues []IssueState, action string) []NextCandidate {
 			continue
 		}
 		candidates = append(candidates, NextCandidate{
-			Type:   "issue",
-			Number: issue.Issue.Number,
-			Title:  issue.Issue.Title,
-			URL:    issue.Issue.URL,
+			Type:          "issue",
+			Number:        issue.Issue.Number,
+			Title:         issue.Issue.Title,
+			URL:           issue.Issue.URL,
+			PriorityLabel: issue.PriorityLabel,
+			action:        issue.Action,
+			priorityRank:  issue.priorityRank,
 		})
 	}
 	return candidates
@@ -330,7 +348,7 @@ func prFollowupRank(reason string) int {
 	}
 }
 
-func selectionReason(action, reason string, deferred []NextCandidate) string {
+func selectionReason(action, reason string, candidates, deferred []NextCandidate) string {
 	if len(deferred) == 0 {
 		return reason
 	}
@@ -340,7 +358,15 @@ func selectionReason(action, reason string, deferred []NextCandidate) string {
 	case "pr-followup":
 		return reason + "-precedes-lower-priority-work"
 	case "issue-implementation":
+		if hasLowerPrioritySameTier(candidates, deferred) {
+			return "issue-priority-precedes-lower-priority-work"
+		}
 		return "implementation-work-precedes-investigation"
+	case "issue-investigation":
+		if hasLowerPrioritySameTier(candidates, deferred) {
+			return "issue-priority-precedes-lower-priority-work"
+		}
+		return reason
 	default:
 		return reason
 	}
@@ -353,7 +379,7 @@ func nextCandidates(repo, action, reason string, candidates, deferred []NextCand
 		SelectedAction:        action,
 		Repo:                  repo,
 		Reason:                reason,
-		SelectionReason:       selectionReason(action, reason, deferred),
+		SelectionReason:       selectionReason(action, reason, candidates, deferred),
 		SelectionRequired:     len(candidates) > 1,
 		Candidates:            candidates,
 		DeferredEligibleItems: deferred,
@@ -364,8 +390,69 @@ func nextCandidates(repo, action, reason string, candidates, deferred []NextCand
 
 func sortCandidates(candidates []NextCandidate) {
 	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].Type == "issue" && candidates[j].Type == "issue" {
+			if prioritySortRank(candidates[i]) != prioritySortRank(candidates[j]) {
+				return prioritySortRank(candidates[i]) < prioritySortRank(candidates[j])
+			}
+		}
 		return candidates[i].Number < candidates[j].Number
 	})
+}
+
+func highestPriorityCandidates(candidates []NextCandidate) ([]NextCandidate, []NextCandidate) {
+	if len(candidates) == 0 {
+		return candidates, nil
+	}
+	bestRank := prioritySortRank(candidates[0])
+	if bestRank == math.MaxInt {
+		return candidates, nil
+	}
+	selected := []NextCandidate{}
+	lowerPriority := []NextCandidate{}
+	for _, candidate := range candidates {
+		if prioritySortRank(candidate) == bestRank {
+			selected = append(selected, candidate)
+			continue
+		}
+		lowerPriority = append(lowerPriority, candidate)
+	}
+	return selected, lowerPriority
+}
+
+func prioritySortRank(candidate NextCandidate) int {
+	if candidate.priorityRank > 0 {
+		return candidate.priorityRank
+	}
+	return math.MaxInt
+}
+
+func hasLowerPrioritySameTier(candidates, deferred []NextCandidate) bool {
+	if len(candidates) == 0 {
+		return false
+	}
+	for _, candidate := range candidates {
+		if candidate.action == "" {
+			continue
+		}
+		for _, item := range deferred {
+			if item.Type == "issue" && item.action == candidate.action && prioritySortRank(item) > prioritySortRank(candidate) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func issuePriority(issuePolicy config.IssuePolicy, labels map[string]struct{}) (string, int) {
+	if len(issuePolicy.PriorityLabels) == 0 {
+		return "", 0
+	}
+	for index, label := range issuePolicy.ControlledLabelGroups["priority"] {
+		if _, ok := labels[label]; ok {
+			return label, index + 1
+		}
+	}
+	return "", 0
 }
 
 func referencedIssues(pr PullRequest) []int {

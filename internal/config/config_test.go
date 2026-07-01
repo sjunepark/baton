@@ -26,6 +26,50 @@ func TestLoadLegacyIssuePolicy(t *testing.T) {
 	if got := cfg.IssuePolicy.ImplementationLabels; len(got) != 2 || got[0] != "agent:ready-trivial" || got[1] != "agent:ready-bounded" {
 		t.Fatalf("implementation labels = %#v", got)
 	}
+	if len(cfg.IssuePolicy.PriorityLabels) != 0 {
+		t.Fatalf("legacy config unexpectedly enabled priority: %#v", cfg.IssuePolicy.PriorityLabels)
+	}
+	if _, ok := cfg.IssuePolicy.ControlledLabelGroups["priority"]; ok {
+		t.Fatalf("legacy config unexpectedly added priority controlled group: %#v", cfg.IssuePolicy.ControlledLabelGroups["priority"])
+	}
+}
+
+func TestDefaultConfigIncludesPriorityPolicy(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.IssuePolicy.FormSections["priority"] != "Priority" {
+		t.Fatalf("priority form section = %q", cfg.IssuePolicy.FormSections["priority"])
+	}
+	if cfg.IssuePolicy.PriorityLabels["P0"] != "priority:p0" || cfg.IssuePolicy.PriorityLabels["P3"] != "priority:p3" {
+		t.Fatalf("priority labels = %#v", cfg.IssuePolicy.PriorityLabels)
+	}
+	wantGroup := []string{"priority:p0", "priority:p1", "priority:p2", "priority:p3"}
+	gotGroup := cfg.IssuePolicy.ControlledLabelGroups["priority"]
+	if len(gotGroup) != len(wantGroup) {
+		t.Fatalf("priority group = %#v", gotGroup)
+	}
+	for i := range wantGroup {
+		if gotGroup[i] != wantGroup[i] {
+			t.Fatalf("priority group = %#v, want %#v", gotGroup, wantGroup)
+		}
+	}
+}
+
+func TestLoadOldBatonConfigWithoutPriorityDoesNotEnablePriority(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "baton.yml")
+	if err := os.WriteFile(path, []byte(oldBatonPolicyYAML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.IssuePolicy.PriorityLabels) != 0 {
+		t.Fatalf("old Baton config unexpectedly enabled priority: %#v", cfg.IssuePolicy.PriorityLabels)
+	}
+	if _, ok := cfg.IssuePolicy.FormSections["priority"]; ok {
+		t.Fatalf("old Baton config unexpectedly added priority form section")
+	}
 }
 
 func TestValidateRejectsUnknownRequiredSection(t *testing.T) {
@@ -33,6 +77,41 @@ func TestValidateRejectsUnknownRequiredSection(t *testing.T) {
 	cfg.IssuePolicy.RequiredSections["ready-trivial"] = []string{"missing"}
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("expected validation error")
+	}
+}
+
+func TestValidateRejectsInvalidPriorityMappings(t *testing.T) {
+	tests := []struct {
+		name string
+		edit func(*Config)
+	}{
+		{
+			name: "missing form section",
+			edit: func(cfg *Config) {
+				delete(cfg.IssuePolicy.FormSections, "priority")
+			},
+		},
+		{
+			name: "mapped label outside controlled group",
+			edit: func(cfg *Config) {
+				cfg.IssuePolicy.PriorityLabels["P0"] = "priority:urgent"
+			},
+		},
+		{
+			name: "controlled label without mapping",
+			edit: func(cfg *Config) {
+				cfg.IssuePolicy.ControlledLabelGroups["priority"] = append(cfg.IssuePolicy.ControlledLabelGroups["priority"], "priority:p4")
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			tt.edit(&cfg)
+			if err := cfg.Validate(); err == nil {
+				t.Fatal("expected validation error")
+			}
+		})
 	}
 }
 
@@ -159,4 +238,47 @@ required_sections:
     - summary
     - context_evidence
     - acceptance_criteria
+`
+
+const oldBatonPolicyYAML = `version: 1
+repository:
+  default_remote: origin
+  base_branch: main
+  staging_branch: agent
+  work_branch_prefix: agent-work/
+issue_policy:
+  policy_comment_marker: '<!-- baton-issue-policy:v1 -->'
+  form_sections:
+    work_kind: Work kind
+    agent_mode: Agent mode
+    summary: Summary
+    context_evidence: Context / evidence
+    acceptance_criteria: Acceptance criteria
+  work_kind_labels:
+    Bug: bug
+  agent_mode_labels:
+    Ready trivial: agent:ready-trivial
+  controlled_label_groups:
+    work_kind:
+      - bug
+    agent_mode:
+      - agent:ready-trivial
+    quality_gate:
+      - needs-info
+  implementation_labels:
+    - agent:ready-trivial
+  comment_only_labels: []
+  skip_labels:
+    - needs-info
+  required_sections:
+    ready-trivial:
+      - summary
+      - context_evidence
+      - acceptance_criteria
+pr_policy:
+  required_reference_keyword: Refs
+labels:
+  manifest: .github/labels.yml
+automation:
+  prefer_pr_followup_before_issue_intake: true
 `

@@ -44,6 +44,17 @@ func TestBuildSnapshotEligibility(t *testing.T) {
 	}
 }
 
+func TestBuildSnapshotUsesHighestConfiguredPriorityLabel(t *testing.T) {
+	cfg := config.DefaultConfig()
+	snapshot := BuildSnapshot("example-org/example-repo", cfg,
+		[]Issue{{Number: 1, URL: "https://example/1", Labels: []string{"agent:ready-trivial", "priority:p3", "priority:p0"}}},
+		nil,
+	)
+	if got := snapshot.Issues[0].PriorityLabel; got != "priority:p0" {
+		t.Fatalf("priority label = %q", got)
+	}
+}
+
 func TestBuildSnapshotInvestigationHelpDoesNotSuggestWorkBranch(t *testing.T) {
 	cfg := config.DefaultConfig()
 	snapshot := BuildSnapshot("example-org/example-repo", cfg,
@@ -167,6 +178,50 @@ func TestRecommendNextIssueImplementationCandidates(t *testing.T) {
 	}
 }
 
+func TestRecommendNextReturnsOnlyHighestPriorityImplementationCandidates(t *testing.T) {
+	cfg := config.DefaultConfig()
+	snapshot := BuildSnapshot("example-org/example-repo", cfg,
+		[]Issue{
+			{Number: 3, URL: "https://example/3", Title: "P0 third", Labels: []string{"agent:ready-trivial", "priority:p0"}},
+			{Number: 1, URL: "https://example/1", Title: "P2 first", Labels: []string{"agent:ready-trivial", "priority:p2"}},
+			{Number: 5, URL: "https://example/5", Title: "P0 fifth", Labels: []string{"agent:ready-bounded", "priority:p0"}},
+		},
+		nil,
+	)
+	next := RecommendNext(snapshot)
+	if next.SelectedAction != "issue-implementation" || len(next.Candidates) != 2 || !next.SelectionRequired {
+		t.Fatalf("next = %#v", next)
+	}
+	if next.Candidates[0].Number != 3 || next.Candidates[0].PriorityLabel != "priority:p0" ||
+		next.Candidates[1].Number != 5 || next.Candidates[1].PriorityLabel != "priority:p0" {
+		t.Fatalf("candidates = %#v", next.Candidates)
+	}
+	if len(next.DeferredEligibleItems) != 1 || next.DeferredEligibleItems[0].Number != 1 || next.DeferredEligibleItems[0].PriorityLabel != "priority:p2" {
+		t.Fatalf("deferred = %#v", next.DeferredEligibleItems)
+	}
+	if next.SelectionReason != "issue-priority-precedes-lower-priority-work" {
+		t.Fatalf("selection reason = %q", next.SelectionReason)
+	}
+}
+
+func TestRecommendNextSortsUnprioritizedIssuesAfterConfiguredPriorities(t *testing.T) {
+	cfg := config.DefaultConfig()
+	snapshot := BuildSnapshot("example-org/example-repo", cfg,
+		[]Issue{
+			{Number: 1, URL: "https://example/1", Labels: []string{"agent:ready-trivial"}},
+			{Number: 2, URL: "https://example/2", Labels: []string{"agent:ready-trivial", "priority:p1"}},
+		},
+		nil,
+	)
+	next := RecommendNext(snapshot)
+	if len(next.Candidates) != 1 || next.Candidates[0].Number != 2 {
+		t.Fatalf("next = %#v", next)
+	}
+	if len(next.DeferredEligibleItems) != 1 || next.DeferredEligibleItems[0].Number != 1 || next.DeferredEligibleItems[0].PriorityLabel != "" {
+		t.Fatalf("deferred = %#v", next.DeferredEligibleItems)
+	}
+}
+
 func TestRecommendNextImplementationIssuesOutrankInvestigationIssues(t *testing.T) {
 	snapshot := Snapshot{
 		SchemaVersion: 1,
@@ -186,6 +241,46 @@ func TestRecommendNextImplementationIssuesOutrankInvestigationIssues(t *testing.
 	}
 }
 
+func TestRecommendNextImplementationTierOutranksHigherPriorityInvestigation(t *testing.T) {
+	cfg := config.DefaultConfig()
+	snapshot := BuildSnapshot("example-org/example-repo", cfg,
+		[]Issue{
+			{Number: 1, URL: "https://example/1", Labels: []string{"agent:investigate-only", "priority:p0"}},
+			{Number: 2, URL: "https://example/2", Labels: []string{"agent:ready-trivial", "priority:p2"}},
+		},
+		nil,
+	)
+	next := RecommendNext(snapshot)
+	if next.SelectedAction != "issue-implementation" || len(next.Candidates) != 1 || next.Candidates[0].Number != 2 {
+		t.Fatalf("next = %#v", next)
+	}
+	if len(next.DeferredEligibleItems) != 1 || next.DeferredEligibleItems[0].Number != 1 {
+		t.Fatalf("deferred = %#v", next.DeferredEligibleItems)
+	}
+}
+
+func TestRecommendNextBranchHealthAndPRFollowupOutrankIssuePriority(t *testing.T) {
+	cfg := config.DefaultConfig()
+	branchSnapshot := BuildSnapshotWithBranchHealth("example-org/example-repo", cfg,
+		[]Issue{{Number: 1, URL: "https://example/1", Labels: []string{"agent:ready-trivial", "priority:p0"}}},
+		nil,
+		&BranchHealth{Ref: "agent", SHA: "abc", CheckState: "failure"},
+	)
+	branchNext := RecommendNext(branchSnapshot)
+	if branchNext.SelectedAction != "branch-health" {
+		t.Fatalf("branch next = %#v", branchNext)
+	}
+
+	prSnapshot := BuildSnapshot("example-org/example-repo", cfg,
+		[]Issue{{Number: 1, URL: "https://example/1", Labels: []string{"agent:ready-trivial", "priority:p0"}}},
+		[]PullRequest{{Number: 10, URL: "https://example/pr/10", BaseRef: "agent", HeadRef: "agent-work/10", CheckState: "success"}},
+	)
+	prNext := RecommendNext(prSnapshot)
+	if prNext.SelectedAction != "pr-followup" || prNext.Candidates[0].Number != 10 {
+		t.Fatalf("pr next = %#v", prNext)
+	}
+}
+
 func TestRecommendNextForRequestedInvestigationAction(t *testing.T) {
 	snapshot := Snapshot{
 		SchemaVersion: 1,
@@ -202,6 +297,24 @@ func TestRecommendNextForRequestedInvestigationAction(t *testing.T) {
 	}
 	if len(next.DeferredEligibleItems) != 0 {
 		t.Fatalf("requested action should not defer unrelated work: %#v", next.DeferredEligibleItems)
+	}
+}
+
+func TestRecommendNextInvestigationReturnsOnlyHighestPriorityCandidates(t *testing.T) {
+	cfg := config.DefaultConfig()
+	snapshot := BuildSnapshot("example-org/example-repo", cfg,
+		[]Issue{
+			{Number: 1, URL: "https://example/1", Labels: []string{"agent:investigate-only", "priority:p3"}},
+			{Number: 2, URL: "https://example/2", Labels: []string{"agent:investigate-only", "priority:p1"}},
+		},
+		nil,
+	)
+	next := RecommendNextInvestigation(snapshot)
+	if len(next.Candidates) != 1 || next.Candidates[0].Number != 2 {
+		t.Fatalf("next = %#v", next)
+	}
+	if len(next.DeferredEligibleItems) != 1 || next.DeferredEligibleItems[0].Number != 1 {
+		t.Fatalf("deferred = %#v", next.DeferredEligibleItems)
 	}
 }
 

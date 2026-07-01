@@ -33,6 +33,7 @@ issue_policy:
   form_sections:
     work_kind: Work kind
     agent_mode: Agent mode
+    priority: Priority
     summary: Summary
     context_evidence: Context / evidence
     acceptance_criteria: Acceptance criteria
@@ -49,6 +50,11 @@ issue_policy:
     Ready bounded: agent:ready-bounded
     Investigate only: agent:investigate-only
     Needs discussion: needs:discussion
+  priority_labels:
+    P0: priority:p0
+    P1: priority:p1
+    P2: priority:p2
+    P3: priority:p3
   controlled_label_groups:
     work_kind:
       - bug
@@ -60,6 +66,11 @@ issue_policy:
       - agent:ready-bounded
       - agent:investigate-only
       - needs:discussion
+    priority:
+      - priority:p0
+      - priority:p1
+      - priority:p2
+      - priority:p3
     quality_gate:
       - needs-info
   implementation_labels:
@@ -129,6 +140,9 @@ Required for v1:
 Optional fields use the defaults shown in the top-level shape unless a command
 documents a narrower bootstrap behavior.
 
+`issue_policy.priority_labels` is optional for existing configs. When omitted,
+Baton does not require a Priority form field or apply priority queue ordering.
+
 `pr_policy.allow_direct_base_branch_prs` controls ordinary PRs directly into
 `repository.base_branch` from branches outside Baton's work branch prefix. When
 true, Baton skips those direct PRs and leaves review, CI, and branch protection
@@ -145,6 +159,7 @@ Creo `.github/agent-issue-policy.yml` maps as:
 - `form_sections` -> `issue_policy.form_sections`
 - `work_kind_labels` -> `issue_policy.work_kind_labels`
 - `agent_mode_labels` -> `issue_policy.agent_mode_labels`
+- `priority_labels` -> `issue_policy.priority_labels` when present
 - `controlled_label_groups` -> `issue_policy.controlled_label_groups`
 - `implementation_labels` -> `issue_policy.implementation_labels`
 - `comment_only_labels` -> `issue_policy.comment_only_labels`
@@ -160,6 +175,9 @@ Creo `.github/agent-issue-policy.yml` maps as:
 - Every implementation label must appear in an agent-mode label mapping or be
   marked as externally managed.
 - Every required section ID must exist in `form_sections`.
+- When `issue_policy.priority_labels` is present, `form_sections.priority` and
+  `controlled_label_groups.priority` are required. Priority label mappings must
+  exactly match the controlled priority labels, whose order defines queue rank.
 - The policy marker must be stable once deployed, otherwise old policy comments
   cannot be updated in place.
 

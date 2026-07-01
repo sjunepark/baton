@@ -129,3 +129,38 @@ func TestIssueTemplateWorkKindsAreMappedInDefaultConfig(t *testing.T) {
 	}
 	t.Fatal("work_kind field not found in issue template")
 }
+
+func TestIssueTemplatePrioritiesAreMappedInDefaultConfig(t *testing.T) {
+	content, err := templateContent(".github/ISSUE_TEMPLATE/agent-work.yml", Options{}.withDefaults())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var issueTemplate struct {
+		Body []struct {
+			ID         string `yaml:"id"`
+			Attributes struct {
+				Options []string `yaml:"options"`
+				Default int      `yaml:"default"`
+			} `yaml:"attributes"`
+		} `yaml:"body"`
+	}
+	if err := yaml.Unmarshal(content, &issueTemplate); err != nil {
+		t.Fatal(err)
+	}
+	defaults := config.DefaultConfig()
+	for _, field := range issueTemplate.Body {
+		if field.ID != "priority" {
+			continue
+		}
+		if field.Attributes.Default != 2 {
+			t.Fatalf("priority default = %d, want P2 index 2", field.Attributes.Default)
+		}
+		for _, option := range field.Attributes.Options {
+			if defaults.IssuePolicy.PriorityLabels[option] == "" {
+				t.Fatalf("priority option %q has no default label mapping", option)
+			}
+		}
+		return
+	}
+	t.Fatal("priority field not found in issue template")
+}

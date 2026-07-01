@@ -12,6 +12,7 @@ issue_policy:
   form_sections:
     work_kind: Work kind
     agent_mode: Agent mode
+    priority: Priority
     summary: Summary
     context_evidence: Context / evidence
     acceptance_criteria: Acceptance criteria
@@ -28,6 +29,11 @@ issue_policy:
     Ready bounded: agent:ready-bounded
     Investigate only: agent:investigate-only
     Needs discussion: needs:discussion
+  priority_labels:
+    P0: priority:p0
+    P1: priority:p1
+    P2: priority:p2
+    P3: priority:p3
   controlled_label_groups:
     work_kind:
       - bug
@@ -39,6 +45,11 @@ issue_policy:
       - agent:ready-bounded
       - agent:investigate-only
       - needs:discussion
+    priority:
+      - priority:p0
+      - priority:p1
+      - priority:p2
+      - priority:p3
     quality_gate:
       - agent:blocked
   implementation_labels:

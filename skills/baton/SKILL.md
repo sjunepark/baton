@@ -80,6 +80,8 @@ argument.
   - Ready bounded: scoped implementation work with clear acceptance criteria.
   - Investigate only: research/report only.
   - Needs discussion: human decision required before implementation.
+- Set Priority to P2 for ordinary todos unless the user explicitly indicates
+  urgent, blocking, or lower-priority work.
 - Do not mark vague work as ready for implementation.
 - Do not create branches or PRs when only asked to create todos.
 - For detailed todo-creation prompts, read `references/todo-creation.md`.
