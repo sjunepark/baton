@@ -192,7 +192,7 @@ func TestTOONRenderersStable(t *testing.T) {
 		SchemaVersion: 1,
 		Kind:          "queueSnapshot",
 		Repo:          "example/repo",
-		Counts:        queue.SnapshotCounts{TotalIssues: 1, EligibleIssues: 1, OpenPullRequests: 0},
+		Counts:        queue.SnapshotCounts{TotalIssues: 1, EligibleIssues: 1, EligibleByAction: map[string]int{"issue-implementation": 1}, OpenPullRequests: 0},
 		Issues: []queue.IssueState{{
 			Issue:    queue.Issue{Number: 7, Title: "Fix flaky test"},
 			Eligible: true,
@@ -202,7 +202,7 @@ func TestTOONRenderersStable(t *testing.T) {
 		Help: []string{"Run `baton next --format toon`."},
 	}
 	writeQueueTOON(&stdout, snapshot)
-	wantQueue := "kind: queueSnapshot\nschemaVersion: 1\nrepo: example/repo\ncounts.totalIssues: 1\ncounts.eligibleIssues: 1\ncounts.skippedIssues: 0\ncounts.openPullRequests: 0\nissues[1]:\n  - number=7 eligible=true action=issue-implementation title=Fix flaky test reasons=eligible\nhelp[1]:\n  - Run `baton next --format toon`.\n"
+	wantQueue := "kind: queueSnapshot\nschemaVersion: 1\nrepo: example/repo\ncounts.totalIssues: 1\ncounts.eligibleIssues: 1\ncounts.eligibleByAction.issue-implementation: 1\ncounts.skippedIssues: 0\ncounts.openPullRequests: 0\nissues[1]:\n  - number=7 eligible=true action=issue-implementation title=Fix flaky test reasons=eligible\nhelp[1]:\n  - Run `baton next --format toon`.\n"
 	if stdout.String() != wantQueue {
 		t.Fatalf("queue toon = %q\nwant %q", stdout.String(), wantQueue)
 	}
@@ -230,18 +230,25 @@ func TestTOONRenderersStable(t *testing.T) {
 		SchemaVersion:     2,
 		Kind:              "nextCandidates",
 		Repo:              "example/repo",
-		Action:            "issue-implementation",
+		SelectedAction:    "issue-implementation",
 		Reason:            "eligible-issue",
+		SelectionReason:   "implementation-work-precedes-investigation",
 		SelectionRequired: true,
 		Candidates: []queue.NextCandidate{
 			{Type: "issue", Number: 7, Title: "Fix flaky test"},
 			{Type: "issue", Number: 9, Title: "Update docs"},
 		},
+		DeferredEligibleItems: []queue.NextCandidate{
+			{Type: "issue", Number: 11, Title: "Investigate flaky env"},
+		},
 		Instructions: []string{"Choose exactly one candidate."},
 	})
 	if !strings.Contains(stdout.String(), "kind: nextCandidates\n") ||
+		!strings.Contains(stdout.String(), "selectedAction: issue-implementation\n") ||
+		!strings.Contains(stdout.String(), "selectionReason: implementation-work-precedes-investigation\n") ||
 		!strings.Contains(stdout.String(), "selectionRequired: true\n") ||
 		!strings.Contains(stdout.String(), "candidates[2]:\n  - type=issue number=7 title=Fix flaky test\n  - type=issue number=9 title=Update docs\n") ||
+		!strings.Contains(stdout.String(), "deferredEligibleItems[1]:\n  - type=issue number=11 title=Investigate flaky env\n") ||
 		!strings.Contains(stdout.String(), "instructions[1]:\n  - Choose exactly one candidate.\n") {
 		t.Fatalf("next toon = %q", stdout.String())
 	}

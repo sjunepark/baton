@@ -36,8 +36,22 @@ func TestBuildSnapshotEligibility(t *testing.T) {
 	if snapshot.Counts.TotalIssues != 4 || snapshot.Counts.EligibleIssues != 1 || snapshot.Counts.SkippedIssues != 3 || snapshot.Counts.OpenPullRequests != 1 {
 		t.Fatalf("counts = %#v", snapshot.Counts)
 	}
+	if snapshot.Counts.EligibleByAction["issue-investigation"] != 1 {
+		t.Fatalf("eligible by action = %#v", snapshot.Counts.EligibleByAction)
+	}
 	if len(snapshot.Help) == 0 {
 		t.Fatal("snapshot help should include next commands")
+	}
+}
+
+func TestBuildSnapshotInvestigationHelpDoesNotSuggestWorkBranch(t *testing.T) {
+	cfg := config.DefaultConfig()
+	snapshot := BuildSnapshot("example-org/example-repo", cfg,
+		[]Issue{{Number: 4, URL: "https://example/4", Labels: []string{"agent:investigate-only"}}},
+		nil,
+	)
+	if len(snapshot.Help) < 2 || snapshot.Help[1] != "Run `baton next --action issue-investigation --format toon` to select investigation work." {
+		t.Fatalf("help = %#v", snapshot.Help)
 	}
 }
 
@@ -56,7 +70,7 @@ func TestRecommendNextReturnsFailingPRCandidatesBeforeIssues(t *testing.T) {
 		}},
 	}
 	next := RecommendNext(snapshot)
-	if next.Action != "pr-followup" || next.Reason != "failing-checks" || len(next.Candidates) != 2 || !next.SelectionRequired {
+	if next.SelectedAction != "pr-followup" || next.Reason != "failing-checks" || len(next.Candidates) != 2 || !next.SelectionRequired {
 		t.Fatalf("next = %#v", next)
 	}
 	if next.Candidates[0].Number != 10 || next.Candidates[1].Number != 12 {
@@ -77,7 +91,7 @@ func TestRecommendNextReturnsSuccessfulPRCandidatesBeforeIssues(t *testing.T) {
 		}},
 	}
 	next := RecommendNext(snapshot)
-	if next.Action != "pr-followup" || next.Reason != "ready-for-review" || len(next.Candidates) != 1 || next.Candidates[0].Number != 10 {
+	if next.SelectedAction != "pr-followup" || next.Reason != "ready-for-review" || len(next.Candidates) != 1 || next.Candidates[0].Number != 10 {
 		t.Fatalf("next = %#v", next)
 	}
 }
@@ -96,7 +110,7 @@ func TestRecommendNextReturnsPendingPRCandidatesWhenNoFailures(t *testing.T) {
 		}},
 	}
 	next := RecommendNext(snapshot)
-	if next.Action != "pr-followup" || next.Reason != "pending-checks" || len(next.Candidates) != 2 {
+	if next.SelectedAction != "pr-followup" || next.Reason != "pending-checks" || len(next.Candidates) != 2 {
 		t.Fatalf("next = %#v", next)
 	}
 	if next.Candidates[0].Number != 10 || next.Candidates[1].Number != 11 {
@@ -113,7 +127,7 @@ func TestRecommendNextPrefersBranchHealthBeforeIssue(t *testing.T) {
 		Issues:        []IssueState{{Issue: Issue{Number: 1, URL: "https://example/1"}, Eligible: true, Action: "issue-implementation"}},
 	}
 	next := RecommendNext(snapshot)
-	if next.Action != "branch-health" || len(next.Candidates) != 1 || next.Candidates[0].Type != "branch" || next.Candidates[0].Ref != "agent" {
+	if next.SelectedAction != "branch-health" || len(next.Candidates) != 1 || next.Candidates[0].Type != "branch" || next.Candidates[0].Ref != "agent" {
 		t.Fatalf("next = %#v", next)
 	}
 }
@@ -129,7 +143,7 @@ func TestRecommendNextPrefersBranchHealthBeforePRFollowup(t *testing.T) {
 		}},
 	}
 	next := RecommendNext(snapshot)
-	if next.Action != "branch-health" {
+	if next.SelectedAction != "branch-health" {
 		t.Fatalf("next = %#v", next)
 	}
 }
@@ -145,7 +159,7 @@ func TestRecommendNextIssueImplementationCandidates(t *testing.T) {
 		},
 	}
 	next := RecommendNext(snapshot)
-	if next.Action != "issue-implementation" || next.Reason != "eligible-issue" || len(next.Candidates) != 2 || !next.SelectionRequired {
+	if next.SelectedAction != "issue-implementation" || next.Reason != "eligible-issue" || len(next.Candidates) != 2 || !next.SelectionRequired {
 		t.Fatalf("next = %#v", next)
 	}
 	if next.Candidates[0].Number != 1 || next.Candidates[1].Number != 3 {
@@ -164,8 +178,30 @@ func TestRecommendNextImplementationIssuesOutrankInvestigationIssues(t *testing.
 		},
 	}
 	next := RecommendNext(snapshot)
-	if next.Action != "issue-implementation" || len(next.Candidates) != 1 || next.Candidates[0].Number != 2 {
+	if next.SelectedAction != "issue-implementation" || len(next.Candidates) != 1 || next.Candidates[0].Number != 2 {
 		t.Fatalf("next = %#v", next)
+	}
+	if next.SelectionReason != "implementation-work-precedes-investigation" || len(next.DeferredEligibleItems) != 1 || next.DeferredEligibleItems[0].Number != 1 {
+		t.Fatalf("deferred selection metadata = %#v", next)
+	}
+}
+
+func TestRecommendNextForRequestedInvestigationAction(t *testing.T) {
+	snapshot := Snapshot{
+		SchemaVersion: 1,
+		Kind:          "queueSnapshot",
+		Repo:          "example-org/example-repo",
+		Issues: []IssueState{
+			{Issue: Issue{Number: 1, URL: "https://example/1"}, Eligible: true, Action: "issue-investigation"},
+			{Issue: Issue{Number: 2, URL: "https://example/2"}, Eligible: true, Action: "issue-implementation"},
+		},
+	}
+	next := RecommendNextInvestigation(snapshot)
+	if next.SelectedAction != "issue-investigation" || next.Reason != "requested-action" || len(next.Candidates) != 1 || next.Candidates[0].Number != 1 {
+		t.Fatalf("next = %#v", next)
+	}
+	if len(next.DeferredEligibleItems) != 0 {
+		t.Fatalf("requested action should not defer unrelated work: %#v", next.DeferredEligibleItems)
 	}
 }
 
@@ -180,14 +216,14 @@ func TestRecommendNextIssueInvestigationCandidates(t *testing.T) {
 		},
 	}
 	next := RecommendNext(snapshot)
-	if next.Action != "issue-investigation" || next.Reason != "eligible-investigation" || len(next.Candidates) != 2 {
+	if next.SelectedAction != "issue-investigation" || next.Reason != "eligible-investigation" || len(next.Candidates) != 2 {
 		t.Fatalf("next = %#v", next)
 	}
 }
 
 func TestRecommendNextNoWorkHasEmptyCandidates(t *testing.T) {
 	next := RecommendNext(Snapshot{SchemaVersion: 1, Kind: "queueSnapshot", Repo: "example-org/example-repo"})
-	if next.Action != "none" || next.SelectionRequired || len(next.Candidates) != 0 {
+	if next.SelectedAction != "none" || next.SelectionRequired || len(next.Candidates) != 0 {
 		t.Fatalf("next = %#v", next)
 	}
 }
@@ -209,6 +245,12 @@ func TestRecommendNextJSONOmitsLegacySingularFields(t *testing.T) {
 	}
 	if fields["kind"] != "nextCandidates" || fields["schemaVersion"].(float64) != 2 {
 		t.Fatalf("fields = %#v", fields)
+	}
+	if fields["selectedAction"] != "issue-implementation" {
+		t.Fatalf("selectedAction missing: %s", content)
+	}
+	if _, ok := fields["action"]; ok {
+		t.Fatalf("legacy action field present: %s", content)
 	}
 	if _, ok := fields["pr"]; ok {
 		t.Fatalf("legacy pr field present: %s", content)

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -478,9 +479,9 @@ var commandHelps = map[string]commandHelp{
 	},
 	"next": {
 		Purpose:  "Return the next Baton candidate set from queue and PR state.",
-		Usage:    "baton next [--repo owner/name] [--config <path>] [--format text|json|toon] [--json]",
-		Flags:    []string{"--repo: GitHub repository owner/name", "--config: policy config path", "--format: output format text, json, or toon", "--json: emit structured JSON"},
-		Examples: []string{"baton next --format toon"},
+		Usage:    "baton next [--repo owner/name] [--config <path>] [--action issue-investigation] [--format text|json|toon] [--json]",
+		Flags:    []string{"--repo: GitHub repository owner/name", "--config: policy config path", "--action: inspect eligible investigation candidates instead of default automation priority", "--format: output format text, json, or toon", "--json: emit structured JSON"},
+		Examples: []string{"baton next --format toon", "baton next --action issue-investigation --format toon"},
 		Related:  []string{"baton queue --json", "baton prs --json"},
 	},
 	"complete": {
@@ -1124,6 +1125,7 @@ func runNext(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	repoFlag := fs.String("repo", "", "GitHub repository owner/name")
 	configPath := fs.String("config", "", "policy config path")
+	actionFlag := fs.String("action", "", "issue action to inspect")
 	formats := addFormatFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
@@ -1132,18 +1134,24 @@ func runNext(args []string, stdout, stderr io.Writer) int {
 	if code != exitOK {
 		return code
 	}
+	if *actionFlag != "" && *actionFlag != "issue-investigation" {
+		return out.ErrorMessage(exitUsage, "next --action currently supports issue-investigation only", "Run `baton next --action issue-investigation --format toon`.")
+	}
 	snapshot, code := fetchQueueSnapshot(*repoFlag, *configPath, true, out)
 	if code != exitOK {
 		return code
 	}
 	next := queue.RecommendNext(snapshot)
+	if *actionFlag == "issue-investigation" {
+		next = queue.RecommendNextInvestigation(snapshot)
+	}
 	if format == formatJSON {
 		return out.JSON(next)
 	}
 	if format == formatTOON {
 		return writeNextTOON(stdout, next)
 	}
-	fmt.Fprintf(stdout, "Next action: %s\nReason: %s\nCandidates: %d\n", next.Action, next.Reason, len(next.Candidates))
+	fmt.Fprintf(stdout, "Next action: %s\nReason: %s\nCandidates: %d\n", next.SelectedAction, next.Reason, len(next.Candidates))
 	for _, candidate := range next.Candidates {
 		if candidate.Number != 0 {
 			fmt.Fprintf(stdout, "- %s #%d %s\n", candidate.Type, candidate.Number, candidate.Title)
@@ -1691,6 +1699,7 @@ func writeQueueTOONFields(w io.Writer, snapshot queue.Snapshot, fields []string)
 	fmt.Fprintf(w, "repo: %s\n", snapshot.Repo)
 	fmt.Fprintf(w, "counts.totalIssues: %d\n", snapshot.Counts.TotalIssues)
 	fmt.Fprintf(w, "counts.eligibleIssues: %d\n", snapshot.Counts.EligibleIssues)
+	writeActionCounts(w, "counts.eligibleByAction", snapshot.Counts.EligibleByAction)
 	fmt.Fprintf(w, "counts.skippedIssues: %d\n", snapshot.Counts.SkippedIssues)
 	fmt.Fprintf(w, "counts.openPullRequests: %d\n", snapshot.Counts.OpenPullRequests)
 	if snapshot.Counts.BranchHealthState != "" {
@@ -1779,11 +1788,26 @@ func writeNextTOON(w io.Writer, next queue.NextCandidates) int {
 	fmt.Fprintln(w, "kind: nextCandidates")
 	fmt.Fprintf(w, "schemaVersion: %d\n", next.SchemaVersion)
 	fmt.Fprintf(w, "repo: %s\n", next.Repo)
-	fmt.Fprintf(w, "action: %s\n", next.Action)
+	fmt.Fprintf(w, "selectedAction: %s\n", next.SelectedAction)
 	fmt.Fprintf(w, "reason: %s\n", next.Reason)
+	fmt.Fprintf(w, "selectionReason: %s\n", next.SelectionReason)
 	fmt.Fprintf(w, "selectionRequired: %v\n", next.SelectionRequired)
-	fmt.Fprintf(w, "candidates[%d]:\n", len(next.Candidates))
-	for _, candidate := range next.Candidates {
+	writeNextCandidateLines(w, "candidates", next.Candidates)
+	writeNextCandidateLines(w, "deferredEligibleItems", next.DeferredEligibleItems)
+	fmt.Fprintf(w, "blockedItems[%d]:\n", len(next.BlockedItems))
+	for _, item := range next.BlockedItems {
+		fmt.Fprintf(w, "  - %s\n", oneLine(item))
+	}
+	fmt.Fprintf(w, "instructions[%d]:\n", len(next.Instructions))
+	for _, instruction := range next.Instructions {
+		fmt.Fprintf(w, "  - %s\n", oneLine(instruction))
+	}
+	return exitOK
+}
+
+func writeNextCandidateLines(w io.Writer, key string, candidates []queue.NextCandidate) {
+	fmt.Fprintf(w, "%s[%d]:\n", key, len(candidates))
+	for _, candidate := range candidates {
 		values := []string{"type=" + candidate.Type}
 		if candidate.Number != 0 {
 			values = append(values, fmt.Sprintf("number=%d", candidate.Number))
@@ -1805,15 +1829,37 @@ func writeNextTOON(w io.Writer, next queue.NextCandidates) int {
 		}
 		fmt.Fprintf(w, "  - %s\n", strings.Join(values, " "))
 	}
-	fmt.Fprintf(w, "blockedItems[%d]:\n", len(next.BlockedItems))
-	for _, item := range next.BlockedItems {
-		fmt.Fprintf(w, "  - %s\n", oneLine(item))
+}
+
+func writeActionCounts(w io.Writer, key string, counts map[string]int) {
+	for _, action := range orderedActions(counts) {
+		fmt.Fprintf(w, "%s.%s: %d\n", key, action, counts[action])
 	}
-	fmt.Fprintf(w, "instructions[%d]:\n", len(next.Instructions))
-	for _, instruction := range next.Instructions {
-		fmt.Fprintf(w, "  - %s\n", oneLine(instruction))
+}
+
+func orderedActions(counts map[string]int) []string {
+	preferred := []string{"issue-implementation", "issue-investigation"}
+	seen := map[string]struct{}{}
+	actions := []string{}
+	for _, action := range preferred {
+		if counts[action] == 0 {
+			continue
+		}
+		seen[action] = struct{}{}
+		actions = append(actions, action)
 	}
-	return exitOK
+	extra := []string{}
+	for action, count := range counts {
+		if count == 0 {
+			continue
+		}
+		if _, ok := seen[action]; ok {
+			continue
+		}
+		extra = append(extra, action)
+	}
+	sort.Strings(extra)
+	return append(actions, extra...)
 }
 
 func writeHelpLines(w io.Writer, help []string) {

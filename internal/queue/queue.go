@@ -39,11 +39,12 @@ type Snapshot struct {
 }
 
 type SnapshotCounts struct {
-	TotalIssues       int    `json:"totalIssues"`
-	EligibleIssues    int    `json:"eligibleIssues"`
-	SkippedIssues     int    `json:"skippedIssues"`
-	OpenPullRequests  int    `json:"openPullRequests"`
-	BranchHealthState string `json:"branchHealthState,omitempty"`
+	TotalIssues       int            `json:"totalIssues"`
+	EligibleIssues    int            `json:"eligibleIssues"`
+	EligibleByAction  map[string]int `json:"eligibleByAction,omitempty"`
+	SkippedIssues     int            `json:"skippedIssues"`
+	OpenPullRequests  int            `json:"openPullRequests"`
+	BranchHealthState string         `json:"branchHealthState,omitempty"`
 }
 
 type BranchHealth struct {
@@ -66,15 +67,17 @@ type PullState struct {
 }
 
 type NextCandidates struct {
-	SchemaVersion     int             `json:"schemaVersion"`
-	Kind              string          `json:"kind"`
-	Action            string          `json:"action"`
-	Repo              string          `json:"repo"`
-	Reason            string          `json:"reason"`
-	SelectionRequired bool            `json:"selectionRequired"`
-	Candidates        []NextCandidate `json:"candidates"`
-	BlockedItems      []string        `json:"blockedItems"`
-	Instructions      []string        `json:"instructions"`
+	SchemaVersion         int             `json:"schemaVersion"`
+	Kind                  string          `json:"kind"`
+	SelectedAction        string          `json:"selectedAction"`
+	Repo                  string          `json:"repo"`
+	Reason                string          `json:"reason"`
+	SelectionReason       string          `json:"selectionReason"`
+	SelectionRequired     bool            `json:"selectionRequired"`
+	Candidates            []NextCandidate `json:"candidates"`
+	DeferredEligibleItems []NextCandidate `json:"deferredEligibleItems"`
+	BlockedItems          []string        `json:"blockedItems"`
+	Instructions          []string        `json:"instructions"`
 }
 
 type NextCandidate struct {
@@ -106,6 +109,7 @@ func BuildSnapshotWithBranchHealth(repo string, cfg config.Config, issues []Issu
 
 	issueStates := make([]IssueState, 0, len(issues))
 	eligibleIssues := 0
+	eligibleByAction := map[string]int{}
 	for _, issue := range issues {
 		linkedPRs := prsByIssue[issue.Number]
 		if linkedPRs == nil {
@@ -136,6 +140,7 @@ func BuildSnapshotWithBranchHealth(repo string, cfg config.Config, issues []Issu
 		}
 		if state.Eligible {
 			eligibleIssues++
+			eligibleByAction[state.Action]++
 		}
 		issueStates = append(issueStates, state)
 	}
@@ -143,6 +148,7 @@ func BuildSnapshotWithBranchHealth(repo string, cfg config.Config, issues []Issu
 	counts := SnapshotCounts{
 		TotalIssues:      len(issueStates),
 		EligibleIssues:   eligibleIssues,
+		EligibleByAction: eligibleByAction,
 		SkippedIssues:    len(issueStates) - eligibleIssues,
 		OpenPullRequests: len(prStates),
 	}
@@ -170,6 +176,7 @@ func RecommendNext(snapshot Snapshot) NextCandidates {
 				SHA:        snapshot.BranchHealth.SHA,
 				CheckState: snapshot.BranchHealth.CheckState,
 			}},
+			deferredEligibleItems(snapshot, "branch-health", snapshot.BranchHealth.CheckState+"-staging-branch"),
 			[]string{"Work in a caller-provided isolated checkout.", "Fix the shared staging branch before starting new issue work.", "Do not open unrelated issue PRs until branch health is clear."},
 		)
 	}
@@ -180,18 +187,12 @@ func RecommendNext(snapshot Snapshot) NextCandidates {
 			if prFollowupReason(pr.PullRequest.CheckState) != tier {
 				continue
 			}
-			candidates = append(candidates, NextCandidate{
-				Type:    "pullRequest",
-				Number:  pr.PullRequest.Number,
-				Title:   pr.PullRequest.Title,
-				URL:     pr.PullRequest.URL,
-				HeadRef: pr.PullRequest.HeadRef,
-				BaseRef: pr.PullRequest.BaseRef,
-			})
+			candidates = append(candidates, pullRequestCandidate(pr.PullRequest))
 		}
 		if len(candidates) > 0 {
 			sortCandidates(candidates)
 			return nextCandidates(snapshot.Repo, "pr-followup", tier, candidates,
+				deferredEligibleItems(snapshot, "pr-followup", tier),
 				[]string{"Choose exactly one candidate.", "Work in a caller-provided isolated checkout.", "Push to the existing PR branch.", "Do not open a new PR."},
 			)
 		}
@@ -201,6 +202,7 @@ func RecommendNext(snapshot Snapshot) NextCandidates {
 	if len(implementationCandidates) > 0 {
 		sortCandidates(implementationCandidates)
 		return nextCandidates(snapshot.Repo, "issue-implementation", "eligible-issue", implementationCandidates,
+			deferredEligibleItems(snapshot, "issue-implementation", "eligible-issue"),
 			[]string{"Choose exactly one candidate.", "Work in a caller-provided isolated checkout.", "Open a PR to the staging branch with Refs #<issue-number>.", "Do not merge."},
 		)
 	}
@@ -209,11 +211,29 @@ func RecommendNext(snapshot Snapshot) NextCandidates {
 	if len(investigationCandidates) > 0 {
 		sortCandidates(investigationCandidates)
 		return nextCandidates(snapshot.Repo, "issue-investigation", "eligible-investigation", investigationCandidates,
+			deferredEligibleItems(snapshot, "issue-investigation", "eligible-investigation"),
 			[]string{"Choose exactly one candidate.", "Do not edit files unless the user explicitly changes scope.", "Inspect and comment with findings, evidence, and a recommended next label."},
 		)
 	}
 
-	return nextCandidates(snapshot.Repo, "none", "no eligible issue or PR follow-up", []NextCandidate{}, []string{})
+	return nextCandidates(snapshot.Repo, "none", "no eligible issue or PR follow-up", []NextCandidate{}, []NextCandidate{}, []string{})
+}
+
+func RecommendNextInvestigation(snapshot Snapshot) NextCandidates {
+	candidates := issueCandidates(snapshot.Issues, "issue-investigation")
+	sortCandidates(candidates)
+	instructions := []string{"Choose exactly one candidate from the requested action."}
+	if len(candidates) == 0 {
+		instructions = []string{"Run `baton queue --format toon` to inspect eligible and skipped issues."}
+	}
+	if len(candidates) > 0 {
+		instructions = append(instructions, "Do not edit files unless the user explicitly changes scope.", "Inspect and comment with findings, evidence, and a recommended next label.")
+	}
+	reason := "requested-action"
+	if len(candidates) == 0 {
+		reason = "no eligible candidates for requested action"
+	}
+	return nextCandidates(snapshot.Repo, "issue-investigation", reason, candidates, []NextCandidate{}, instructions)
 }
 
 func prFollowupReason(state string) string {
@@ -252,17 +272,93 @@ func issueCandidates(issues []IssueState, action string) []NextCandidate {
 	return candidates
 }
 
-func nextCandidates(repo, action, reason string, candidates []NextCandidate, instructions []string) NextCandidates {
+func deferredEligibleItems(snapshot Snapshot, action, reason string) []NextCandidate {
+	deferred := []NextCandidate{}
+	if action == "branch-health" {
+		for _, pr := range snapshot.PullRequests {
+			deferred = append(deferred, pullRequestCandidate(pr.PullRequest))
+		}
+		deferred = append(deferred, issueCandidates(snapshot.Issues, "issue-implementation")...)
+		deferred = append(deferred, issueCandidates(snapshot.Issues, "issue-investigation")...)
+		sortCandidates(deferred)
+		return deferred
+	}
+	if action == "pr-followup" {
+		for _, pr := range snapshot.PullRequests {
+			if prFollowupRank(prFollowupReason(pr.PullRequest.CheckState)) <= prFollowupRank(reason) {
+				continue
+			}
+			deferred = append(deferred, pullRequestCandidate(pr.PullRequest))
+		}
+		deferred = append(deferred, issueCandidates(snapshot.Issues, "issue-implementation")...)
+		deferred = append(deferred, issueCandidates(snapshot.Issues, "issue-investigation")...)
+		sortCandidates(deferred)
+		return deferred
+	}
+	if action == "issue-implementation" {
+		deferred = append(deferred, issueCandidates(snapshot.Issues, "issue-investigation")...)
+		sortCandidates(deferred)
+		return deferred
+	}
+	return deferred
+}
+
+func pullRequestCandidate(pr PullRequest) NextCandidate {
+	return NextCandidate{
+		Type:       "pullRequest",
+		Number:     pr.Number,
+		Title:      pr.Title,
+		URL:        pr.URL,
+		HeadRef:    pr.HeadRef,
+		BaseRef:    pr.BaseRef,
+		CheckState: pr.CheckState,
+	}
+}
+
+func prFollowupRank(reason string) int {
+	switch reason {
+	case "failing-checks":
+		return 1
+	case "pending-checks":
+		return 2
+	case "ready-for-review":
+		return 3
+	case "open-pr":
+		return 4
+	default:
+		return 0
+	}
+}
+
+func selectionReason(action, reason string, deferred []NextCandidate) string {
+	if len(deferred) == 0 {
+		return reason
+	}
+	switch action {
+	case "branch-health":
+		return "staging-branch-health-precedes-queue-work"
+	case "pr-followup":
+		return reason + "-precedes-lower-priority-work"
+	case "issue-implementation":
+		return "implementation-work-precedes-investigation"
+	default:
+		return reason
+	}
+}
+
+func nextCandidates(repo, action, reason string, candidates, deferred []NextCandidate, instructions []string) NextCandidates {
 	return NextCandidates{
-		SchemaVersion:     2,
-		Kind:              "nextCandidates",
-		Action:            action,
-		Repo:              repo,
-		Reason:            reason,
-		SelectionRequired: len(candidates) > 1,
-		Candidates:        candidates,
-		BlockedItems:      []string{},
-		Instructions:      instructions,
+		SchemaVersion:         2,
+		Kind:                  "nextCandidates",
+		SelectedAction:        action,
+		Repo:                  repo,
+		Reason:                reason,
+		SelectionReason:       selectionReason(action, reason, deferred),
+		SelectionRequired:     len(candidates) > 1,
+		Candidates:            candidates,
+		DeferredEligibleItems: deferred,
+		BlockedItems:          []string{},
+		Instructions:          instructions,
 	}
 }
 
@@ -309,8 +405,14 @@ func snapshotHelp(issues []IssueState, prs []PullState) []string {
 		help = append(help, "Run `baton pr <number> --json` or `baton checks <number> --json` for PR details.")
 	}
 	for _, issue := range issues {
-		if issue.Eligible {
+		if issue.Eligible && issue.Action == "issue-implementation" {
 			help = append(help, fmt.Sprintf("Prepare an isolated checkout, then create a work branch for issue %d from the configured staging branch.", issue.Issue.Number))
+			return help
+		}
+	}
+	for _, issue := range issues {
+		if issue.Eligible && issue.Action == "issue-investigation" {
+			help = append(help, "Run `baton next --action issue-investigation --format toon` to select investigation work.")
 			return help
 		}
 	}

@@ -10,18 +10,23 @@ Common fields:
 
 `nextCandidates`:
 
-- `action`: one of `pr-followup`, `branch-health`, `issue-implementation`,
-  `issue-investigation`, or `none`.
+- `selectedAction`: one of `pr-followup`, `branch-health`,
+  `issue-implementation`, `issue-investigation`, or `none`.
 - `reason`: why Baton selected the candidate tier.
+- `selectionReason`: more specific priority explanation when eligible lower-tier
+  work exists but is not returned as a candidate.
 - `selectionRequired`: whether multiple tied candidates require a choice.
 - `candidates[]`: the highest-priority tied candidates. PR candidates include
   number, title, URL, head ref, and base ref. Issue candidates include number,
   title, and URL. Branch candidates include ref, SHA, and check state.
+- `deferredEligibleItems[]`: eligible lower-priority work not returned in
+  `candidates[]` for the selected tier.
 - `instructions`: operational constraints to follow, including caller-provided
   checkout isolation before edits.
 
 `queueSnapshot`:
 
+- `counts.eligibleByAction`: eligible issue counts keyed by action.
 - `issues[].eligible`: whether an issue can be started.
 - `issues[].reasons`: why it is eligible or skipped.
 - `issues[].linkedPrs`: active PRs already referencing that issue.

@@ -206,6 +206,9 @@ JSON result:
 ### `baton queue`
 
 Return open issues and why each is eligible or skipped.
+The `counts.eligibleByAction` aggregate separates implementation-ready work
+from investigation-only work so agents can distinguish the full eligible queue
+from the next automation tier without an extra call.
 
 Example:
 
@@ -293,11 +296,15 @@ baton checks 12 --json
 
 Return the highest-priority next candidate set. Agents and users choose exactly
 one returned candidate before acting.
+Use `--action issue-investigation` only when a human intentionally wants to
+inspect investigation candidates instead of the default automation priority
+order.
 
 Example:
 
 ```sh
 baton next --format toon
+baton next --action issue-investigation --format toon
 baton next --json
 ```
 
@@ -307,9 +314,10 @@ JSON result:
 {
   "schemaVersion": 2,
   "kind": "nextCandidates",
-  "action": "pr-followup",
+  "selectedAction": "pr-followup",
   "repo": "example-org/example-repo",
   "reason": "failing-checks",
+  "selectionReason": "failing-checks-precedes-lower-priority-work",
   "selectionRequired": true,
   "candidates": [
     {
@@ -329,6 +337,14 @@ JSON result:
       "baseRef": "agent"
     }
   ],
+  "deferredEligibleItems": [
+    {
+      "type": "issue",
+      "number": 14,
+      "title": "Investigate queue drift",
+      "url": "https://github.com/example-org/example-repo/issues/14"
+    }
+  ],
   "blockedItems": [],
   "instructions": [
     "Choose exactly one candidate.",
@@ -339,13 +355,16 @@ JSON result:
 }
 ```
 
-Allowed `action` values:
+Allowed `selectedAction` values:
 
 - `pr-followup`
 - `branch-health`
 - `issue-implementation`
 - `issue-investigation`
 - `none`
+
+`deferredEligibleItems[]` contains eligible work that Baton did not return in
+`candidates[]` because a higher-priority action or tier took precedence.
 
 ### `baton complete`
 

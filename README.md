@@ -75,6 +75,11 @@ baton prs --format toon --repo owner/name
 baton next --format toon --repo owner/name
 ```
 
+`baton next` returns the highest-priority candidate set for automation. Use
+`baton queue` for the full eligible issue list, or
+`baton next --action issue-investigation --format toon --repo owner/name` when
+a human intentionally wants to inspect investigation-only candidates.
+
 Use `--json` instead of `--format toon` when a script needs the stable
 automation contract.
 

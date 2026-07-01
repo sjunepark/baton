@@ -92,8 +92,10 @@ argument.
 - `status`: run `baton doctor --format toon`, plus `baton ensure-branch --json`
   and `baton sync-labels --dry-run --repo <repo> --json` when setup is in
   scope. Do not apply setup.
-- `next`: run `baton next --format toon --repo <repo>` and report the candidate
-  set without taking it.
+- `next`: run `baton next --format toon --repo <repo>` and report the
+  highest-priority candidate set, selection reason, and any deferred eligible
+  items without taking it. Use `baton queue --format toon --repo <repo>` for
+  the full eligible issue list.
 - `queue`: run `baton queue --format toon --repo <repo>` and summarize eligible
   and skipped work.
 - `todo` and `todos`: read `references/todo-creation.md`, create issue bodies
@@ -108,8 +110,8 @@ argument.
   toon`, and `baton review-threads <number> --format toon`; verify the
   isolated checkout, check out the existing PR branch, and push fixes there.
 - `run`: run `baton next --format toon --repo <repo>`, choose exactly one
-  candidate from the returned set, handle it according to its action, validate,
-  report the chosen candidate, and stop.
+  candidate from the returned set, handle it according to `selectedAction`,
+  validate, report the chosen candidate, and stop.
 - `adopt`: run read-only/dry-run setup checks: `baton home --format toon`,
   `baton doctor --format toon`, `baton init --dry-run --json`,
   `baton migrate-config --dry-run` when a legacy policy exists,

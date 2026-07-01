@@ -26,6 +26,9 @@ automation contracts and mutating command results.
   missing config or auth.
 - `baton doctor --format toon`: check local readiness.
 - `baton next --format toon`: return the highest-priority candidate set.
+- `baton next --action issue-investigation --format toon`: inspect
+  investigation candidates when a human intentionally wants that lower-priority
+  action.
 - `baton queue --format toon`: inspect eligible and skipped issues.
 - `baton prs --format toon`: list open staging PRs.
 - `baton pr <number> --json`: inspect one PR.

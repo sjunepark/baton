@@ -62,7 +62,7 @@ The bundled skill must expose these concise commands:
 | --- | --- |
 | `$baton` | Show readiness, queue summary, and recommended next commands. Read-only. |
 | `$baton status [repo]` | Run readiness and setup checks. Read-only. |
-| `$baton next [repo]` | Show the next Baton candidate set. Read-only. |
+| `$baton next [repo]` | Show the highest-priority Baton candidate set and deferred eligible items. Read-only. |
 | `$baton queue [repo]` | Show eligible and skipped issues/PRs. Read-only. |
 | `$baton todo <todo>` | Create one Baton-ready GitHub issue. No branch or PR. |
 | `$baton todos <notes-or-file>` | Split notes into Baton-ready GitHub issues. No implementation. |
@@ -88,7 +88,7 @@ Routing rules:
 ### General Automation
 
 1. Run `baton next --format toon`.
-2. If action is `none`, report the summary and stop.
+2. If `selectedAction` is `none`, report the summary and stop.
 3. Choose exactly one returned candidate.
 4. Verify the current working directory is a caller-provided isolated checkout.
 5. Check out the PR `headRef` for follow-up or create an issue-work branch from
@@ -96,7 +96,7 @@ Routing rules:
 6. Read target repo `AGENTS.md`.
 7. Implement or investigate exactly the chosen candidate.
 8. Validate with focused checks first.
-9. Push/comment according to the chosen candidate's action.
+9. Push/comment according to `selectedAction` and the chosen candidate.
 10. Record completion with `baton complete` when useful, then stop.
 
 ### PR Follow-Up
