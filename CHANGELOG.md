@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.2](https://github.com/sjunepark/baton/compare/v0.4.1...v0.4.2) (2026-07-01)
+
+
+### Features
+
+* polish CLI version output ([4ab677c](https://github.com/sjunepark/baton/commit/4ab677c9f15b046bb34ef3d0893a191261d9a5ab))
+
 ## [0.4.1](https://github.com/sjunepark/baton/compare/v0.4.0...v0.4.1) (2026-07-01)
 
 
