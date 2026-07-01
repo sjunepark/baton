@@ -131,8 +131,10 @@ Routing rules:
    detail.
 7. Use optional Non-goals / constraints and Validation hints when they reduce
    ambiguity.
-8. Choose the least-permissive Agent mode that fits.
-9. Do not create branches or PRs when only asked to create todos.
+8. Set Priority to P2 for ordinary work unless the user explicitly indicates
+   urgent, blocking, or lower-priority work.
+9. Choose the least-permissive Agent mode that fits.
+10. Do not create branches or PRs when only asked to create todos.
 
 ### Investigation-Only
 

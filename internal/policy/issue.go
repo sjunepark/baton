@@ -45,11 +45,19 @@ func ComputeIssuePolicy(input IssuePolicyInput) IssuePolicyDecision {
 	desiredLabels := map[string]struct{}{}
 	workKind := sectionValue(sections, input.Policy.FormSections["work_kind"])
 	agentMode := sectionValue(sections, input.Policy.FormSections["agent_mode"])
+	priority := sectionValue(sections, input.Policy.FormSections["priority"])
 	if label := input.Policy.WorkKindLabels[workKind]; label != "" {
 		desiredLabels[label] = struct{}{}
 	}
 	if label := input.Policy.AgentModeLabels[agentMode]; label != "" {
 		desiredLabels[label] = struct{}{}
+	}
+	priorityLabel := ""
+	if len(input.Policy.PriorityLabels) > 0 {
+		priorityLabel = input.Policy.PriorityLabels[priority]
+		if priorityLabel != "" {
+			desiredLabels[priorityLabel] = struct{}{}
+		}
 	}
 
 	modeSlug := normalizeSlug(agentMode)
@@ -59,13 +67,19 @@ func ComputeIssuePolicy(input IssuePolicyInput) IssuePolicyDecision {
 			missing = append(missing, firstNonEmpty(input.Policy.FormSections[sectionID], sectionID))
 		}
 	}
+	if len(input.Policy.PriorityLabels) > 0 && priorityLabel == "" {
+		missing = append(missing, firstNonEmpty(input.Policy.FormSections["priority"], "Priority"))
+	}
 	qualityGateLabel := QualityGateLabel(input.Policy)
 	if len(missing) > 0 {
 		desiredLabels[qualityGateLabel] = struct{}{}
 	}
 
 	controlledLabels := map[string]struct{}{}
-	for _, group := range input.Policy.ControlledLabelGroups {
+	for groupName, group := range input.Policy.ControlledLabelGroups {
+		if groupName == "priority" && len(input.Policy.PriorityLabels) == 0 {
+			continue
+		}
 		for _, label := range group {
 			controlledLabels[label] = struct{}{}
 		}

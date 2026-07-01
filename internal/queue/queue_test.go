@@ -221,6 +221,198 @@ func TestRecommendNextIssueInvestigationCandidates(t *testing.T) {
 	}
 }
 
+func TestPriorityPolicyDecisions(t *testing.T) {
+	cfg := config.DefaultConfig()
+	tests := []struct {
+		name                      string
+		snapshot                  func(t *testing.T) Snapshot
+		recommend                 func(Snapshot) NextCandidates
+		wantSnapshotPriorityLabel string
+		wantSelectedAction        string
+		wantCandidates            []int
+		wantCandidateLabels       []string
+		wantDeferred              []int
+		wantDeferredLabels        []string
+		wantSelectionReason       string
+	}{
+		{
+			name: "build snapshot uses highest configured priority label",
+			snapshot: func(t *testing.T) Snapshot {
+				return BuildSnapshot("example-org/example-repo", cfg,
+					[]Issue{{Number: 1, URL: "https://example/1", Labels: []string{"agent:ready-trivial", "priority:p3", "priority:p0"}}},
+					nil,
+				)
+			},
+			wantSnapshotPriorityLabel: "priority:p0",
+		},
+		{
+			name: "implementation returns only highest priority tied candidates",
+			snapshot: func(t *testing.T) Snapshot {
+				return BuildSnapshot("example-org/example-repo", cfg,
+					[]Issue{
+						{Number: 3, URL: "https://example/3", Title: "P0 third", Labels: []string{"agent:ready-trivial", "priority:p0"}},
+						{Number: 1, URL: "https://example/1", Title: "P2 first", Labels: []string{"agent:ready-trivial", "priority:p2"}},
+						{Number: 5, URL: "https://example/5", Title: "P0 fifth", Labels: []string{"agent:ready-bounded", "priority:p0"}},
+					},
+					nil,
+				)
+			},
+			wantSelectedAction:  "issue-implementation",
+			wantCandidates:      []int{3, 5},
+			wantCandidateLabels: []string{"priority:p0", "priority:p0"},
+			wantDeferred:        []int{1},
+			wantDeferredLabels:  []string{"priority:p2"},
+			wantSelectionReason: "issue-priority-precedes-lower-priority-work",
+		},
+		{
+			name: "unprioritized issues sort after configured priorities",
+			snapshot: func(t *testing.T) Snapshot {
+				return BuildSnapshot("example-org/example-repo", cfg,
+					[]Issue{
+						{Number: 1, URL: "https://example/1", Labels: []string{"agent:ready-trivial"}},
+						{Number: 2, URL: "https://example/2", Labels: []string{"agent:ready-trivial", "priority:p1"}},
+					},
+					nil,
+				)
+			},
+			wantCandidates:      []int{2},
+			wantCandidateLabels: []string{"priority:p1"},
+			wantDeferred:        []int{1},
+			wantDeferredLabels:  []string{""},
+		},
+		{
+			name: "implementation tier outranks higher priority investigation",
+			snapshot: func(t *testing.T) Snapshot {
+				return BuildSnapshot("example-org/example-repo", cfg,
+					[]Issue{
+						{Number: 1, URL: "https://example/1", Labels: []string{"agent:investigate-only", "priority:p0"}},
+						{Number: 2, URL: "https://example/2", Labels: []string{"agent:ready-trivial", "priority:p2"}},
+					},
+					nil,
+				)
+			},
+			wantSelectedAction: "issue-implementation",
+			wantCandidates:     []int{2},
+			wantDeferred:       []int{1},
+		},
+		{
+			name: "branch health outranks issue priority",
+			snapshot: func(t *testing.T) Snapshot {
+				return BuildSnapshotWithBranchHealth("example-org/example-repo", cfg,
+					[]Issue{{Number: 1, URL: "https://example/1", Labels: []string{"agent:ready-trivial", "priority:p0"}}},
+					nil,
+					&BranchHealth{Ref: "agent", SHA: "abc", CheckState: "failure"},
+				)
+			},
+			wantSelectedAction: "branch-health",
+		},
+		{
+			name: "pr followup outranks issue priority",
+			snapshot: func(t *testing.T) Snapshot {
+				return BuildSnapshot("example-org/example-repo", cfg,
+					[]Issue{{Number: 1, URL: "https://example/1", Labels: []string{"agent:ready-trivial", "priority:p0"}}},
+					[]PullRequest{{Number: 10, URL: "https://example/pr/10", BaseRef: "agent", HeadRef: "agent-work/10", CheckState: "success"}},
+				)
+			},
+			wantSelectedAction: "pr-followup",
+			wantCandidates:     []int{10},
+		},
+		{
+			name: "requested investigation returns only highest priority candidates",
+			snapshot: func(t *testing.T) Snapshot {
+				return BuildSnapshot("example-org/example-repo", cfg,
+					[]Issue{
+						{Number: 1, URL: "https://example/1", Labels: []string{"agent:investigate-only", "priority:p3"}},
+						{Number: 2, URL: "https://example/2", Labels: []string{"agent:investigate-only", "priority:p1"}},
+					},
+					nil,
+				)
+			},
+			recommend:          RecommendNextInvestigation,
+			wantSelectedAction: "issue-investigation",
+			wantCandidates:     []int{2},
+			wantDeferred:       []int{1},
+		},
+		{
+			name: "json round trip preserves configured priority rank",
+			snapshot: func(t *testing.T) Snapshot {
+				custom := config.DefaultConfig()
+				custom.IssuePolicy.PriorityLabels = map[string]string{
+					"P0": "severity:blocker",
+					"P2": "severity:normal",
+				}
+				custom.IssuePolicy.ControlledLabelGroups["priority"] = []string{"severity:blocker", "severity:normal"}
+				snapshot := BuildSnapshot("example-org/example-repo", custom,
+					[]Issue{
+						{Number: 1, URL: "https://example/1", Labels: []string{"agent:ready-trivial", "severity:normal"}},
+						{Number: 2, URL: "https://example/2", Labels: []string{"agent:ready-trivial", "severity:blocker"}},
+					},
+					nil,
+				)
+				content, err := json.Marshal(snapshot)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var roundTripped Snapshot
+				if err := json.Unmarshal(content, &roundTripped); err != nil {
+					t.Fatal(err)
+				}
+				return roundTripped
+			},
+			wantCandidates:      []int{2},
+			wantCandidateLabels: []string{"severity:blocker"},
+			wantDeferred:        []int{1},
+			wantDeferredLabels:  []string{"severity:normal"},
+		},
+		{
+			name: "manual default priority labels derive rank from priority label",
+			snapshot: func(t *testing.T) Snapshot {
+				return Snapshot{
+					SchemaVersion: 1,
+					Kind:          "queueSnapshot",
+					Repo:          "example-org/example-repo",
+					Issues: []IssueState{
+						{Issue: Issue{Number: 1, URL: "https://example/1"}, Eligible: true, Action: "issue-implementation", PriorityLabel: "priority:p2"},
+						{Issue: Issue{Number: 2, URL: "https://example/2"}, Eligible: true, Action: "issue-implementation", PriorityLabel: "priority:p0"},
+					},
+				}
+			},
+			wantCandidates:      []int{2},
+			wantCandidateLabels: []string{"priority:p0"},
+			wantDeferred:        []int{1},
+			wantDeferredLabels:  []string{"priority:p2"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			snapshot := tt.snapshot(t)
+			if tt.wantSnapshotPriorityLabel != "" && snapshot.Issues[0].PriorityLabel != tt.wantSnapshotPriorityLabel {
+				t.Fatalf("priority label = %q, want %q", snapshot.Issues[0].PriorityLabel, tt.wantSnapshotPriorityLabel)
+			}
+			if tt.wantCandidates == nil && tt.wantSelectedAction == "" && tt.wantDeferred == nil {
+				return
+			}
+
+			recommend := tt.recommend
+			if recommend == nil {
+				recommend = RecommendNext
+			}
+			next := recommend(snapshot)
+			if tt.wantSelectedAction != "" && next.SelectedAction != tt.wantSelectedAction {
+				t.Fatalf("selected action = %q, want %q: %#v", next.SelectedAction, tt.wantSelectedAction, next)
+			}
+			assertCandidateNumbers(t, next.Candidates, tt.wantCandidates)
+			assertCandidatePriorityLabels(t, next.Candidates, tt.wantCandidateLabels)
+			assertCandidateNumbers(t, next.DeferredEligibleItems, tt.wantDeferred)
+			assertCandidatePriorityLabels(t, next.DeferredEligibleItems, tt.wantDeferredLabels)
+			if tt.wantSelectionReason != "" && next.SelectionReason != tt.wantSelectionReason {
+				t.Fatalf("selection reason = %q, want %q", next.SelectionReason, tt.wantSelectionReason)
+			}
+		})
+	}
+}
+
 func TestRecommendNextNoWorkHasEmptyCandidates(t *testing.T) {
 	next := RecommendNext(Snapshot{SchemaVersion: 1, Kind: "queueSnapshot", Repo: "example-org/example-repo"})
 	if next.SelectedAction != "none" || next.SelectionRequired || len(next.Candidates) != 0 {
@@ -258,4 +450,50 @@ func TestRecommendNextJSONOmitsLegacySingularFields(t *testing.T) {
 	if _, ok := fields["issue"]; ok {
 		t.Fatalf("legacy issue field present: %s", content)
 	}
+}
+
+func assertCandidateNumbers(t *testing.T, candidates []NextCandidate, want []int) {
+	t.Helper()
+	if want == nil {
+		return
+	}
+	if len(candidates) != len(want) {
+		t.Fatalf("candidate numbers = %#v, want %#v", candidateNumbers(candidates), want)
+	}
+	for i := range want {
+		if candidates[i].Number != want[i] {
+			t.Fatalf("candidate numbers = %#v, want %#v", candidateNumbers(candidates), want)
+		}
+	}
+}
+
+func assertCandidatePriorityLabels(t *testing.T, candidates []NextCandidate, want []string) {
+	t.Helper()
+	if want == nil {
+		return
+	}
+	if len(candidates) != len(want) {
+		t.Fatalf("candidate priority labels = %#v, want %#v", candidatePriorityLabels(candidates), want)
+	}
+	for i := range want {
+		if candidates[i].PriorityLabel != want[i] {
+			t.Fatalf("candidate priority labels = %#v, want %#v", candidatePriorityLabels(candidates), want)
+		}
+	}
+}
+
+func candidateNumbers(candidates []NextCandidate) []int {
+	values := make([]int, 0, len(candidates))
+	for _, candidate := range candidates {
+		values = append(values, candidate.Number)
+	}
+	return values
+}
+
+func candidatePriorityLabels(candidates []NextCandidate) []string {
+	values := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		values = append(values, candidate.PriorityLabel)
+	}
+	return values
 }
