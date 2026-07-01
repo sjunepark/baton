@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/sjunepark/baton/compare/v0.4.0...v0.4.1) (2026-07-01)
+
+
+### Features
+
+* add issue priority labels ([52d2465](https://github.com/sjunepark/baton/commit/52d24653023ccb0f556b228073f88633c35bbafd))
+
 ## [0.4.0](https://github.com/sjunepark/baton/compare/v0.3.0...v0.4.0) (2026-07-01)
 
 
