@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.0](https://github.com/sjunepark/baton/compare/v0.3.0...v0.4.0) (2026-07-01)
+
+
+### ⚠ BREAKING CHANGES
+
+* revise next candidate selection contract
+
+### Features
+
+* revise next candidate selection contract ([2adc1eb](https://github.com/sjunepark/baton/commit/2adc1eb4438f24d4342b3fe54cf4a32c10f07f56))
+
 ## [0.3.0](https://github.com/sjunepark/baton/compare/v0.2.1...v0.3.0) (2026-06-30)
 
 
