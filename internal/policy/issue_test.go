@@ -13,6 +13,7 @@ func TestComputeIssuePolicy(t *testing.T) {
 		name                    string
 		body                    string
 		currentLabels           []string
+		configurePolicy         func(config.IssuePolicy) config.IssuePolicy
 		wantFormIssue           bool
 		wantAdd                 []string
 		wantRemove              []string
@@ -64,6 +65,19 @@ func TestComputeIssuePolicy(t *testing.T) {
 			wantPolicyCommentSubstr: "<!-- baton-issue-policy:v1 -->",
 		},
 		{
+			name:          "disabled priority policy preserves existing priority labels",
+			body:          issueBody(issueBodyInput{Priority: "P2"}),
+			currentLabels: []string{"priority:p1"},
+			configurePolicy: func(policy config.IssuePolicy) config.IssuePolicy {
+				policy.PriorityLabels = nil
+				return policy
+			},
+			wantFormIssue: true,
+			wantAdd:       []string{"agent:ready-trivial", "bug"},
+			wantRemove:    []string{},
+			wantMissing:   []string{},
+		},
+		{
 			name:          "ready bounded complete without allowed scope",
 			body:          issueBody(issueBodyInput{AgentMode: "Ready bounded", AcceptanceCriteria: "- [ ] The bounded change is complete."}),
 			wantFormIssue: true,
@@ -100,10 +114,14 @@ func TestComputeIssuePolicy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			policy := cfg.IssuePolicy
+			if tt.configurePolicy != nil {
+				policy = tt.configurePolicy(policy)
+			}
 			decision := ComputeIssuePolicy(IssuePolicyInput{
 				Body:          tt.body,
 				CurrentLabels: tt.currentLabels,
-				Policy:        cfg.IssuePolicy,
+				Policy:        policy,
 			})
 			assertEqual(t, decision.IsFormIssue, tt.wantFormIssue)
 			assertStringSlices(t, decision.LabelsToAdd, tt.wantAdd)

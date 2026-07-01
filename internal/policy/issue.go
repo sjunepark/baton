@@ -76,7 +76,10 @@ func ComputeIssuePolicy(input IssuePolicyInput) IssuePolicyDecision {
 	}
 
 	controlledLabels := map[string]struct{}{}
-	for _, group := range input.Policy.ControlledLabelGroups {
+	for groupName, group := range input.Policy.ControlledLabelGroups {
+		if groupName == "priority" && len(input.Policy.PriorityLabels) == 0 {
+			continue
+		}
 		for _, label := range group {
 			controlledLabels[label] = struct{}{}
 		}
