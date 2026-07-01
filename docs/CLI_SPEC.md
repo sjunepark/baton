@@ -366,7 +366,9 @@ Allowed `selectedAction` values:
 
 `deferredEligibleItems[]` contains eligible work that Baton did not return in
 `candidates[]` because a higher-priority action, tier, or configured issue
-priority took precedence. Issue candidates may include `priorityLabel`.
+priority took precedence. Issue candidates may include `priorityLabel`; queue
+snapshot issue entries may also include `priorityRank` so JSON snapshots retain
+configured priority ordering.
 
 ### `baton complete`
 

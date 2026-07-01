@@ -31,6 +31,8 @@ Common fields:
 - `issues[].eligible`: whether an issue can be started.
 - `issues[].priorityLabel`: the configured priority label Baton selected from
   issue labels, when priority is enabled and present.
+- `issues[].priorityRank`: the configured priority order used by `baton next`,
+  when priority is enabled and present.
 - `issues[].reasons`: why it is eligible or skipped.
 - `issues[].linkedPrs`: active PRs already referencing that issue.
 - `pullRequests[].referencedIssues`: issue references found in PR title/body.

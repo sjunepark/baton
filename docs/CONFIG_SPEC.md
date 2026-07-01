@@ -177,7 +177,8 @@ Creo `.github/agent-issue-policy.yml` maps as:
 - Every required section ID must exist in `form_sections`.
 - When `issue_policy.priority_labels` is present, `form_sections.priority` and
   `controlled_label_groups.priority` are required. Priority label mappings must
-  exactly match the controlled priority labels, whose order defines queue rank.
+  match the controlled priority labels as a set. Separately,
+  `controlled_label_groups.priority` order defines queue rank.
 - The policy marker must be stable once deployed, otherwise old policy comments
   cannot be updated in place.
 

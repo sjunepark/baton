@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/sjunepark/baton/internal/config"
 	"github.com/sjunepark/baton/internal/policy"
@@ -59,9 +61,9 @@ type IssueState struct {
 	Eligible      bool     `json:"eligible"`
 	Action        string   `json:"action,omitempty"`
 	PriorityLabel string   `json:"priorityLabel,omitempty"`
+	PriorityRank  int      `json:"priorityRank,omitempty"`
 	Reasons       []string `json:"reasons"`
 	LinkedPRs     []int    `json:"linkedPrs"`
-	priorityRank  int
 }
 
 type PullState struct {
@@ -123,7 +125,7 @@ func BuildSnapshotWithBranchHealth(repo string, cfg config.Config, issues []Issu
 		}
 		state := IssueState{Issue: issue, Eligible: true, Reasons: []string{}, LinkedPRs: linkedPRs}
 		labels := stringSet(issue.Labels)
-		state.PriorityLabel, state.priorityRank = issuePriority(cfg.IssuePolicy, labels)
+		state.PriorityLabel, state.PriorityRank = issuePriority(cfg.IssuePolicy, labels)
 		if hasAny(labels, cfg.IssuePolicy.ImplementationLabels) {
 			state.Action = "issue-implementation"
 		} else if hasAny(labels, cfg.IssuePolicy.CommentOnlyLabels) {
@@ -283,8 +285,8 @@ func issueCandidates(issues []IssueState, action string) []NextCandidate {
 			Title:         issue.Issue.Title,
 			URL:           issue.Issue.URL,
 			PriorityLabel: issue.PriorityLabel,
-			action:        issue.Action,
-			priorityRank:  issue.priorityRank,
+			action:        issueAction,
+			priorityRank:  issuePriorityRank(issue),
 		})
 	}
 	return candidates
@@ -423,7 +425,28 @@ func prioritySortRank(candidate NextCandidate) int {
 	if candidate.priorityRank > 0 {
 		return candidate.priorityRank
 	}
+	if rank := priorityLabelRank(candidate.PriorityLabel); rank > 0 {
+		return rank
+	}
 	return math.MaxInt
+}
+
+func issuePriorityRank(issue IssueState) int {
+	if issue.PriorityRank > 0 {
+		return issue.PriorityRank
+	}
+	return priorityLabelRank(issue.PriorityLabel)
+}
+
+func priorityLabelRank(label string) int {
+	if !strings.HasPrefix(label, "priority:p") {
+		return 0
+	}
+	priority, err := strconv.Atoi(strings.TrimPrefix(label, "priority:p"))
+	if err != nil {
+		return 0
+	}
+	return priority + 1
 }
 
 func hasLowerPrioritySameTier(candidates, deferred []NextCandidate) bool {
