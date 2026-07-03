@@ -2,47 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Baton Tutorial</title>
-  <style>
-    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
-    body { margin: 0; line-height: 1.55; }
-    main { max-width: 880px; margin: 0 auto; padding: 48px 24px; }
-    h1 { font-size: clamp(32px, 5vw, 56px); line-height: 1.05; margin: 0 0 16px; }
-    h2 { margin-top: 36px; }
-    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-    pre { overflow-x: auto; padding: 16px; border: 1px solid color-mix(in srgb, CanvasText 20%, transparent); border-radius: 8px; }
-    .lead { font-size: 1.15rem; max-width: 760px; }
-  </style>
+  <meta http-equiv="refresh" content="0; url=index.html#tutorial">
+  <title>Baton Tutorial → Documentation</title>
+  <link rel="canonical" href="index.html#tutorial">
 </head>
-<body>
-  <main>
-    <h1>Baton Tutorial</h1>
-    <p class="lead">Use Baton to inspect policy-safe GitHub work, choose one candidate, and record the result. Bring your own isolated checkout before editing.</p>
-
-    <h2>Inspect</h2>
-    <pre><code>baton home --format toon
-baton doctor --format toon
-baton queue --format toon --repo owner/name
-baton next --format toon --repo owner/name</code></pre>
-
-    <h2>Implement One Issue</h2>
-    <pre><code># In a caller-provided isolated checkout:
-git switch -c agent-work/123-short-slug origin/agent
-# implement, validate, push, and open/update the PR
-baton complete --summary "Implemented issue 123" --validation "go test ./..." --json</code></pre>
-
-    <h2>Follow Up One PR</h2>
-    <pre><code>baton pr 42 --json --repo owner/name
-baton checks 42 --format toon --repo owner/name
-baton review-threads 42 --format toon --repo owner/name
-# In a caller-provided isolated checkout:
-git switch &lt;head-ref&gt;
-# fix, validate, and push to the same branch
-baton complete --summary "Handled PR 42 follow-up" --validation "go test ./..." --json</code></pre>
-
-    <h2>Rule</h2>
-    <p>If the current directory is the user's primary checkout or isolation is uncertain, stop and report the missing execution context. Baton will not create or clean up a worktree for you.</p>
-  </main>
+<body style="font-family: system-ui, sans-serif; max-width: 640px; margin: 15vh auto; padding: 0 24px; line-height: 1.6;">
+  <p>The Baton docs are now one interactive page. Redirecting to the
+  <a href="index.html#tutorial">Tutorial section of the documentation</a>…</p>
 </body>
 </html>
