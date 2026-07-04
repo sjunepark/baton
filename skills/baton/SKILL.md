@@ -11,6 +11,10 @@ contracts, and your judgment for code changes.
 
 ## Core Rules
 
+- Treat this `sjunepark/baton` skill package as the canonical source for Baton
+  skill behavior. Downstream repositories with local copies should refresh from
+  the skills CLI or the owning distribution flow instead of hand-editing copied
+  skill files.
 - Run `baton home --format toon` or `baton doctor --format toon` to establish
   local Baton context.
 - Run `baton next --format toon` before selecting unattended work.
