@@ -44,9 +44,18 @@ automation contracts and mutating command results.
   Actions.
 - `baton migrate-config --dry-run|--apply`: convert legacy
   `.github/agent-issue-policy.yml` into `.github/baton.yml`.
-- `baton complete --summary <text> --comment --repo owner/name --issue N|--pr N`:
-  record completion metadata and optionally post an explicit GitHub timeline
+- `baton complete --summary <text> [--validation <text>] [--json]`: write a
+  local completion record under the Baton state root. Use `--state-root <path>`
+  when automation needs a deterministic state location.
+- `baton complete --summary <text> --comment --repo owner/name --issue N`:
+  write the local completion record and post it as an explicit issue timeline
   comment.
+- `baton complete --summary <text> --comment --repo owner/name --pr N`: write
+  the local completion record and post it as an explicit pull request timeline
+  comment.
+- Add `--full` to include full summary and validation text in JSON output.
+  Without `--full`, long text is bounded by `--body-limit <chars>` and the JSON
+  response includes the command needed to fetch the full text.
 
 Mutating commands require explicit `--apply`, `--yes`, or user-provided
 execution context plus explicit user/workflow intent. Do not infer permission
