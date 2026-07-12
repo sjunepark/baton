@@ -385,12 +385,12 @@ instructions:
           <h3 class="sec">Doing one task</h3>
           <p>Here is the rule that matters most, so it stands alone:</p>
           <blockquote>Before editing any file, confirm you are in an isolated checkout that something else prepared. If you might be in your everyday working copy, stop. Baton will not make a sandbox for you.</blockquote>
-          <p>With that settled, building an issue is a short sequence. Read <code>snapshot</code>, continue only when its outcome is <code>actionable</code>, and pick one candidate. Inside the isolated checkout, branch from staging, make the smallest change that satisfies the acceptance criteria, validate it, and open a pull request back into <code>agent</code>:</p>
+          <p>With that settled, building an issue is a short sequence. Read <code>snapshot</code>, continue only when its outcome is <code>actionable</code>, and pick one candidate. Inside the isolated checkout, branch from the configured staging branch, make the smallest change that satisfies the acceptance criteria, validate it, and open a pull request back into that staging branch:</p>
 <pre><code><span class="cm"># In a caller-provided isolated checkout:</span>
-git switch -c agent-work/123-short-slug origin/agent
-<span class="cm"># implement, validate, push, and open a PR into `agent` with "Refs #123"</span>
+git switch -c &lt;work_branch_prefix&gt;123-short-slug &lt;default_remote&gt;/&lt;staging_branch&gt;
+<span class="cm"># implement, validate, push, and open a PR into the configured staging branch with "Refs #123"</span>
 <span class="cm"># report the summary and validation evidence to the caller</span></code></pre>
-          <p>Two ideas from Concepts show up here in practice: the PR targets <code>agent</code> rather than <code>main</code>, and it says <code>Refs #123</code> rather than <code>Closes</code>, so the issue closes later, when staging is promoted.</p>
+          <p>Two ideas from Concepts show up here in practice: the PR targets the configured staging branch rather than the promotion branch, and it says <code>Refs #123</code> rather than <code>Closes</code>, so the issue closes later, when staging is promoted.</p>
         </section>
 
         <section class="doc" data-section data-entry id="followup-walk">
@@ -930,7 +930,7 @@ gh issue comment &lt;number&gt; --repo owner/name --body-file findings.md</code>
             <div class="cmd-body">
               <p>Build one ready issue in a caller-provided isolated checkout, validate, and open/update a PR to the staging branch.</p>
 <pre><code><span class="cm"># in a caller-provided isolated checkout:</span>
-git switch -c agent-work/123-short-slug origin/agent
+git switch -c &lt;work_branch_prefix&gt;123-short-slug &lt;default_remote&gt;/&lt;staging_branch&gt;
 <span class="cm"># implement the smallest change, validate, push, open PR with "Refs #123"</span>
 <span class="cm"># report summary and validation evidence to the caller</span></code></pre>
               <p><b>Stop when:</b> the isolated checkout is missing, acceptance criteria are ambiguous, the tree is dirty for unrelated reasons, or a human decision is required.</p>

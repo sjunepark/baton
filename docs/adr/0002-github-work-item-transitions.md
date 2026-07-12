@@ -23,8 +23,10 @@ does not re-admit that issue. New implementation after staging review uses a
 follow-up issue; closing the original remains the terminal human override.
 
 Recommendation acquisition therefore reads merged staging-PR history. If that
-history cannot be acquired within the bounded snapshot window, Baton reports a
-degraded snapshot and refuses `next` instead of assuming the issue is ready.
+history cannot be acquired within the bounded snapshot window, `snapshot`
+returns `completeness: degraded` with a degraded Recommendation and no Action.
+Both that snapshot behavior and the legacy `next` projection block a
+recommendation instead of assuming the issue is ready.
 
 Generated transition automation executes a released pinned Baton binary from
 trusted base-branch code under `pull_request_target`; it never runs code from

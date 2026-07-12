@@ -19,9 +19,10 @@ across Jobs, Coda instances, or standalone Baton automations.
 ## Decision
 
 Baton will not expose candidate claim, renew, release, expiry, or completion
-commands yet. Current dispatch is human-selected or caller-serialized. A
-repository must have at most one unattended dispatcher unless the caller owns
-stronger serialization; a Baton Recommendation is advice, not a reservation.
+commands yet. Current dispatch is human-selected or performed by one
+caller-owned dispatcher. If unattended dispatch is configured, a repository
+must have exactly one such dispatcher; a Baton Recommendation is advice, not a
+reservation.
 
 If a maintained caller later implements automatic Recommendation-to-Run
 dispatch, claim design becomes a prerequisite. That work must first verify an

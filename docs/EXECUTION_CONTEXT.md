@@ -8,9 +8,11 @@ URL, one GitHub `owner/name`, and the config's branch policy. If `--repo` or
 `GITHUB_REPOSITORY` disagrees with the configured checkout remote, resolution
 fails before authentication or GitHub requests. The remote host must match the
 default GitHub.com API or the configured GitHub Enterprise API host. Callers
-such as Coda should run Baton with the Project checkout as
-the working directory and its metadata repository as `--repo`; agreement is a
-safety precondition.
+such as Coda should run Baton with the Project checkout as the working directory
+only when that checkout's configured remote identifies the Project metadata
+repository passed as `--repo`. Agreement is a safety precondition;
+cross-repository checkout/metadata invocation is unsupported and must stop with
+the structured config error before authentication or GitHub I/O.
 
 For compatibility, an invocation outside a git checkout may still use an
 explicit repository and config path. In that mode Baton has no local remote to

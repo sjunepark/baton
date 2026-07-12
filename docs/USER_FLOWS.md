@@ -123,7 +123,9 @@ Use when one ready issue has clear acceptance criteria and no skip label.
   baton snapshot --format toon --repo owner/name
   # continue only when outcome is actionable
   # in a caller-provided isolated checkout:
-  git switch -c agent-work/123-short-slug origin/agent
+  # substitute repository.work_branch_prefix, repository.default_remote,
+  # and repository.staging_branch from .github/baton.yml:
+  git switch -c <work_branch_prefix>123-short-slug <default_remote>/<staging_branch>
   # read AGENTS.md, implement, validate, push, open/update PR, and report
   # the summary plus validation evidence to the caller
   ```
