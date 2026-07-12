@@ -87,20 +87,35 @@ GitHub state + repo config
    keywords, commit subject quality, and GitHub commit listing caps.
 6. Baton exits non-zero with actionable errors when policy fails.
 
+### Work-Item Transition In GitHub Actions
+
+1. GitHub emits a closed `pull_request_target` event.
+2. Workflow checks out trusted base SHA and installs an exact released Baton.
+3. `baton pr-transition` classifies the PR from repository policy.
+4. A merged work PR plans one awaiting-review label operation per referenced
+   issue; other lifecycle edges remain derived GitHub state and plan no write.
+5. Apply verifies current PR content/revision and all referenced resources
+   before the first label write, then returns an operation report.
+6. Merged staging-PR history prevents failed event delivery from re-admitting
+   completed work; incomplete history degrades recommendations.
+
 ### Automation Work Selection
 
 1. Codex automation starts in a project directory.
-2. The Baton skill tells Codex to call `baton next --json`.
-3. Baton fetches queue state and returns the winning candidate set:
+2. The Baton skill tells Codex to call `baton snapshot --json`.
+3. Baton fetches queue state and returns a repository snapshot. Automation
+   continues only when its outcome is `actionable`, using the winning candidate
+   set:
    - Branch health fix when the shared agent branch is red.
    - PR follow-up candidates from the highest check-state tier.
    - Issue intake when no PR follow-up blocks new work.
-   - No-op/report when no mutation is appropriate.
-4. Codex chooses exactly one candidate.
-5. Codex verifies it is already operating in a caller-provided isolated
+4. Non-actionable outcomes stop and report without selecting work.
+5. Codex chooses exactly one candidate.
+6. Codex verifies it is already operating in a caller-provided isolated
    checkout before editing.
-6. Codex validates, pushes/comments, and calls `baton complete` to record the
-   outcome when useful.
+7. Codex validates, pushes/comments, and reports the outcome to its caller.
+   Coda or the invoking automation owns execution completion; GitHub owns
+   semantic issue/PR state.
 
 ## Code Map
 
@@ -126,8 +141,8 @@ internal/git/
 internal/install/
   embedded target-repo templates and init planning
 
-internal/doctor/, internal/complete/, internal/labels/
-  readiness checks, completion metadata, and label manifest sync
+internal/doctor/, internal/labels/, internal/workitem/
+  readiness checks, label manifest sync, readiness, and PR transition planning
 
 skills/baton/
   Codex skill package
@@ -138,7 +153,9 @@ skills/baton/
 - Automation work never mutates the user's primary checkout.
 - Baton does not create, delete, prune, or lease worktrees.
 - The caller owns checkout isolation and lifecycle.
-- One automation run claims at most one unit of work.
+- One automation run handles at most one unit of work.
+- Baton Recommendations are not repository Candidate claims. Until a verified
+  coordination contract exists, each repository has one unattended dispatcher.
 - GitHub Issues are the operational queue.
 - Target repo config is the policy source of truth.
 - The CLI returns facts and policy decisions; Codex performs code changes.

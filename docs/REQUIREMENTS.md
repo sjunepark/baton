@@ -74,6 +74,9 @@ Baton should extract this workflow into a reusable tool for the user's projects.
 - Human unresolved review threads must outrank bot review threads.
 - Failing required checks must be actionable before review nits.
 - Baton must return "no-op/report" when no safe mutation exists.
+- Recommendations are advice, not Candidate claims. Until an implemented
+  automatic dispatcher proves the need and a conditional mutation primitive,
+  unattended dispatch must be singleton per repository.
 
 ### Execution Context
 
@@ -83,11 +86,16 @@ Baton should extract this workflow into a reusable tool for the user's projects.
   context to do one selected unit safely.
 - Baton must work well when invoked from Coda, Treehouse, Codex background
   checkouts, or manually prepared worktrees.
+- Baton must not maintain a caller-style execution or completion ledger. Coda
+  or the invoking automation owns Runs, provenance, retries, and validation
+  evidence; GitHub owns semantic issue and PR state.
 
 ### GitHub Writes
 
 - Baton must apply issue-policy labels and comments only when explicitly run
   with apply semantics.
+- A merged work PR must move referenced issues to the configured
+  awaiting-review state through a pure, explicitly applied, idempotent planner.
 - Baton must support issue/PR comments needed by the workflow.
 - Baton must support label sync.
 - Baton must not merge PRs in v1 except behind an explicit command and explicit

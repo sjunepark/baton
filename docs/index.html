@@ -321,16 +321,17 @@ help[3]:
 
         <section class="doc" data-section data-entry id="adopt">
           <h3 class="sec">Teaching a repository its rules</h3>
-          <p>A fresh repository doesn't know Baton's conventions yet. Adopting it means writing a handful of files: the policy config, the issue form, the label list, and the two GitHub Actions that enforce everything.</p>
+          <p>A fresh repository doesn't know Baton's conventions yet. Adopting it means writing a handful of files: the policy config, the issue form, the label list, and the three GitHub Actions that enforce everything.</p>
           <p>Never do this blind. Every setup command previews first, so ask to see the plan before anything is written:</p>
 <pre><code>baton init --dry-run --json</code></pre>
-          <p>Baton shows the six files it would create:</p>
+          <p>Baton shows the seven files it would create:</p>
 <pre><code>.github/baton.yml                      <span class="cm"># the policy config</span>
 .github/labels.yml                     <span class="cm"># the labels Baton manages</span>
 .github/ISSUE_WORKFLOW.md              <span class="cm"># how issues flow, for humans</span>
 .github/ISSUE_TEMPLATE/agent-work.yml  <span class="cm"># the work-item form</span>
 .github/workflows/issue-policy.yml     <span class="cm"># labels issues automatically</span>
-.github/workflows/pr-policy.yml        <span class="cm"># checks PRs automatically</span></code></pre>
+.github/workflows/pr-policy.yml        <span class="cm"># checks PRs automatically</span>
+.github/workflows/work-item-transition.yml <span class="cm"># blocks merged work from re-entry</span></code></pre>
           <p>Read that diff like any change to your repo. When you're satisfied, apply it — pinning the exact Baton version the Actions should install, so CI stays reproducible:</p>
 <!-- x-release-please-start-version -->
 <pre><code>baton init --apply --go-install github.com/sjunepark/baton/cmd/baton@v0.4.4</code></pre>
@@ -384,11 +385,11 @@ instructions:
           <h3 class="sec">Doing one task</h3>
           <p>Here is the rule that matters most, so it stands alone:</p>
           <blockquote>Before editing any file, confirm you are in an isolated checkout that something else prepared. If you might be in your everyday working copy, stop. Baton will not make a sandbox for you.</blockquote>
-          <p>With that settled, building an issue is a short sequence. Pick one candidate from <code>next</code>. Inside the isolated checkout, branch from staging, make the smallest change that satisfies the acceptance criteria, validate it, and open a pull request back into <code>agent</code>:</p>
+          <p>With that settled, building an issue is a short sequence. Read <code>snapshot</code>, continue only when its outcome is <code>actionable</code>, and pick one candidate. Inside the isolated checkout, branch from staging, make the smallest change that satisfies the acceptance criteria, validate it, and open a pull request back into <code>agent</code>:</p>
 <pre><code><span class="cm"># In a caller-provided isolated checkout:</span>
 git switch -c agent-work/123-short-slug origin/agent
 <span class="cm"># implement, validate, push, and open a PR into `agent` with "Refs #123"</span>
-baton complete --summary "Implemented issue 123" --validation "go test ./..." --json</code></pre>
+<span class="cm"># report the summary and validation evidence to the caller</span></code></pre>
           <p>Two ideas from Concepts show up here in practice: the PR targets <code>agent</code> rather than <code>main</code>, and it says <code>Refs #123</code> rather than <code>Closes</code>, so the issue closes later, when staging is promoted.</p>
         </section>
 
@@ -403,17 +404,12 @@ baton review-threads 42 --format toon --repo owner/name</code></pre>
 <pre><code><span class="cm"># In a caller-provided isolated checkout:</span>
 git switch &lt;head-ref&gt;
 <span class="cm"># fix, validate, and push to the same branch</span>
-baton complete --summary "Handled PR 42 follow-up" --validation "go test ./..." --json</code></pre>
+<span class="cm"># report the summary and validation evidence to the caller</span></code></pre>
         </section>
 
         <section class="doc" data-section data-entry id="record">
-          <h3 class="sec">Leaving a record</h3>
-          <p>Whether you built an issue or followed up a PR, close the loop with <code>complete</code>. It records what you did and how you checked it — locally by default, and as a GitHub comment only when you explicitly ask:</p>
-<pre><code>baton complete --summary "..." --validation "go test ./..." --json
-
-<span class="cm"># comment on GitHub only with an explicit target:</span>
-baton complete --summary "..." --validation "..." --comment --repo owner/name --pr 42</code></pre>
-          <p>For a run nobody watched, this record is how you'll later understand what happened. Keep the summary short and the validation concrete, like <code>go test ./...</code>, rather than vague.</p>
+          <h3 class="sec">Reporting the outcome</h3>
+          <p>Whether you built an issue or followed up a PR, return a short summary and concrete validation evidence to the caller. Coda or the invoking automation owns execution history. GitHub PR and issue state owns semantic work-item completion; Baton does not keep a second local completion ledger.</p>
         </section>
 
         <section class="doc" data-section data-entry id="automate">
@@ -423,9 +419,9 @@ baton complete --summary "..." --validation "..." --comment --repo owner/name --
 <pre><code>baton doctor --format toon
 baton ensure-branch --json
 baton sync-labels --dry-run --repo owner/name --json
-baton next --format toon --repo owner/name</code></pre>
-          <p>Then schedule a worker whose whole job is one sentence: ask <code>baton next</code>, take exactly one candidate, work in an isolated checkout, and never merge. If you're unsure, start read-only and widen its permission once you've watched it behave. The skill command for a single safe run is <code>$baton run --repo owner/name</code>.</p>
-          <p>Step back and the pattern is the same everywhere: Baton shows you facts and a recommended next step, you or an agent supply the judgment, a sandbox you provide is where edits land, and nothing reaches production without a person. When in doubt, run <code>baton next</code> and follow the instructions it hands back. The <a href="#reference">Reference</a> below has the exact detail for every command.</p>
+baton snapshot --format toon --repo owner/name</code></pre>
+          <p>Then schedule one worker whose whole job is one sentence: ask <code>baton snapshot</code>, act only for <code>outcome: actionable</code>, take exactly one candidate, work in an isolated checkout, and never merge. Recommendations are not claims, so do not run independent unattended dispatchers against the same repository. If you're unsure, start read-only and widen its permission once you've watched it behave. The skill command for a single safe run is <code>$baton run --repo owner/name</code>.</p>
+          <p>Step back and the pattern is the same everywhere: Baton shows you facts and a recommended next step, you or an agent supply the judgment, a sandbox you provide is where edits land, and nothing reaches production without a person. For unattended work, run <code>baton snapshot</code> and stop unless the outcome is actionable. The <a href="#reference">Reference</a> below has the exact detail for every command.</p>
         </section>
       </div>
 
@@ -471,7 +467,7 @@ baton doctor --json</code></pre>
           <details class="cmd" data-entry>
             <summary><span class="name">baton init</span> <span class="desc">install target-repo files</span> <span class="badge">preview → --apply</span></summary>
             <div class="cmd-body">
-              <p>Create or preview the six files that make a repository Baton-managed. Dry-run/diff by default.</p>
+              <p>Create or preview the seven files that make a repository Baton-managed. Dry-run/diff by default.</p>
 <!-- x-release-please-start-version -->
 <pre><code>baton init --dry-run --json
 baton init --apply --go-install github.com/sjunepark/baton/cmd/baton@v0.4.4</code></pre>
@@ -482,8 +478,19 @@ baton init --apply --go-install github.com/sjunepark/baton/cmd/baton@v0.4.4</cod
 .github/ISSUE_WORKFLOW.md              <span class="cm"># how issues flow</span>
 .github/ISSUE_TEMPLATE/agent-work.yml  <span class="cm"># the work-item form</span>
 .github/workflows/issue-policy.yml     <span class="cm"># issue automation</span>
-.github/workflows/pr-policy.yml        <span class="cm"># PR automation</span></code></pre>
-              <p><b>Flags:</b> <code>--dry-run</code>, <code>--apply</code>, <code>--profile &lt;name&gt;</code>, <code>--go-install &lt;module@version&gt;</code>, <code>--install-command '&lt;cmd&gt;'</code>, <code>--json</code>. Pin a trusted install source with <code>--go-install</code> or <code>--install-command</code>.</p>
+.github/workflows/pr-policy.yml        <span class="cm"># PR automation</span>
+.github/workflows/work-item-transition.yml <span class="cm"># work-item state transition</span></code></pre>
+              <p><b>Flags:</b> <code>--dry-run</code>, <code>--apply</code>, <code>--profile &lt;name&gt;</code>, <code>--go-install &lt;module@version&gt;</code>, <code>--install-command '&lt;cmd&gt;'</code>, <code>--json</code>. The write-capable transition workflow always requires and uses an exact <code>--go-install module@vX.Y.Z</code>; arbitrary install commands apply only to the other generated workflows.</p>
+            </div>
+          </details>
+
+          <details class="cmd" data-entry>
+            <summary><span class="name">baton pr-transition</span> <span class="desc">advance merged work items</span> <span class="badge">Actions · explicit apply</span></summary>
+            <div class="cmd-body">
+              <p>Plan or idempotently add the configured awaiting-review label after a work PR merges to staging. Baton rechecks the PR revision and all issues before writing.</p>
+<pre><code>baton pr-transition --event "$GITHUB_EVENT_PATH" --dry-run --json
+baton pr-transition --event "$GITHUB_EVENT_PATH" --apply --json</code></pre>
+              <p><b>Flags:</b> <code>--event &lt;path&gt;</code>, exactly one of <code>--dry-run</code> / <code>--apply</code>, <code>--repo</code>, <code>--config</code>, <code>--json</code>.</p>
             </div>
           </details>
 
@@ -623,9 +630,32 @@ baton review-threads 12 --full --json</code></pre>
           </details>
 
           <details class="cmd" data-entry>
+            <summary><span class="name">baton snapshot</span> <span class="desc">one bounded repository observation</span> <span class="badge">preferred automation contract</span></summary>
+            <div class="cmd-body">
+              <p>Acquire issue, PR, branch, check, and review facts once and return a typed recommendation. Unattended agents act only for <code>outcome: actionable</code>; <code>human_choice_required</code>, <code>waiting</code>, <code>blocked</code>, <code>idle</code>, and <code>degraded</code> all mean report and stop.</p>
+<pre><code>baton snapshot --format toon --repo owner/name
+baton snapshot --json --repo owner/name</code></pre>
+              <div class="eyebrow">JSON · repositorySnapshot v1 (trimmed)</div>
+<pre><code>{
+  "schemaVersion": 1,
+  "kind": "repositorySnapshot",
+  "repository": "owner/name",
+  "completeness": "complete",
+  "recommendation": {
+    "outcome": "actionable",
+    "action": "issue_implementation",
+    "selectionRequired": false,
+    "candidates": [{"identity":{"repository":"owner/name","kind":"issue","number":18}}]
+  }
+}</code></pre>
+              <p><b>Flags:</b> <code>--format</code>, <code>--json</code>, <code>--repo</code>, <code>--config</code>.</p>
+            </div>
+          </details>
+
+          <details class="cmd" data-entry>
             <summary><span class="name">baton next</span> <span class="desc">the one recommended action</span> <span class="badge">read-only</span></summary>
             <div class="cmd-body">
-              <p>Return the highest-priority next candidate set. Agents and users choose exactly one candidate before acting. Use <code>--action issue-investigation</code> only when a human deliberately wants investigation candidates instead of the default priority order.</p>
+              <p>Return the legacy v2 candidate projection retained for Coda compatibility and read-only inspection. New unattended automation uses <code>snapshot</code> so it can gate on Recommendation Outcome. Use <code>--action issue-investigation</code> only when a human deliberately wants investigation candidates instead of the default priority order.</p>
 <pre><code>baton next --format toon --repo owner/name
 baton next --action issue-investigation --format toon</code></pre>
               <div class="eyebrow">JSON · nextCandidates (trimmed)</div>
@@ -651,16 +681,6 @@ baton next --action issue-investigation --format toon</code></pre>
   ]
 }</code></pre>
               <p><b>selectedAction:</b> <code>pr-followup</code>, <code>branch-health</code>, <code>issue-implementation</code>, <code>issue-investigation</code>, or <code>none</code>. <b>Flags:</b> <code>--format</code>, <code>--action</code>, <code>--json</code>, <code>--repo</code>.</p>
-            </div>
-          </details>
-
-          <details class="cmd" data-entry>
-            <summary><span class="name">baton complete</span> <span class="desc">record completion</span> <span class="badge">local; comment opt-in</span></summary>
-            <div class="cmd-body">
-              <p>Record local completion metadata and optionally post one GitHub timeline comment. Commenting requires an explicit target.</p>
-<pre><code>baton complete --summary "Implemented issue 123" --validation "go test ./..." --json
-baton complete --summary "..." --validation "..." --comment --repo owner/name --pr 42</code></pre>
-              <p><b>Flags:</b> <code>--summary &lt;text&gt;</code>, <code>--validation &lt;text&gt;</code>, <code>--comment</code>, <code>--repo</code>, <code>--issue &lt;n&gt;</code>, <code>--pr &lt;n&gt;</code>, <code>--json</code>, <code>--body-limit &lt;n&gt;</code>.</p>
             </div>
           </details>
 
@@ -728,6 +748,7 @@ setup:
   baseline_baton_version: v0.4.4     <span class="cm"># release the setup files were last reviewed against</span>
 
 repository:
+  default_remote: origin              <span class="cm"># git remote used by Baton commands</span>
   base_branch: main                  <span class="cm"># production</span>
   staging_branch: agent              <span class="cm"># agent PRs target this</span>
   work_branch_prefix: agent-work/    <span class="cm"># must end with /</span>
@@ -748,6 +769,7 @@ issue_policy:
   implementation_labels: [agent:ready-trivial, agent:ready-bounded]
   comment_only_labels:  [agent:investigate-only]
   skip_labels:          [needs-info, needs:discussion, needs:review]
+  awaiting_review_label: needs:review
   controlled_label_groups:           <span class="cm"># Baton removes only labels it owns</span>
     work_kind: [bug, documentation, enhancement, question]
     agent_mode: [agent:ready-trivial, agent:ready-bounded, agent:investigate-only, needs:discussion]
@@ -770,21 +792,17 @@ pr_policy:
   fail_when_commit_listing_reaches_cap: true
 
 labels:
-  manifest: .github/labels.yml
-
-automation:
-  prefer_pr_followup_before_issue_intake: true
-  allow_merge: false</code></pre>
+  manifest: .github/labels.yml</code></pre>
 <!-- x-release-please-end -->
           </div>
           <div data-entry>
             <h4>Required fields</h4>
-            <p><code>version</code> · <code>repository.base_branch</code> · <code>repository.staging_branch</code> · <code>repository.work_branch_prefix</code> · <code>issue_policy.form_sections</code> · <code>issue_policy.agent_mode_labels</code> · <code>issue_policy.implementation_labels</code> · <code>issue_policy.skip_labels</code> · <code>issue_policy.required_sections</code>. Everything else uses the defaults above.</p>
+            <p><code>version</code> · <code>repository.base_branch</code> · <code>repository.staging_branch</code> · <code>repository.work_branch_prefix</code> · <code>issue_policy.form_sections</code> · <code>issue_policy.agent_mode_labels</code> · <code>issue_policy.implementation_labels</code> · <code>issue_policy.skip_labels</code> · <code>issue_policy.awaiting_review_label</code> · <code>issue_policy.required_sections</code>. Everything else uses the defaults above.</p>
           </div>
           <div data-entry>
             <h4>Validation rules</h4>
             <ul>
-              <li>Branch names are non-empty and contain no whitespace; <code>work_branch_prefix</code> ends with <code>/</code>.</li>
+              <li>Branches satisfy Git ref-name rules, the remote is a normalized non-option name, and <code>work_branch_prefix</code> ends with <code>/</code>.</li>
               <li>Every required section ID must exist in <code>form_sections</code>.</li>
               <li>Every implementation label must appear in an agent-mode mapping or be marked externally managed.</li>
               <li>Controlled label groups must not duplicate labels across unrelated groups.</li>
@@ -814,10 +832,12 @@ automation:
           <div data-entry>
             <h4>Result kinds</h4>
             <dl class="defs">
-              <dt>nextCandidates</dt><dd><code>selectedAction</code>, <code>reason</code>, <code>selectionReason</code>, <code>selectionRequired</code>, <code>candidates[]</code>, <code>deferredEligibleItems[]</code>, <code>blockedItems[]</code>, <code>instructions[]</code>.</dd>
+              <dt>repositorySnapshot</dt><dd>Preferred automation contract: one bounded acquisition plus <code>recommendation.outcome</code>, optional <code>action</code>, typed candidates, reasons, and instructions.</dd>
+              <dt>nextCandidates</dt><dd>Maintained Coda migration projection: <code>selectedAction</code>, <code>reason</code>, <code>selectionReason</code>, <code>selectionRequired</code>, <code>candidates[]</code>, <code>deferredEligibleItems[]</code>, <code>blockedItems[]</code>, <code>instructions[]</code>.</dd>
               <dt>queueSnapshot</dt><dd><code>counts.eligibleByAction</code>; per issue: <code>eligible</code>, <code>priorityLabel</code>, <code>priorityRank</code>, <code>reasons</code>, <code>linkedPrs</code>; per PR: <code>referencedIssues</code>.</dd>
               <dt>reviewThreads</dt><dd><code>summary.unresolved</code>, <code>summary.humanUnresolved</code>; per thread: <code>isResolved</code>, <code>isOutdated</code>; per comment: <code>authorKind</code> (<code>human</code>, <code>codex</code>, <code>coderabbit</code>, <code>greptile</code>, <code>bot</code>, <code>unknown</code>), <code>bodyTruncated</code>.</dd>
               <dt>issuePolicyDecision · prPolicyDecision</dt><dd>Pure policy results — see the <a href="#commands">issue-policy</a> and <a href="#commands">pr-policy</a> commands.</dd>
+              <dt>workItemTransitionPlan</dt><dd>Deterministic issue-label operations for a PR event; apply adds an embedded operation report.</dd>
             </dl>
           </div>
           <div data-entry>
@@ -912,7 +932,7 @@ gh issue comment &lt;number&gt; --repo owner/name --body-file findings.md</code>
 <pre><code><span class="cm"># in a caller-provided isolated checkout:</span>
 git switch -c agent-work/123-short-slug origin/agent
 <span class="cm"># implement the smallest change, validate, push, open PR with "Refs #123"</span>
-baton complete --summary "..." --validation "go test ./..." --json</code></pre>
+<span class="cm"># report summary and validation evidence to the caller</span></code></pre>
               <p><b>Stop when:</b> the isolated checkout is missing, acceptance criteria are ambiguous, the tree is dirty for unrelated reasons, or a human decision is required.</p>
             </div>
           </details>
@@ -926,7 +946,7 @@ baton checks 42 --format toon --repo owner/name
 baton review-threads 42 --format toon --repo owner/name
 <span class="cm"># in a caller-provided isolated checkout:</span>
 git switch &lt;head-ref&gt;
-baton complete --summary "..." --validation "..." --json</code></pre>
+<span class="cm"># report summary and validation evidence to the caller</span></code></pre>
               <p><b>Stop when:</b> feedback needs human judgment, checks are red for unrelated reasons, or the branch can't be checked out safely.</p>
             </div>
           </details>
@@ -939,7 +959,7 @@ baton complete --summary "..." --validation "..." --json</code></pre>
 baton doctor --format toon
 baton ensure-branch --json
 baton sync-labels --dry-run --repo owner/name --json
-baton next --format toon --repo owner/name</code></pre>
+baton snapshot --format toon --repo owner/name</code></pre>
               <p><b>Stop when:</b> no manual run has succeeded, auth is missing, isolation is unavailable, or the repo isn't Baton-ready.</p>
             </div>
           </details>
@@ -991,7 +1011,7 @@ baton next --format toon --repo owner/name</code></pre>
             <ul>
               <li>Automation never mutates the user's primary checkout.</li>
               <li>Baton never creates, deletes, prunes, or leases worktrees — the caller owns isolation.</li>
-              <li>One run claims at most one unit of work.</li>
+              <li>One run handles at most one unit of work.</li>
               <li>GitHub Issues are the operational queue; target-repo config is the policy source of truth.</li>
               <li>The CLI returns facts and decisions; the agent performs code changes.</li>
               <li>Every mutating command has a dry-run, a pure planner, or an explicit <code>--apply</code>/<code>--yes</code> gate.</li>
