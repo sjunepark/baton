@@ -79,7 +79,8 @@ func pullRequestRecommendation(repository RepositorySnapshot, includeNonActionab
 		if len(actionable) > 1 {
 			outcome = OutcomeHumanChoiceRequired
 		}
-		deferred := append(append([]Candidate{}, blocked...), waiting...)
+		deferred := append(append([]Candidate{}, humanChoice...), blocked...)
+		deferred = append(deferred, waiting...)
 		deferred = append(deferred, eligibleIssueCandidates(repository)...)
 		sortCandidates(deferred)
 		return &Recommendation{Outcome: outcome, Action: &action, Reasons: []string{"pull_request_follow_up_available"}, SelectionRequired: len(actionable) > 1, Candidates: actionable, DeferredCandidates: deferred, Instructions: []string{"Choose a pull request before editing when selection is required.", "Work only in a caller-provided isolated checkout.", "Push only to the existing pull request branch.", "Do not merge."}}

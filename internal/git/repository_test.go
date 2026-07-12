@@ -52,6 +52,9 @@ func TestRedactRemoteURLRemovesCredentials(t *testing.T) {
 	if got := RedactRemoteURL("token@github.com:example/project.git"); got != "github.com:example/project.git" {
 		t.Fatalf("redacted SCP remote = %q", got)
 	}
+	if got := RedactRemoteURL("/srv/git/example/project.git"); got != "/srv/git/example/project.git" {
+		t.Fatalf("local remote = %q", got)
+	}
 }
 
 func TestRepositoryRootDoesNotMaskOtherExit128Failures(t *testing.T) {

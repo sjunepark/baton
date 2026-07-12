@@ -163,12 +163,15 @@ func resolveTarget(ctx context.Context, options Options, root string, hasGitRepo
 	if remoteURL != "" {
 		remoteRepository, parseErr := gitadapter.ParseHostedRepositoryRemote(remoteURL)
 		if parseErr != nil {
-			return Target{}, parseErr
+			if strings.TrimSpace(options.Repository) == "" && strings.TrimSpace(options.EnvironmentRepo) == "" {
+				return Target{}, &ResolveError{Code: ErrorInvalidRepository, LeftSource: fmt.Sprintf("remote %q", target.Remote), Left: target.RemoteURL, Cause: parseErr}
+			}
+		} else {
+			if !githubHostCompatible(remoteRepository.Host, options.GitHubAPIURL) {
+				return Target{}, &ResolveError{Code: ErrorRemoteHost, Remote: target.Remote}
+			}
+			inferred = remoteRepository.Repository
 		}
-		if !githubHostCompatible(remoteRepository.Host, options.GitHubAPIURL) {
-			return Target{}, &ResolveError{Code: ErrorRemoteHost, Remote: target.Remote}
-		}
-		inferred = remoteRepository.Repository
 	}
 
 	identities := []repositoryIdentity{}

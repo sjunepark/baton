@@ -22,11 +22,18 @@ func TestBuildSnapshotWithLifecycleKeepsMergedWorkOutOfIntake(t *testing.T) {
 func TestBuildSnapshotUsesConfiguredReferencesAndOnlyWorkPRsBlock(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.PRPolicy.RequiredReferenceKeyword = "Tracks"
-	snapshot := BuildSnapshot("example/repo", cfg,
+	matching := BuildSnapshot("example/repo", cfg,
 		[]Issue{{Number: 7, Labels: []string{"agent:ready-bounded"}}},
-		[]PullRequest{{Number: 42, BaseRef: "main", HeadRef: "feature", Body: "Refs #7\nTracks #7"}})
-	if !snapshot.Issues[0].Eligible || len(snapshot.Issues[0].LinkedPRs) != 0 {
-		t.Fatalf("direct PR blocked intake: %+v", snapshot.Issues[0])
+		[]PullRequest{{Number: 42, BaseRef: "agent", HeadRef: "agent-work/7", Body: "Tracks #7"}})
+	if matching.Issues[0].Eligible || len(matching.Issues[0].LinkedPRs) != 1 || matching.Issues[0].LinkedPRs[0] != 42 {
+		t.Fatalf("configured reference did not block intake: %+v", matching.Issues[0])
+	}
+
+	nonMatching := BuildSnapshot("example/repo", cfg,
+		[]Issue{{Number: 7, Labels: []string{"agent:ready-bounded"}}},
+		[]PullRequest{{Number: 43, BaseRef: "agent", HeadRef: "agent-work/7", Body: "Refs #7"}})
+	if !nonMatching.Issues[0].Eligible || len(nonMatching.Issues[0].LinkedPRs) != 0 {
+		t.Fatalf("non-configured reference blocked intake: %+v", nonMatching.Issues[0])
 	}
 }
 

@@ -394,6 +394,13 @@ func TestRenderManagedFilesQuotesYAMLSensitiveBranchNames(t *testing.T) {
 	t.Fatal("PR policy workflow not rendered")
 }
 
+func TestReplaceWorkflowBranchesRequiresPinnedPlaceholder(t *testing.T) {
+	_, err := replaceWorkflowBranches(".github/workflows/pr-policy.yml", "branches: [custom]", config.DefaultConfig())
+	if err == nil || !strings.Contains(err.Error(), ".github/workflows/pr-policy.yml") || !strings.Contains(err.Error(), "placeholder") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestRenderManagedFilesRejectsManifestCollision(t *testing.T) {
 	policy := config.DefaultConfig()
 	policy.Labels.Manifest = ".github/./baton.yml"

@@ -93,6 +93,19 @@ func TestBuildRepositorySnapshotPullRequestSignals(t *testing.T) {
 	}
 }
 
+func TestActionablePullRequestDefersReadyHumanChoice(t *testing.T) {
+	result := buildSnapshotForTest(t, Complete, nil, []PullRequestFacts{
+		pullRequestFact(7, "failure", "approved"),
+		pullRequestFact(8, "success", "approved"),
+	}, nil)
+	if len(result.Recommendation.Candidates) != 1 || result.Recommendation.Candidates[0].Identity.Number != 7 {
+		t.Fatalf("candidates = %+v", result.Recommendation.Candidates)
+	}
+	if len(result.Recommendation.DeferredCandidates) != 1 || result.Recommendation.DeferredCandidates[0].Identity.Number != 8 {
+		t.Fatalf("deferred = %+v", result.Recommendation.DeferredCandidates)
+	}
+}
+
 func TestBuildRepositorySnapshotDerivesCompletenessFromChildFacts(t *testing.T) {
 	warning := Warning{Code: "forbidden", Scope: "pullRequest:7:reviews", Message: "unavailable", HTTPStatus: 403}
 	facts := pullRequestFact(7, "success", "approved")

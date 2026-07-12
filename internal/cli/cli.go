@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"sort"
 	"strings"
@@ -192,11 +193,9 @@ func (r renderer) ApplicationError(applicationError *apperror.Error) int {
 	return code
 }
 
-// Structured error v1 historically classified every completed GitHub request
-// failure as retryable. Preserve that public projection while workflows retain
-// the more accurate typed retryability metadata for a future schema version.
 func publicErrorRetryable(applicationError *apperror.Error) bool {
-	return applicationError.Retryable || applicationError.Category == apperror.GitHub
+	return applicationError.Retryable || applicationError.HTTPStatus == http.StatusTooManyRequests ||
+		(applicationError.HTTPStatus >= 500 && applicationError.HTTPStatus <= 599) || applicationError.RetryAfter > 0
 }
 
 func (r renderer) TOONError(result errorResult, code int) int {
@@ -1420,25 +1419,52 @@ func writeRepositorySnapshotTOON(w io.Writer, result snapshot.RepositorySnapshot
 	fmt.Fprintf(w, "acquisition.startedAt: %s\n", result.Acquisition.StartedAt.Format(time.RFC3339Nano))
 	fmt.Fprintf(w, "acquisition.completedAt: %s\n", result.Acquisition.CompletedAt.Format(time.RFC3339Nano))
 	fmt.Fprintf(w, "completeness: %s\n", result.Completeness)
-	fmt.Fprintf(w, "warnings: %d\n", len(result.Warnings))
+	fmt.Fprintf(w, "warnings[%d]:\n", len(result.Warnings))
+	for _, warning := range result.Warnings {
+		fmt.Fprintf(w, "  - code=%s scope=%s retryable=%v", warning.Code, warning.Scope, warning.Retryable)
+		if warning.HTTPStatus != 0 {
+			fmt.Fprintf(w, " httpStatus=%d", warning.HTTPStatus)
+		}
+		if warning.RequestID != "" {
+			fmt.Fprintf(w, " requestId=%s", warning.RequestID)
+		}
+		fmt.Fprintf(w, " message=%s\n", oneLine(warning.Message))
+	}
 	fmt.Fprintf(w, "recommendation.outcome: %s\n", result.Recommendation.Outcome)
 	if result.Recommendation.Action != nil {
 		fmt.Fprintf(w, "recommendation.action: %s\n", *result.Recommendation.Action)
 	}
 	fmt.Fprintf(w, "recommendation.selectionRequired: %v\n", result.Recommendation.SelectionRequired)
-	fmt.Fprintf(w, "recommendation.candidates[%d]:\n", len(result.Recommendation.Candidates))
-	for _, candidate := range result.Recommendation.Candidates {
+	writeSnapshotCandidateLines(w, "recommendation.candidates", result.Recommendation.Candidates)
+	writeSnapshotCandidateLines(w, "recommendation.deferredCandidates", result.Recommendation.DeferredCandidates)
+	fmt.Fprintf(w, "recommendation.reasons[%d]:\n", len(result.Recommendation.Reasons))
+	for _, reason := range result.Recommendation.Reasons {
+		fmt.Fprintf(w, "  - %s\n", oneLine(reason))
+	}
+	fmt.Fprintf(w, "recommendation.instructions[%d]:\n", len(result.Recommendation.Instructions))
+	for _, instruction := range result.Recommendation.Instructions {
+		fmt.Fprintf(w, "  - %s\n", oneLine(instruction))
+	}
+	return exitOK
+}
+
+func writeSnapshotCandidateLines(w io.Writer, key string, candidates []snapshot.Candidate) {
+	fmt.Fprintf(w, "%s[%d]:\n", key, len(candidates))
+	for _, candidate := range candidates {
 		identity := candidate.Identity
 		switch identity.Kind {
 		case snapshot.CandidateIssue:
-			fmt.Fprintf(w, "  - kind=%s repository=%s number=%d state=%s\n", identity.Kind, identity.Repository, identity.Number, candidate.State)
+			fmt.Fprintf(w, "  - kind=%s repository=%s number=%d state=%s", identity.Kind, identity.Repository, identity.Number, candidate.State)
 		case snapshot.CandidatePullRequest:
-			fmt.Fprintf(w, "  - kind=%s repository=%s number=%d headSha=%s baseSha=%s state=%s\n", identity.Kind, identity.Repository, identity.Number, identity.HeadSHA, identity.BaseSHA, candidate.State)
+			fmt.Fprintf(w, "  - kind=%s repository=%s number=%d headSha=%s baseSha=%s state=%s", identity.Kind, identity.Repository, identity.Number, identity.HeadSHA, identity.BaseSHA, candidate.State)
 		case snapshot.CandidateBranch:
-			fmt.Fprintf(w, "  - kind=%s repository=%s ref=%s sha=%s state=%s\n", identity.Kind, identity.Repository, identity.Ref, identity.SHA, candidate.State)
+			fmt.Fprintf(w, "  - kind=%s repository=%s ref=%s sha=%s state=%s", identity.Kind, identity.Repository, identity.Ref, identity.SHA, candidate.State)
 		}
+		if len(candidate.Reasons) > 0 {
+			fmt.Fprintf(w, " reasons=%s", oneLine(strings.Join(candidate.Reasons, ",")))
+		}
+		fmt.Fprintln(w)
 	}
-	return exitOK
 }
 
 func writeNextCandidateLines(w io.Writer, key string, candidates []queue.NextCandidate) {

@@ -69,7 +69,7 @@ func (workflow BranchWorkflow) RunContext(ctx context.Context, input BranchInput
 	if facts.RemoteBaseSHA == "" && facts.RemoteTargetSHA == "" && facts.LocalTargetSHA == "" && facts.LocalTargetUpstream == "" {
 		inspected, err := workflow.inspect(ctx, input.WorkingDir, facts)
 		if err != nil {
-			return gitadapter.AgentBranchPlan{}, apperror.Wrap(apperror.LocalGit, "git branch facts could not be inspected", err, "")
+			return gitadapter.AgentBranchPlan{}, apperror.Wrap(apperror.LocalGit, "git branch facts could not be inspected", err, "Verify the checkout and configured remote, then retry the branch plan.")
 		}
 		facts = inspected
 	}
@@ -80,7 +80,7 @@ func (workflow BranchWorkflow) RunContext(ctx context.Context, input BranchInput
 	report, err := workflow.apply(ctx, input.WorkingDir, plan)
 	plan.Report = &report
 	if err != nil {
-		return plan, apperror.WithReport(apperror.Wrap(apperror.LocalGit, "git branch plan could not be applied", err, ""), report)
+		return plan, apperror.WithReport(apperror.Wrap(apperror.LocalGit, "git branch plan could not be applied", err, "Inspect the operation report, restore the expected branch refs, and retry from the caller-provided checkout."), report)
 	}
 	return plan, nil
 }

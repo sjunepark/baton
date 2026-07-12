@@ -81,8 +81,8 @@ func GitHubRepositoryFromRemote(remote string) (string, error) {
 	return parsed.Repository, err
 }
 
-// RedactRemoteURL removes credentials, query parameters, and fragments before
-// a remote is retained in application context or diagnostics.
+// RedactRemoteURL removes credentials, query parameters, and fragments from
+// URL remotes while preserving credential-free local paths.
 func RedactRemoteURL(remote string) string {
 	value := strings.TrimSpace(remote)
 	if strings.Contains(value, "://") {
@@ -98,7 +98,7 @@ func RedactRemoteURL(remote string) string {
 	if at := strings.Index(value, "@"); at >= 0 {
 		return value[at+1:]
 	}
-	return ""
+	return value
 }
 
 // NormalizeRepositoryName validates the owner/name identity used in GitHub API

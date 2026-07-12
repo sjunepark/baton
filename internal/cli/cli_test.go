@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sjunepark/baton/internal/apperror"
 	"github.com/sjunepark/baton/internal/config"
@@ -19,6 +20,7 @@ import (
 	"github.com/sjunepark/baton/internal/operation"
 	"github.com/sjunepark/baton/internal/policy"
 	"github.com/sjunepark/baton/internal/queue"
+	"github.com/sjunepark/baton/internal/snapshot"
 	"github.com/sjunepark/baton/internal/workflow"
 )
 
@@ -766,13 +768,61 @@ func TestApplicationErrorRendererPreservesAllStableCategories(t *testing.T) {
 			if code != test.code || result.Category != string(test.category) || result.ExitCode != test.code || result.Message != "safe message" {
 				t.Fatalf("code=%d result=%+v", code, result)
 			}
-			if test.category == apperror.GitHub && !result.Retryable {
-				t.Fatalf("GitHub error v1 must preserve retryable=true: %+v", result)
+			if result.Retryable {
+				t.Fatalf("unqualified error must not be retryable: %+v", result)
 			}
 			if stderr.Len() != 0 {
 				t.Fatalf("stderr = %q", stderr.String())
 			}
 		})
+	}
+}
+
+func TestApplicationErrorRendererProjectsOnlyTransientFailuresAsRetryable(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*apperror.Error)
+	}{
+		{name: "typed retryable", mutate: func(err *apperror.Error) { err.Retryable = true }},
+		{name: "rate limited", mutate: func(err *apperror.Error) { err.HTTPStatus = http.StatusTooManyRequests }},
+		{name: "server failure", mutate: func(err *apperror.Error) { err.HTTPStatus = http.StatusBadGateway }},
+		{name: "retry after", mutate: func(err *apperror.Error) { err.RetryAfter = time.Second }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			applicationError := apperror.New(apperror.GitHub, "request failed", "")
+			test.mutate(applicationError)
+			var stdout, stderr bytes.Buffer
+			newRenderer(&stdout, &stderr, true).ApplicationError(applicationError)
+			if result := decodeErrorResult(t, stdout.String()); !result.Retryable {
+				t.Fatalf("result = %+v", result)
+			}
+		})
+	}
+}
+
+func TestRepositorySnapshotTOONPreservesDecisionEvidence(t *testing.T) {
+	var stdout bytes.Buffer
+	action := snapshot.ActionIssueImplementation
+	writeRepositorySnapshotTOON(&stdout, snapshot.RepositorySnapshot{
+		SchemaVersion: 1, Kind: "repositorySnapshot", Repository: "example/repo", Completeness: snapshot.Degraded,
+		Acquisition: snapshot.AcquisitionWindow{StartedAt: time.Unix(1, 0).UTC(), CompletedAt: time.Unix(2, 0).UTC()},
+		Warnings:    []snapshot.Warning{{Code: "rate_limited", Scope: "issues", Message: "retry later", Retryable: true, HTTPStatus: 429, RequestID: "request-1"}},
+		Recommendation: snapshot.Recommendation{
+			Outcome: snapshot.OutcomeActionable, Action: &action, Reasons: []string{"eligible_issue"},
+			Candidates:         []snapshot.Candidate{{Identity: snapshot.CandidateIdentity{Repository: "example/repo", Kind: snapshot.CandidateIssue, Number: 7}, State: "eligible", Reasons: []string{"ready"}}},
+			DeferredCandidates: []snapshot.Candidate{{Identity: snapshot.CandidateIdentity{Repository: "example/repo", Kind: snapshot.CandidateIssue, Number: 8}, State: "deferred"}},
+			Instructions:       []string{"Choose exactly one candidate."},
+		},
+	})
+	output := stdout.String()
+	for _, expected := range []string{
+		"warnings[1]:", "code=rate_limited scope=issues retryable=true httpStatus=429 requestId=request-1 message=retry later",
+		"recommendation.reasons[1]:\n  - eligible_issue", "recommendation.candidates[1]:", "reasons=ready",
+		"recommendation.deferredCandidates[1]:", "number=8 state=deferred", "recommendation.instructions[1]:\n  - Choose exactly one candidate.",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("snapshot TOON missing %q:\n%s", expected, output)
+		}
 	}
 }
 

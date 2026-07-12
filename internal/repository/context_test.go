@@ -141,6 +141,18 @@ func TestResolveAcceptsExplicitRepositoryOutsideGitCheckout(t *testing.T) {
 	}
 }
 
+func TestResolveUsesExplicitRepositoryWhenRemoteIsNotHosted(t *testing.T) {
+	root := newRepository(t, "/srv/git/example/project.git")
+
+	context, err := Resolve(Options{WorkingDir: root, Repository: "example/project"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if context.Repository != "example/project" || context.RemoteURL != "/srv/git/example/project.git" {
+		t.Fatalf("context = %+v", context)
+	}
+}
+
 func TestResolveExplicitRelativeConfigUsesInvocationDirectory(t *testing.T) {
 	root := newRepository(t, "https://github.com/example/project.git")
 	nested := filepath.Join(root, "nested")

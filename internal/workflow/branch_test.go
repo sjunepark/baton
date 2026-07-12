@@ -2,10 +2,12 @@ package workflow
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/sjunepark/baton/internal/apperror"
 	"github.com/sjunepark/baton/internal/config"
 	gitadapter "github.com/sjunepark/baton/internal/git"
 	"github.com/sjunepark/baton/internal/operation"
@@ -36,6 +38,24 @@ func TestBranchWorkflowUsesSuppliedFactsAndAppliesComputedPlan(t *testing.T) {
 	}
 	if inspectCalled || !applyCalled || len(plan.ApplyCommands) != 3 {
 		t.Fatalf("inspect=%v apply=%v plan=%+v", inspectCalled, applyCalled, plan)
+	}
+}
+
+func TestBranchWorkflowFailuresIncludeRecoveryHints(t *testing.T) {
+	inspectWorkflow := BranchWorkflow{inspect: func(context.Context, string, gitadapter.AgentBranchPlanInput) (gitadapter.AgentBranchPlanInput, error) {
+		return gitadapter.AgentBranchPlanInput{}, errors.New("inspect failed")
+	}}
+	_, err := inspectWorkflow.Run(BranchInput{Plan: gitadapter.AgentBranchPlanInput{Remote: "origin", BaseBranch: "main", TargetBranch: "agent"}})
+	if applicationError := apperror.As(err); applicationError == nil || applicationError.Hint == "" {
+		t.Fatalf("inspection error = %v", err)
+	}
+
+	applyWorkflow := BranchWorkflow{apply: func(context.Context, string, gitadapter.AgentBranchPlan) (operation.Report, error) {
+		return operation.NewReport(nil), errors.New("apply failed")
+	}}
+	_, err = applyWorkflow.Run(BranchInput{Apply: true, Plan: gitadapter.AgentBranchPlanInput{Remote: "origin", BaseBranch: "main", TargetBranch: "agent", RemoteBaseSHA: "base"}})
+	if applicationError := apperror.As(err); applicationError == nil || applicationError.Hint == "" {
+		t.Fatalf("apply error = %v", err)
 	}
 }
 

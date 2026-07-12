@@ -81,9 +81,22 @@ func renderedEmbeddedTemplate(path string, policy config.RepositoryPolicy, optio
 	rendered := strings.ReplaceAll(string(content), defaultGoInstall, options.GoInstall)
 	rendered = strings.ReplaceAll(rendered, installCommandPlaceholder, indentInstallCommand(options.InstallCommand))
 	if path == ".github/workflows/pr-policy.yml" || path == ".github/workflows/work-item-transition.yml" {
-		rendered = strings.Replace(rendered, "      - agent\n      - main", "      - "+strconv.Quote(policy.Repository.StagingBranch)+"\n      - "+strconv.Quote(policy.Repository.BaseBranch), 1)
+		rendered, err = replaceWorkflowBranches(path, rendered, policy)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return []byte(rendered), nil
+}
+
+const workflowBranchPlaceholder = "      - agent\n      - main"
+
+func replaceWorkflowBranches(path, rendered string, policy config.RepositoryPolicy) (string, error) {
+	if !strings.Contains(rendered, workflowBranchPlaceholder) {
+		return "", fmt.Errorf("render workflow %s: expected agent/main branch placeholder is missing", path)
+	}
+	replacement := "      - " + strconv.Quote(policy.Repository.StagingBranch) + "\n      - " + strconv.Quote(policy.Repository.BaseBranch)
+	return strings.Replace(rendered, workflowBranchPlaceholder, replacement, 1), nil
 }
 
 type issueFormDocument struct {
