@@ -31,6 +31,8 @@ automation contracts and mutating command results.
 - `baton next --action issue-investigation --format toon`: inspect
   investigation candidates when a human intentionally wants that lower-priority
   action.
+- `baton snapshot --format toon`: preferred unattended-work observation. Act
+  only when `outcome` is `actionable`; otherwise report and stop.
 - `baton queue --format toon`: inspect eligible and skipped issues.
 - `baton prs --format toon`: list open staging PRs.
 - `baton pr <number> --json`: inspect one PR.
@@ -42,21 +44,11 @@ automation contracts and mutating command results.
   and policy comments in GitHub Actions.
 - `baton pr-policy --event "$GITHUB_EVENT_PATH"`: check PR policy in GitHub
   Actions.
+- `baton pr-transition --event "$GITHUB_EVENT_PATH" --dry-run|--apply --json`:
+  plan or apply the idempotent merged-work awaiting-review transition. The
+  generated trusted workflow owns routine apply.
 - `baton migrate-config --dry-run|--apply`: convert legacy
   `.github/agent-issue-policy.yml` into `.github/baton.yml`.
-- `baton complete --summary <text> [--validation <text>] [--json]`: write a
-  local completion record under the Baton state root. Use `--state-root <path>`
-  when automation needs a deterministic state location.
-- `baton complete --summary <text> --comment --repo owner/name --issue N`:
-  write the local completion record and post it as an explicit issue timeline
-  comment.
-- `baton complete --summary <text> --comment --repo owner/name --pr N`: write
-  the local completion record and post it as an explicit pull request timeline
-  comment.
-- Add `--full` to include full summary and validation text in JSON output.
-  Without `--full`, long text is bounded by `--body-limit <chars>` and the JSON
-  response includes the command needed to fetch the full text.
-
 Mutating commands require explicit `--apply`, `--yes`, or user-provided
 execution context plus explicit user/workflow intent. Do not infer permission
 to merge from any Baton output.

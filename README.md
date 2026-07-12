@@ -112,6 +112,12 @@ Baton release the repository setup files were last reviewed or applied against.
 The workflow install command remains the runtime pin, and `version` remains the
 config schema version.
 
+`--install-command` customizes the issue/PR policy workflow install step. The
+write-capable work-item transition workflow intentionally ignores arbitrary
+shell install commands and installs the exact `--go-install` target instead.
+Use an exact `module/path@vX.Y.Z` with `--go-install` when adopting an alternate
+Baton pin for that workflow.
+
 The generated workflows install trusted Baton code, then run:
 
 ```sh

@@ -193,9 +193,9 @@ apply results include an Operation Report.
 ## Operation Report v1
 
 `pr-transition --apply --json` embeds `report` beside the plan fields. Each
-planned issue-label operation ends as `applied`, `unchanged`, `failed`, or
-`not_attempted`; stale PR state is represented by a refused preflight result.
-The dry-run plan is deterministic and has this core shape:
+planned issue-label operation ends as `applied`, `unchanged`, `refused`,
+`failed`, or `not_attempted`; stale PR state is represented by a refused
+preflight result. The dry-run plan is deterministic and has this core shape:
 
 ```json
 {"schemaVersion":1,"kind":"workItemTransitionPlan","repository":"owner/repo","eventAction":"closed","pullRequestNumber":42,"flow":"work","operations":[{"id":"issue-7-awaiting-review","issueNumber":7,"action":"add_labels","label":"needs:review"}],"warnings":[]}

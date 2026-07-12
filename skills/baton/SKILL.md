@@ -17,8 +17,10 @@ contracts, and your judgment for code changes.
   skill files.
 - Run `baton home --format toon` or `baton doctor --format toon` to establish
   local Baton context.
-- Run `baton next --format toon` before selecting unattended work.
-- Choose exactly one candidate from `baton next` per automation run.
+- Run `baton snapshot --format toon` before selecting unattended work.
+- Act only when `outcome` is `actionable`, then choose exactly one snapshot
+  candidate per automation run. Human-choice, waiting, blocked, idle, and
+  degraded outcomes are stop/report states.
 - Verify you are in a caller-provided isolated checkout before editing files.
 - Work only inside that isolated checkout.
 - Never mutate the user's primary checkout for automation work.
@@ -118,9 +120,10 @@ argument.
 - `follow-up`: run `baton pr <number> --json`, `baton checks <number> --format
   toon`, and `baton review-threads <number> --format toon`; verify the
   isolated checkout, check out the existing PR branch, and push fixes there.
-- `run`: run `baton next --format toon --repo <repo>`, choose exactly one
-  candidate from the returned set, handle it according to `selectedAction`,
-  validate, report the chosen candidate, and stop.
+- `run`: run `baton snapshot --format toon --repo <repo>`. Continue only when
+  `outcome` is `actionable`; choose exactly one returned candidate, handle it
+  according to `action`, validate, report the chosen candidate, and stop. All
+  other outcomes are report-and-stop states.
 - `adopt`: run read-only/dry-run setup checks: `baton home --format toon`,
   `baton doctor --format toon`, `baton init --dry-run --json`,
   `baton migrate-config --dry-run` when a legacy policy exists,
@@ -132,8 +135,9 @@ argument.
   update a normal reviewed PR for needed Baton runtime, baseline, config,
   template, or label changes. Do not merge.
 - `automate`: read `references/automation-setup.md`, verify prerequisites with
-  read-only commands, and prepare a scheduled automation prompt that uses
-  `$baton run --repo owner/name` when repo selection must be explicit.
+  read-only commands, confirm the repository has only one unattended
+  dispatcher, and prepare a scheduled automation prompt that uses `$baton run
+  --repo owner/name` when repo selection must be explicit.
 
 ## PR Follow-Up
 
