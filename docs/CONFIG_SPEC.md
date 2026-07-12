@@ -1,5 +1,14 @@
 # Config Spec
 
+## Discovery and repository binding
+
+Implicit discovery reads `.github/baton.yml`, then the legacy
+`.github/agent-issue-policy.yml`, from the resolved git top-level rather than
+the process subdirectory. The selected config path and its
+`repository.default_remote` are retained in the resolved repository context.
+For queue and recommendation acquisition, policy from one checkout cannot be
+paired with a conflicting explicit GitHub `owner/name`.
+
 ## File Names
 
 Preferred target-repo config:
@@ -85,6 +94,7 @@ issue_policy:
     - needs-info
     - needs:discussion
     - needs:review
+  awaiting_review_label: needs:review
   required_sections:
     ready-trivial:
       - summary
@@ -120,10 +130,6 @@ pr_policy:
 
 labels:
   manifest: .github/labels.yml
-
-automation:
-  prefer_pr_followup_before_issue_intake: true
-  allow_merge: false
 ```
 
 ## Required Fields
@@ -142,6 +148,11 @@ Required for v1:
 
 Optional fields use the defaults shown in the top-level shape unless a command
 documents a narrower bootstrap behavior.
+
+Released v1 files may still contain the obsolete `automation` mapping. Baton
+accepts it only as migration wire data: it has no runtime semantics and is not
+emitted when the compiled Repository Policy is rendered. Baton never gains
+merge authority from repository policy.
 
 `setup.baseline_baton_version` records the Baton release the repository's setup
 files were last reviewed or applied against. It is not the config schema
@@ -175,19 +186,24 @@ Creo `.github/agent-issue-policy.yml` maps as:
 
 ## Validation Rules
 
-- Branch names must be non-empty and must not contain whitespace.
+- Branches must satisfy Git ref-name rules, and the configured remote must be a
+  normalized, non-option remote name. Rendered workflows quote branch scalars.
+- Unknown fields and unsupported config versions fail closed.
 - `work_branch_prefix` must end with `/`.
-- Controlled label groups must not contain duplicate labels across unrelated
-  groups unless explicitly allowed later.
-- Every implementation label must appear in an agent-mode label mapping or be
-  marked as externally managed.
-- Every required section ID must exist in `form_sections`.
+- Controlled label groups must contain non-empty, case-insensitively unique
+  labels. Work-kind and agent-mode mappings must exactly match their groups.
+- Every implementation and comment-only label must appear in an agent-mode
+  mapping, and the two capability sets must be disjoint.
+- `awaiting_review_label` must be a skip label and must not be a controlled
+  form-derived label; it records workflow state without changing Agent Mode.
+- Every required section ID must exist in `form_sections`, and every required
+  mode slug must correspond to an agent-mode option.
 - When `issue_policy.priority_labels` is present, `form_sections.priority` and
   `controlled_label_groups.priority` are required. Priority label mappings must
   match the controlled priority labels as a set. Separately,
   `controlled_label_groups.priority` order defines queue rank.
-- The policy marker must be stable once deployed, otherwise old policy comments
-  cannot be updated in place.
+- The policy marker must be a non-empty, versioned HTML comment. This prevents
+  accidental matching or replacement of unrelated issue comments.
 
 ## Config Loading Order
 

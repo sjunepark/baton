@@ -2,10 +2,10 @@
 
 Baton is a Go CLI and companion Codex skill for reusable GitHub issue/PR agent
 workflows. It turns repository-local agent workflow policy into deterministic
-commands for policy checks, queue inspection, branch planning, completion
-records, and target-repository installation.
+commands for policy checks, queue inspection, branch planning, work-item
+transitions, and target-repository installation.
 
-The CLI owns deterministic GitHub, git, policy, queue, and completion facts.
+The CLI owns deterministic GitHub, git, policy, queue, and work-item facts.
 The caller owns checkout isolation. Codex keeps the judgment work: deciding
 implementation shape, handling ambiguous review feedback, and reporting
 decisions back to the user.
@@ -17,9 +17,10 @@ Implemented:
 - issue and PR policy behavior extracted from the original reference workflow;
 - GitHub workflow, issue template, label, and config installation templates;
 - GitHub issue/PR/check/review-thread queue inspection;
-- `baton home --format toon` and `baton next --format toon` for compact agent
+- `baton home --format toon` and `baton snapshot --format toon` for compact agent
   context and the next candidate set;
-- `doctor`, `complete`, `migrate-config`, `sync-labels`, and `ensure-branch`;
+- `doctor`, `migrate-config`, `sync-labels`, `ensure-branch`, and
+  `pr-transition`;
 - a bundled Codex skill in `skills/baton`.
 
 The default generated GitHub Actions install command uses the published module
@@ -72,10 +73,15 @@ Inspect a repository queue:
 ```sh
 baton queue --format toon --repo owner/name
 baton prs --format toon --repo owner/name
+baton snapshot --format toon --repo owner/name
 baton next --format toon --repo owner/name
 ```
 
-`baton next` returns the highest-priority candidate set for automation. Use
+`baton snapshot` returns one bounded repository observation with explicit
+completeness and a typed recommendation outcome. Only an `actionable` outcome
+with one candidate means agent work is currently useful; it is still not
+execution state or merge authority. `baton next` remains the v2 compatibility
+projection for existing callers. Use
 `baton queue` for the full eligible issue list, or
 `baton next --action issue-investigation --format toon --repo owner/name` when
 a human intentionally wants to inspect investigation-only candidates.
@@ -83,12 +89,9 @@ a human intentionally wants to inspect investigation-only candidates.
 Use `--json` instead of `--format toon` when a script needs the stable
 automation contract.
 
-Record completion metadata after working in a caller-provided isolated
-checkout:
-
-```sh
-baton complete --summary "Implemented issue 123" --validation "go test ./..." --json
-```
+Report execution summaries and validation to the caller. Coda or the invoking
+automation owns Run completion; GitHub issue/PR state owns semantic work-item
+completion. Baton does not maintain a local completion ledger.
 
 ## Target Repository Workflows
 
@@ -101,6 +104,7 @@ baton complete --summary "Implemented issue 123" --validation "go test ./..." --
 .github/ISSUE_TEMPLATE/agent-work.yml
 .github/workflows/issue-policy.yml
 .github/workflows/pr-policy.yml
+.github/workflows/work-item-transition.yml
 ```
 
 `.github/baton.yml` includes `setup.baseline_baton_version`, which records the
@@ -113,6 +117,10 @@ The generated workflows install trusted Baton code, then run:
 ```sh
 baton issue-policy --event "$GITHUB_EVENT_PATH" --apply
 baton pr-policy --event "$GITHUB_EVENT_PATH"
+baton pr-transition --event "$GITHUB_EVENT_PATH" --apply --json
+
+# Preview the same transition without GitHub writes.
+baton pr-transition --event "$GITHUB_EVENT_PATH" --dry-run --json
 ```
 
 `pull_request_target` policy runs check out the trusted base SHA before
