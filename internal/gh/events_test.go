@@ -1,6 +1,9 @@
 package gh
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func TestParseIssueEvent(t *testing.T) {
 	event, err := ParseIssueEvent([]byte(`{
@@ -24,19 +27,36 @@ func TestParseIssueEvent(t *testing.T) {
 
 func TestParsePullRequestEvent(t *testing.T) {
 	pr, err := ParsePullRequestEvent([]byte(`{
+  "action": "closed",
   "pull_request": {
     "number": 8,
     "title": "Update policy",
     "body": "Refs #12",
-    "base": {"ref": "agent", "repo": {"full_name": "example-org/example-repo"}},
-    "head": {"ref": "agent-work/policy", "repo": {"full_name": "example-org/example-repo"}}
+    "state": "closed",
+    "merged": true,
+    "base": {"ref": "agent", "sha": "base-sha", "repo": {"full_name": "example-org/example-repo"}},
+    "head": {"ref": "agent-work/policy", "sha": "head-sha", "repo": {"full_name": "example-org/example-repo"}}
   }
 }`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pr.Number != 8 || pr.BaseRef != "agent" || pr.HeadRef != "agent-work/policy" || pr.Body != "Refs #12" {
+	if pr.Action != "closed" || !pr.Merged || pr.State != "closed" || pr.Number != 8 || pr.BaseRef != "agent" || pr.HeadRef != "agent-work/policy" || pr.BaseSHA != "base-sha" || pr.HeadSHA != "head-sha" || pr.Body != "Refs #12" {
 		t.Fatalf("pr = %#v", pr)
+	}
+}
+
+func TestParseMergedWorkPullRequestFixture(t *testing.T) {
+	content, err := os.ReadFile("../../testdata/events/merged-work-pull-request.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	event, err := ParsePullRequestEvent(content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if event.Number != 42 || !event.Merged || event.HeadSHA != "head" || event.BaseRepositoryFullName != "example/repo" {
+		t.Fatalf("event = %+v", event)
 	}
 }
 
@@ -74,17 +94,25 @@ func TestParsePullRequestEventBaseBranchFlows(t *testing.T) {
 }
 
 func TestClassifyAuthor(t *testing.T) {
-	tests := map[string]string{
-		"sejunpark":         "human",
-		"coderabbitai[bot]": "coderabbit",
-		"greptile-app":      "greptile",
-		"codex-bot":         "codex",
-		"actions[bot]":      "bot",
-		"":                  "unknown",
+	tests := []struct {
+		login, actorType, want string
+	}{
+		{login: "sejunpark", actorType: "User", want: "human"},
+		{login: "robotics-human", actorType: "User", want: "human"},
+		{login: "botticelli", actorType: "User", want: "human"},
+		{login: "codex-user", actorType: "User", want: "human"},
+		{login: "greptile-maintainer", actorType: "User", want: "human"},
+		{login: "coderabbit-fan", actorType: "User", want: "human"},
+		{login: "coderabbitai[bot]", actorType: "Bot", want: "coderabbit"},
+		{login: "greptile-app", actorType: "Bot", want: "greptile"},
+		{login: "codex-bot", actorType: "Bot", want: "codex"},
+		{login: "actions[bot]", actorType: "Bot", want: "bot"},
+		{login: "", actorType: "", want: "unknown"},
+		{login: "someone", actorType: "Organization", want: "unknown"},
 	}
-	for login, want := range tests {
-		if got := classifyAuthor(login); got != want {
-			t.Fatalf("classifyAuthor(%q) = %q, want %q", login, got, want)
+	for _, test := range tests {
+		if got := classifyAuthor(test.login, test.actorType); got != test.want {
+			t.Fatalf("classifyAuthor(%q, %q) = %q, want %q", test.login, test.actorType, got, test.want)
 		}
 	}
 }

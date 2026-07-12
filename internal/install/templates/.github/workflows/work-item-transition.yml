@@ -1,0 +1,40 @@
+# Managed by Baton. Edit in this repository when your policy changes.
+name: Work Item Transition
+
+on:
+  pull_request_target:
+    branches:
+      - agent
+      - main
+    types:
+      - closed
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  transition-work-items:
+    name: Transition work items
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out trusted base revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+
+      - name: Install Baton
+        run: |
+          __BATON_INSTALL_COMMAND__
+
+      - name: Apply work-item transitions
+        run: baton pr-transition --event "$GITHUB_EVENT_PATH" --apply --json
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

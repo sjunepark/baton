@@ -15,7 +15,7 @@ func TestPreviewPlansTemplateCreation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Changes) != 6 {
+	if len(plan.Changes) != 7 {
 		t.Fatalf("changes = %#v", plan.Changes)
 	}
 	for _, change := range plan.Changes {
@@ -41,6 +41,74 @@ func TestApplyWritesTemplatesAndRefusesOverwrite(t *testing.T) {
 	}
 	if _, err := Apply(root, true); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestApplyPreflightsAllConflictsBeforeFirstWrite(t *testing.T) {
+	root := t.TempDir()
+	conflict := filepath.Join(root, ".github", "workflows", "pr-policy.yml")
+	if err := os.MkdirAll(filepath.Dir(conflict), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(conflict, []byte("user-owned\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := Apply(root, false)
+	if err == nil {
+		t.Fatal("expected whole-plan conflict refusal")
+	}
+	if plan.Report == nil || plan.Report.Status != "refused" {
+		t.Fatalf("report = %+v", plan.Report)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".github", "baton.yml")); !os.IsNotExist(err) {
+		t.Fatalf("earlier file was written before later conflict refusal: %v", err)
+	}
+}
+
+func TestPreviewIncludesStableIdentityPreconditionsContentAndDiff(t *testing.T) {
+	root := t.TempDir()
+	first, err := Preview(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := Preview(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.PlanID == "" || first.PlanID != second.PlanID || first.SchemaVersion != 2 || first.Kind != "repositoryReconciliationPlan" {
+		t.Fatalf("plan identity = %+v / %+v", first, second)
+	}
+	for _, change := range first.Changes {
+		if change.DesiredContent == "" || change.Diff == "" || change.Precondition.Exists || change.Ownership != "absent" {
+			t.Fatalf("change = %+v", change)
+		}
+	}
+	path := filepath.Join(root, ".github", "baton.yml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("different\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := Preview(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed.PlanID == first.PlanID || changed.Changes[0].Precondition.SHA256 == "" || !changed.Changes[0].Conflict || changed.Changes[0].Ownership != "unmanaged" {
+		t.Fatalf("changed plan = %+v", changed)
+	}
+}
+
+func TestPreviewRejectsManagedSymlink(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".github"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "outside"), filepath.Join(root, ".github", "baton.yml")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if _, err := Preview(root); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("error = %v", err)
 	}
 }
 
@@ -109,6 +177,22 @@ func TestApplyWithOptionsRendersInstallCommand(t *testing.T) {
 	if !strings.Contains(text, "curl -fsSL https://example.invalid/baton.sh | sh\n          baton version") {
 		t.Fatalf("workflow did not render install command with indentation:\n%s", text)
 	}
+	transition, err := os.ReadFile(filepath.Join(root, ".github", "workflows", "work-item-transition.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(transition), "curl -fsSL") || !strings.Contains(string(transition), defaultGoInstall) {
+		t.Fatalf("trusted transition workflow used arbitrary install command:\n%s", transition)
+	}
+}
+
+func TestRenderManagedFilesRequiresPinnedTransitionBinary(t *testing.T) {
+	for _, target := range []string{"github.com/example/baton/cmd/baton@latest", "github.com/example/baton;curl@v1.2.3"} {
+		_, err := RenderManagedFiles(config.DefaultConfig(), Options{GoInstall: target})
+		if err == nil || !strings.Contains(err.Error(), "module@vX.Y.Z") {
+			t.Fatalf("RenderManagedFiles(%q) error = %v, want exact version rejection", target, err)
+		}
+	}
 }
 
 func TestIssueTemplateWorkKindsAreMappedInDefaultConfig(t *testing.T) {
@@ -175,4 +259,163 @@ func TestIssueTemplatePrioritiesAreMappedInDefaultConfig(t *testing.T) {
 		return
 	}
 	t.Fatal("priority field not found in issue template")
+}
+
+func TestRenderedDefaultConfigCompilesToDefaultPolicy(t *testing.T) {
+	content, err := templateContent(".github/baton.yml", Options{}.withDefaults())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "baton.yml")
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := config.MarshalYAML(config.DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := config.MarshalYAML(loaded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(want) {
+		t.Fatalf("installed policy differs from compiled defaults:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestPinnedConfigTemplateSemanticallyMatchesCompiledDefaults(t *testing.T) {
+	content, err := templatesFS.ReadFile("templates/.github/baton.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "baton.yml")
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, _ := config.MarshalYAML(config.DefaultConfig())
+	got, _ := config.MarshalYAML(loaded)
+	if string(got) != string(want) {
+		t.Fatalf("pinned config template drifted from compiled defaults:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestRenderManagedFilesPropagatesCustomRepositoryPolicy(t *testing.T) {
+	policy := config.DefaultConfig()
+	policy.Repository.DefaultRemote = "upstream"
+	policy.Repository.BaseBranch = "stable"
+	policy.Repository.StagingBranch = "integration"
+	policy.Repository.WorkBranchPrefix = "bot-work/"
+	policy.Labels.Manifest = ".config/project-labels.yml"
+	policy.IssuePolicy.FormSections["summary"] = "Requested outcome"
+	policy.IssuePolicy.WorkKindLabels = map[string]string{"Defect": "kind:defect"}
+	policy.IssuePolicy.ControlledLabelGroups["work_kind"] = []string{"kind:defect"}
+	policy.IssuePolicy.AgentModeLabels = map[string]string{"Ship it": "workflow:ready", "Research": "workflow:research"}
+	policy.IssuePolicy.ControlledLabelGroups["agent_mode"] = []string{"workflow:ready", "workflow:research"}
+	policy.IssuePolicy.ImplementationLabels = []string{"workflow:ready"}
+	policy.IssuePolicy.CommentOnlyLabels = []string{"workflow:research"}
+	policy.IssuePolicy.RequiredSections = map[string][]string{"ship-it": {"summary"}}
+	policy.IssuePolicy.ControlledLabelGroups["quality_gate"] = []string{"workflow:blocked"}
+	policy.IssuePolicy.SkipLabels = []string{"workflow:blocked", "needs:review"}
+
+	files, err := RenderManagedFiles(policy, Options{}.withDefaults())
+	if err != nil {
+		t.Fatal(err)
+	}
+	byPath := map[string]string{}
+	for _, file := range files {
+		byPath[file.Path] = string(file.Content)
+	}
+	for path, fragments := range map[string][]string{
+		".github/baton.yml":                          {"default_remote: upstream", "base_branch: stable", "staging_branch: integration", "work_branch_prefix: bot-work/", "manifest: .config/project-labels.yml"},
+		".github/workflows/pr-policy.yml":            {"      - \"integration\"", "      - \"stable\""},
+		".github/workflows/work-item-transition.yml": {"      - \"integration\"", "      - \"stable\"", "issues: write"},
+		".github/ISSUE_TEMPLATE/agent-work.yml":      {"label: Requested outcome", "- Defect", "- Ship it", "- Research"},
+		".github/ISSUE_WORKFLOW.md":                  {"`workflow:ready`", "`workflow:blocked`", "target integration", "prefixed with bot-work/", "target stable"},
+		".config/project-labels.yml":                 {"name: kind:defect", "name: workflow:ready", "name: workflow:research", "name: workflow:blocked"},
+	} {
+		content, exists := byPath[path]
+		if !exists {
+			t.Fatalf("missing rendered file %s; paths=%v", path, byPath)
+		}
+		for _, fragment := range fragments {
+			if !strings.Contains(content, fragment) {
+				t.Fatalf("%s missing %q:\n%s", path, fragment, content)
+			}
+		}
+	}
+	var form struct {
+		Body []struct {
+			ID          string `yaml:"id"`
+			Validations struct {
+				Required bool `yaml:"required"`
+			} `yaml:"validations"`
+		} `yaml:"body"`
+	}
+	if err := yaml.Unmarshal([]byte(byPath[".github/ISSUE_TEMPLATE/agent-work.yml"]), &form); err != nil {
+		t.Fatal(err)
+	}
+	required := map[string]bool{}
+	for _, field := range form.Body {
+		required[field.ID] = field.Validations.Required
+	}
+	if !required["work_kind"] || !required["agent_mode"] || !required["summary"] || !required["priority"] || required["context_evidence"] || required["acceptance_criteria"] {
+		t.Fatalf("custom form required fields = %v", required)
+	}
+}
+
+func TestRenderManagedFilesQuotesYAMLSensitiveBranchNames(t *testing.T) {
+	policy := config.DefaultConfig()
+	policy.Repository.StagingBranch = "#release"
+	files, err := RenderManagedFiles(policy, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range files {
+		if file.Path != ".github/workflows/pr-policy.yml" {
+			continue
+		}
+		if !strings.Contains(string(file.Content), `      - "#release"`) {
+			t.Fatalf("workflow branch was not quoted:\n%s", file.Content)
+		}
+		var document any
+		if err := yaml.Unmarshal(file.Content, &document); err != nil {
+			t.Fatalf("rendered workflow is invalid YAML: %v", err)
+		}
+		return
+	}
+	t.Fatal("PR policy workflow not rendered")
+}
+
+func TestReplaceWorkflowBranchesRequiresPinnedPlaceholder(t *testing.T) {
+	_, err := replaceWorkflowBranches(".github/workflows/pr-policy.yml", "branches: [custom]", config.DefaultConfig())
+	if err == nil || !strings.Contains(err.Error(), ".github/workflows/pr-policy.yml") || !strings.Contains(err.Error(), "placeholder") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestRenderManagedFilesRejectsManifestCollision(t *testing.T) {
+	policy := config.DefaultConfig()
+	policy.Labels.Manifest = ".github/./baton.yml"
+	_, err := RenderManagedFiles(policy, Options{})
+	if err == nil || !strings.Contains(err.Error(), "resolve to the same target") {
+		t.Fatalf("RenderManagedFiles() error = %v, want duplicate managed target", err)
+	}
+}
+
+func TestPreviewManagedFilesRejectsDuplicateNormalizedTargets(t *testing.T) {
+	_, err := PreviewManagedFiles(t.TempDir(), []ManagedFile{
+		{Path: ".github/baton.yml", Content: []byte("one")},
+		{Path: ".github/./baton.yml", Content: []byte("two")},
+	})
+	if err == nil || !strings.Contains(err.Error(), "resolve to the same target") {
+		t.Fatalf("PreviewManagedFiles() error = %v, want duplicate managed target", err)
+	}
 }

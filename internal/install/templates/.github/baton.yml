@@ -54,16 +54,17 @@ issue_policy:
       - priority:p2
       - priority:p3
     quality_gate:
-      - agent:blocked
+      - needs-info
   implementation_labels:
     - agent:ready-trivial
     - agent:ready-bounded
   comment_only_labels:
     - agent:investigate-only
   skip_labels:
-    - agent:blocked
+    - needs-info
     - needs:discussion
     - needs:review
+  awaiting_review_label: needs:review
   required_sections:
     ready-trivial:
       - summary
@@ -101,7 +102,3 @@ pr_policy:
 
 labels:
   manifest: .github/labels.yml
-
-automation:
-  prefer_pr_followup_before_issue_intake: true
-  allow_merge: false

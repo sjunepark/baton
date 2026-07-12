@@ -2,10 +2,40 @@ package queue
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/sjunepark/baton/internal/config"
+	"github.com/sjunepark/baton/internal/workitem"
 )
+
+func TestBuildSnapshotWithLifecycleKeepsMergedWorkOutOfIntake(t *testing.T) {
+	cfg := config.DefaultConfig()
+	snapshot := BuildSnapshotWithLifecycle("example/repo", cfg,
+		[]Issue{{Number: 7, Labels: []string{"agent:ready-bounded"}}}, nil,
+		[]PullRequest{{Number: 42, BaseRef: "agent", HeadRef: "agent-work/7", Body: "Refs #7", Merged: true}}, nil)
+	if snapshot.Issues[0].Eligible || snapshot.Issues[0].State != workitem.StateAwaitingReview {
+		t.Fatalf("issue state = %+v", snapshot.Issues[0])
+	}
+}
+
+func TestBuildSnapshotUsesConfiguredReferencesAndOnlyWorkPRsBlock(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.PRPolicy.RequiredReferenceKeyword = "Tracks"
+	matching := BuildSnapshot("example/repo", cfg,
+		[]Issue{{Number: 7, Labels: []string{"agent:ready-bounded"}}},
+		[]PullRequest{{Number: 42, BaseRef: "agent", HeadRef: "agent-work/7", Body: "Tracks #7"}})
+	if matching.Issues[0].Eligible || len(matching.Issues[0].LinkedPRs) != 1 || matching.Issues[0].LinkedPRs[0] != 42 {
+		t.Fatalf("configured reference did not block intake: %+v", matching.Issues[0])
+	}
+
+	nonMatching := BuildSnapshot("example/repo", cfg,
+		[]Issue{{Number: 7, Labels: []string{"agent:ready-bounded"}}},
+		[]PullRequest{{Number: 43, BaseRef: "agent", HeadRef: "agent-work/7", Body: "Refs #7"}})
+	if !nonMatching.Issues[0].Eligible || len(nonMatching.Issues[0].LinkedPRs) != 0 {
+		t.Fatalf("non-configured reference blocked intake: %+v", nonMatching.Issues[0])
+	}
+}
 
 func TestBuildSnapshotEligibility(t *testing.T) {
 	cfg := config.DefaultConfig()
@@ -164,6 +194,19 @@ func TestRecommendNextIssueImplementationCandidates(t *testing.T) {
 	}
 	if next.Candidates[0].Number != 1 || next.Candidates[1].Number != 3 {
 		t.Fatalf("candidates not sorted by number: %#v", next.Candidates)
+	}
+}
+
+func TestRecommendNextUsesConfiguredReferenceKeyword(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.PRPolicy.RequiredReferenceKeyword = "Tracks"
+	snapshot := BuildSnapshot("example-org/example-repo", cfg,
+		[]Issue{{Number: 7, Labels: []string{"agent:ready-bounded"}}}, nil,
+	)
+
+	instructions := strings.Join(RecommendNext(snapshot).Instructions, " ")
+	if !strings.Contains(instructions, "Tracks #<issue-number>") || strings.Contains(instructions, "Refs #<issue-number>") {
+		t.Fatalf("instructions = %q", instructions)
 	}
 }
 

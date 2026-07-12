@@ -1,5 +1,7 @@
 package git
 
+import "github.com/sjunepark/baton/internal/operation"
+
 type AgentBranchPlanInput struct {
 	Remote              string `json:"remote"`
 	BaseBranch          string `json:"baseBranch"`
@@ -11,12 +13,14 @@ type AgentBranchPlanInput struct {
 }
 
 type AgentBranchPlan struct {
-	SchemaVersion int          `json:"schemaVersion"`
-	Kind          string       `json:"kind"`
-	Errors        []string     `json:"errors"`
-	Warnings      []string     `json:"warnings"`
-	Status        []string     `json:"status"`
-	ApplyCommands []GitCommand `json:"applyCommands"`
+	SchemaVersion int                  `json:"schemaVersion"`
+	Kind          string               `json:"kind"`
+	Errors        []string             `json:"errors"`
+	Warnings      []string             `json:"warnings"`
+	Status        []string             `json:"status"`
+	ApplyCommands []GitCommand         `json:"applyCommands"`
+	Preconditions AgentBranchPlanInput `json:"preconditions"`
+	Report        *operation.Report    `json:"report,omitempty"`
 }
 
 type GitCommand struct {
@@ -28,6 +32,7 @@ func ComputeAgentBranchPlan(input AgentBranchPlanInput) AgentBranchPlan {
 	remote := firstNonEmpty(input.Remote, "origin")
 	baseBranch := firstNonEmpty(input.BaseBranch, "main")
 	targetBranch := firstNonEmpty(input.TargetBranch, "agent")
+	input.Remote, input.BaseBranch, input.TargetBranch = remote, baseBranch, targetBranch
 	remoteBase := remote + "/" + baseBranch
 	remoteTarget := remote + "/" + targetBranch
 
@@ -38,6 +43,7 @@ func ComputeAgentBranchPlan(input AgentBranchPlanInput) AgentBranchPlan {
 		Warnings:      []string{},
 		Status:        []string{},
 		ApplyCommands: []GitCommand{},
+		Preconditions: input,
 	}
 	if input.RemoteBaseSHA == "" {
 		plan.Errors = append(plan.Errors, "Remote base branch "+remoteBase+" was not found.")

@@ -61,9 +61,6 @@ var (
 
 func ComputePullRequestPolicy(input PRPolicyInput) PRPolicyDecision {
 	cfg := input.Policy
-	if cfg.Version == 0 {
-		cfg = config.DefaultConfig()
-	}
 	referenceKeywords := referenceKeywordsForPolicy(cfg.PRPolicy.RequiredReferenceKeyword)
 	closingKeywords := closingKeywordsForPolicy(cfg.PRPolicy.ForbiddenClosingKeywords)
 	referenced := uniqueSortedInts(append(
@@ -75,8 +72,8 @@ func ComputePullRequestPolicy(input PRPolicyInput) PRPolicyDecision {
 		extractIssueNumbersAfterKeywords(input.PullRequest.Body, closingKeywords)...,
 	))
 	errors := []string{}
-	targetBranch := firstNonEmpty(cfg.Repository.StagingBranch, "agent")
-	baseBranch := firstNonEmpty(cfg.Repository.BaseBranch, "main")
+	targetBranch := cfg.Repository.StagingBranch
+	baseBranch := cfg.Repository.BaseBranch
 	flow := ClassifyPullRequestFlow(input.PullRequest, cfg)
 
 	switch flow {
@@ -107,8 +104,8 @@ func ComputePullRequestPolicy(input PRPolicyInput) PRPolicyDecision {
 }
 
 func ClassifyPullRequestFlow(pr PullRequest, cfg config.Config) PRFlow {
-	targetBranch := firstNonEmpty(cfg.Repository.StagingBranch, "agent")
-	baseBranch := firstNonEmpty(cfg.Repository.BaseBranch, "main")
+	targetBranch := cfg.Repository.StagingBranch
+	baseBranch := cfg.Repository.BaseBranch
 	workBranchPrefix := cfg.Repository.WorkBranchPrefix
 
 	switch pr.BaseRef {
@@ -172,8 +169,9 @@ func validateWorkPullRequest(errors *[]string, input PRPolicyInput, cfg config.C
 		}
 	}
 	allTrivial := len(implementationIssues) > 0
+	trivialLabels := trivialImplementationLabels(cfg.IssuePolicy)
 	for _, issue := range implementationIssues {
-		if _, has := stringSet(issue.Labels)["agent:ready-trivial"]; !has {
+		if !hasAnyLabel(stringSet(issue.Labels), trivialLabels) {
 			allTrivial = false
 			break
 		}
@@ -212,8 +210,38 @@ func validateCommitMessages(errors *[]string, input PRPolicyInput, cfg config.Co
 	}
 }
 
+func trivialImplementationLabels(issuePolicy config.IssuePolicy) []string {
+	result := []string{}
+	for option, label := range issuePolicy.AgentModeLabels {
+		if normalizePolicyOption(option) == "ready-trivial" {
+			result = append(result, label)
+		}
+	}
+	return result
+}
+
+func normalizePolicyOption(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	var result strings.Builder
+	lastDash := false
+	for _, character := range value {
+		if (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') {
+			result.WriteRune(character)
+			lastDash = false
+		} else if !lastDash {
+			result.WriteByte('-')
+			lastDash = true
+		}
+	}
+	return strings.Trim(result.String(), "-")
+}
+
 func ExtractReferenceIssueNumbers(text string) []int {
 	return extractIssueNumbersAfterKeywords(text, referenceKeywordsForPolicy("Refs"))
+}
+
+func ExtractReferenceIssueNumbersForPolicy(text, keyword string) []int {
+	return extractIssueNumbersAfterKeywords(text, referenceKeywordsForPolicy(keyword))
 }
 
 func ExtractClosingIssueNumbers(text string) []int {

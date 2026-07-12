@@ -1,13 +1,16 @@
 package labels
 
+import "github.com/sjunepark/baton/internal/operation"
+
 type SyncPlan struct {
-	SchemaVersion int           `json:"schemaVersion"`
-	Kind          string        `json:"kind"`
-	Repo          string        `json:"repo"`
-	Count         int           `json:"count"`
-	Counts        SyncCounts    `json:"counts"`
-	Changes       []LabelChange `json:"changes"`
-	Help          []string      `json:"help,omitempty"`
+	SchemaVersion int               `json:"schemaVersion"`
+	Kind          string            `json:"kind"`
+	Repo          string            `json:"repo"`
+	Count         int               `json:"count"`
+	Counts        SyncCounts        `json:"counts"`
+	Changes       []LabelChange     `json:"changes"`
+	Help          []string          `json:"help,omitempty"`
+	Report        *operation.Report `json:"report,omitempty"`
 }
 
 type SyncCounts struct {
@@ -17,10 +20,12 @@ type SyncCounts struct {
 }
 
 type LabelChange struct {
-	Name        string `json:"name"`
-	Action      string `json:"action"`
-	Color       string `json:"color,omitempty"`
-	Description string `json:"description,omitempty"`
+	Name               string `json:"name"`
+	Action             string `json:"action"`
+	Color              string `json:"color,omitempty"`
+	Description        string `json:"description,omitempty"`
+	CurrentColor       string `json:"currentColor,omitempty"`
+	CurrentDescription string `json:"currentDescription,omitempty"`
 }
 
 func PlanSync(repo string, desired []Label, existing []Label) SyncPlan {
@@ -38,10 +43,12 @@ func PlanSync(repo string, desired []Label, existing []Label) SyncPlan {
 			action = "update"
 		}
 		changes = append(changes, LabelChange{
-			Name:        label.Name,
-			Action:      action,
-			Color:       label.Color,
-			Description: label.Description,
+			Name:               label.Name,
+			Action:             action,
+			Color:              label.Color,
+			Description:        label.Description,
+			CurrentColor:       existingLabel.Color,
+			CurrentDescription: existingLabel.Description,
 		})
 	}
 	counts := countChanges(changes)

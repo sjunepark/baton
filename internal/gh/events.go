@@ -3,8 +3,6 @@ package gh
 import (
 	"encoding/json"
 	"fmt"
-
-	"github.com/sjunepark/baton/internal/policy"
 )
 
 type IssueEvent struct {
@@ -51,20 +49,25 @@ func ParseIssueEvent(content []byte) (IssueEvent, error) {
 	}, nil
 }
 
-func ParsePullRequestEvent(content []byte) (policy.PullRequest, error) {
+func ParsePullRequestEvent(content []byte) (PullRequestEvent, error) {
 	var event struct {
+		Action      string `json:"action"`
 		PullRequest *struct {
 			Number int    `json:"number"`
 			Title  string `json:"title"`
 			Body   string `json:"body"`
+			State  string `json:"state"`
+			Merged bool   `json:"merged"`
 			Base   struct {
 				Ref  string `json:"ref"`
+				SHA  string `json:"sha"`
 				Repo *struct {
 					FullName string `json:"full_name"`
 				} `json:"repo"`
 			} `json:"base"`
 			Head struct {
 				Ref  string `json:"ref"`
+				SHA  string `json:"sha"`
 				Repo *struct {
 					FullName string `json:"full_name"`
 				} `json:"repo"`
@@ -75,10 +78,10 @@ func ParsePullRequestEvent(content []byte) (policy.PullRequest, error) {
 		} `json:"repository"`
 	}
 	if err := json.Unmarshal(content, &event); err != nil {
-		return policy.PullRequest{}, fmt.Errorf("parse pull request event: %w", err)
+		return PullRequestEvent{}, fmt.Errorf("parse pull request event: %w", err)
 	}
 	if event.PullRequest == nil {
-		return policy.PullRequest{}, fmt.Errorf("event payload does not contain a pull request")
+		return PullRequestEvent{}, fmt.Errorf("event payload does not contain a pull request")
 	}
 	baseRepo := ""
 	if event.PullRequest.Base.Repo != nil {
@@ -90,7 +93,8 @@ func ParsePullRequestEvent(content []byte) (policy.PullRequest, error) {
 	if event.PullRequest.Head.Repo != nil {
 		headRepo = event.PullRequest.Head.Repo.FullName
 	}
-	return policy.PullRequest{
+	return PullRequestEvent{
+		Action:                 event.Action,
 		Number:                 event.PullRequest.Number,
 		Title:                  event.PullRequest.Title,
 		Body:                   event.PullRequest.Body,
@@ -98,5 +102,9 @@ func ParsePullRequestEvent(content []byte) (policy.PullRequest, error) {
 		HeadRef:                event.PullRequest.Head.Ref,
 		BaseRepositoryFullName: baseRepo,
 		HeadRepositoryFullName: headRepo,
+		BaseSHA:                event.PullRequest.Base.SHA,
+		HeadSHA:                event.PullRequest.Head.SHA,
+		State:                  event.PullRequest.State,
+		Merged:                 event.PullRequest.Merged,
 	}, nil
 }

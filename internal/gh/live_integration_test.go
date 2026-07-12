@@ -4,9 +4,6 @@ import (
 	"os"
 	"strconv"
 	"testing"
-
-	"github.com/sjunepark/baton/internal/labels"
-	"github.com/sjunepark/baton/internal/queue"
 )
 
 func liveClient(t *testing.T) (*Client, string) {
@@ -35,7 +32,7 @@ func TestLiveIssueLabelReadWrite(t *testing.T) {
 	if labelName == "" {
 		labelName = "baton-live-test"
 	}
-	if err := client.CreateLabel(repo, labels.Label{Name: labelName, Color: "5319E7", Description: "Temporary Baton live integration label."}); err != nil {
+	if err := client.CreateLabel(repo, Label{Name: labelName, Color: "5319E7", Description: "Temporary Baton live integration label."}); err != nil {
 		t.Logf("create label returned: %v", err)
 	}
 	if err := client.AddIssueLabels(repo, issueNumber, []string{labelName}); err != nil {
@@ -60,7 +57,7 @@ func TestLiveCheckRollupFetch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rollup, err := client.GetCheckRollup(repo, pr)
+	rollup, err := client.GetCheckRollup(repo, pr.Number, pr.HeadSHA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +103,6 @@ func TestLiveQueueSnapshotFetch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = queue.Snapshot{SchemaVersion: 1, Kind: "queueSnapshot", Repo: repo}
 	t.Logf("fetched %d issues and %d pull requests", len(issues), len(prs))
 }
 

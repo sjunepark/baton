@@ -2,14 +2,13 @@ package gh
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/sjunepark/baton/internal/config"
-	"github.com/sjunepark/baton/internal/policy"
+	"time"
 )
 
 func TestFetchCommitListingDetectsCap(t *testing.T) {
@@ -31,52 +30,27 @@ func TestFetchCommitListingDetectsCap(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, "token", server.Client())
-	messages, reachedCap, err := client.FetchCommitListing("example-org/example-repo", 10)
+	listing, err := client.FetchCommitListing("example-org/example-repo", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(messages) != 250 || !reachedCap {
-		t.Fatalf("messages=%d reachedCap=%v", len(messages), reachedCap)
+	if len(listing.Messages) != 250 || listing.Count != 250 || !listing.GitHubCapReached {
+		t.Fatalf("listing=%#v", listing)
 	}
 }
 
-func TestApplyIssueDecisionUsesLabelsAndPolicyComment(t *testing.T) {
-	var sawAdd, sawRemove, sawPatch bool
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.Method == http.MethodPost && r.URL.Path == "/repos/example-org/example-repo/issues/12/labels":
-			sawAdd = true
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`[]`))
-		case r.Method == http.MethodDelete && r.URL.Path == "/repos/example-org/example-repo/issues/12/labels/needs-info":
-			sawRemove = true
-			w.WriteHeader(http.StatusNoContent)
-		case r.Method == http.MethodGet && r.URL.Path == "/repos/example-org/example-repo/issues/12/comments":
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`[{"id":99,"body":"<!-- baton-issue-policy:v1 -->\nold"}]`))
-		case r.Method == http.MethodPatch && r.URL.Path == "/repos/example-org/example-repo/issues/comments/99":
-			sawPatch = true
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{}`))
-		default:
-			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
-		}
+func TestFetchCommitListingBelowGitHubCapIsComplete(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`[{"commit":{"message":"Meaningful commit"}}]`))
 	}))
 	defer server.Close()
 
-	cfg := config.DefaultConfig()
-	decision := policy.IssuePolicyDecision{
-		IsFormIssue:       true,
-		LabelsToAdd:       []string{"bug"},
-		LabelsToRemove:    []string{"needs-info"},
-		PolicyCommentBody: nil,
-	}
-	client := NewClient(server.URL, "token", server.Client())
-	if err := client.ApplyIssueDecision("example-org/example-repo", 12, decision, cfg.IssuePolicy.PolicyCommentMarker, policy.QualityGateLabel(cfg.IssuePolicy)); err != nil {
+	listing, err := NewClient(server.URL, "token", server.Client()).FetchCommitListing("example/repo", 10)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if !sawAdd || !sawRemove || !sawPatch {
-		t.Fatalf("sawAdd=%v sawRemove=%v sawPatch=%v", sawAdd, sawRemove, sawPatch)
+	if listing.Count != 1 || listing.GitHubCapReached {
+		t.Fatalf("listing=%#v", listing)
 	}
 }
 
@@ -101,6 +75,96 @@ func TestCreateIssueComment(t *testing.T) {
 	}
 }
 
+func TestAPIErrorPreservesSafeRetryMetadata(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-GitHub-Request-Id", "request-123")
+		w.Header().Set("Retry-After", "7")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		w.Write([]byte(`{"message":"token=secret"}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "secret", server.Client())
+	err := client.CreateIssueComment("example/repo", 1, "done")
+	var apiErr APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("error = %T %v", err, err)
+	}
+	if apiErr.StatusCode != http.StatusServiceUnavailable || apiErr.RequestID != "request-123" || apiErr.RetryAfter != 7*time.Second || !apiErr.UpstreamRetryable() {
+		t.Fatalf("api error = %+v", apiErr)
+	}
+	if strings.Contains(apiErr.Error(), "secret") {
+		t.Fatalf("safe error leaked response body: %q", apiErr.Error())
+	}
+}
+
+func TestAPIErrorRecognizesPrimaryRateLimitReset(t *testing.T) {
+	reset := time.Now().Add(2 * time.Minute).Truncate(time.Second)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-GitHub-Request-Id", "request-rate")
+		w.Header().Set("X-RateLimit-Remaining", "0")
+		w.Header().Set("X-RateLimit-Reset", fmt.Sprint(reset.Unix()))
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer server.Close()
+
+	err := NewClient(server.URL, "token", server.Client()).CreateIssueComment("example/repo", 1, "done")
+	var apiErr APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("error = %T %v", err, err)
+	}
+	if !apiErr.RateLimited || !apiErr.UpstreamRetryable() || !apiErr.RateLimitReset.Equal(reset) || apiErr.RetryAfter <= 0 {
+		t.Fatalf("api error = %+v", apiErr)
+	}
+	if apiErr.UpstreamDetails()["rateLimited"] != "true" {
+		t.Fatalf("details = %v", apiErr.UpstreamDetails())
+	}
+}
+
+func TestAPIErrorDoesNotTreatOrdinaryResetHeaderAsRateLimit(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-RateLimit-Remaining", "42")
+		w.Header().Set("X-RateLimit-Reset", fmt.Sprint(time.Now().Add(2*time.Minute).Unix()))
+		w.WriteHeader(http.StatusUnprocessableEntity)
+	}))
+	defer server.Close()
+
+	err := NewClient(server.URL, "token", server.Client()).CreateIssueComment("example/repo", 1, "done")
+	var apiErr APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("error = %T %v", err, err)
+	}
+	if apiErr.RateLimited || apiErr.UpstreamRetryable() || apiErr.RetryAfter != 0 || !apiErr.RateLimitReset.IsZero() {
+		t.Fatalf("api error = %+v", apiErr)
+	}
+}
+
+func TestGraphQLResponseRecognizesRateLimitError(t *testing.T) {
+	reset := time.Now().Add(2 * time.Minute).Truncate(time.Second)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-GitHub-Request-Id", "graphql-rate")
+		w.Header().Set("X-RateLimit-Remaining", "0")
+		w.Header().Set("X-RateLimit-Reset", fmt.Sprint(reset.Unix()))
+		w.Write([]byte(`{"errors":[{"message":"API rate limit exceeded","extensions":{"type":"RATE_LIMITED"}}]}`))
+	}))
+	defer server.Close()
+
+	_, err := NewClient(server.URL, "token", server.Client()).GetReviewThreads("example/repo", 7)
+	var apiErr APIError
+	if !errors.As(err, &apiErr) || !apiErr.RateLimited || !apiErr.UpstreamRetryable() || apiErr.RequestID != "graphql-rate" || !apiErr.RateLimitReset.Equal(reset) {
+		t.Fatalf("error = %T %+v", err, apiErr)
+	}
+}
+
+func TestGraphQLResponseRecognizesRateLimitTypeWithoutHeaders(t *testing.T) {
+	graphQLErr := graphQLError{}
+	graphQLErr.Extensions.Type = "RATE_LIMITED"
+	apiErr := graphQLResponseError([]graphQLError{graphQLErr}, http.Header{})
+	if !apiErr.RateLimited || !apiErr.UpstreamRetryable() {
+		t.Fatalf("api error = %+v", apiErr)
+	}
+}
+
 func TestGetBranchHealth(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -108,8 +172,8 @@ func TestGetBranchHealth(t *testing.T) {
 			w.Write([]byte(`{"object":{"sha":"abc123"}}`))
 		case "/repos/example-org/example-repo/commits/abc123/check-runs":
 			w.Write([]byte(`{"check_runs":[{"name":"test","status":"completed","conclusion":"failure","html_url":"https://example/check"}]}`))
-		case "/repos/example-org/example-repo/commits/abc123/status":
-			w.Write([]byte(`{"statuses":[]}`))
+		case "/repos/example-org/example-repo/commits/abc123/statuses":
+			w.Write([]byte(`[]`))
 		default:
 			t.Fatalf("unexpected path %s", r.URL.String())
 		}
@@ -199,7 +263,7 @@ func TestGetReviewThreadsPaginatesThreadsAndComments(t *testing.T) {
 	if len(result.Threads[0].Comments) != 101 {
 		t.Fatalf("first thread comments = %d, want 101", len(result.Threads[0].Comments))
 	}
-	if result.Count != 2 || result.Summary.Total != 2 || result.Summary.Unresolved != 2 || result.Summary.HumanUnresolved != 2 {
+	if result.Count != 2 || !result.Complete || result.Summary.Total != 2 || result.Summary.Unresolved != 2 || result.Summary.HumanUnresolved != 2 {
 		t.Fatalf("thread summary = %#v count=%d", result.Summary, result.Count)
 	}
 	if len(result.Help) == 0 {
@@ -265,7 +329,8 @@ func reviewCommentPayloads(count int) []map[string]any {
 			"body": fmt.Sprintf("comment %d", i+1),
 			"url":  fmt.Sprintf("https://example.test/comment/%d", i+1),
 			"author": map[string]any{
-				"login": "reviewer",
+				"login":      "reviewer",
+				"__typename": "User",
 			},
 		}
 	}
