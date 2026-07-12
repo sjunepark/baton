@@ -62,6 +62,35 @@ func TestPullRequestWorkflowComposesDashboard(t *testing.T) {
 	}
 }
 
+func TestPullRequestWorkflowDegradesSafelyWithoutConfig(t *testing.T) {
+	workflow := PullRequestWorkflow{newClient: func(context.Context, PullRequestInput) (PullRequestGitHub, error) {
+		return pullRequestGitHub{
+			pr:      gh.PullRequest{Number: 42, Title: "Refs #7", HeadSHA: "abc"},
+			checks:  gh.CheckRollup{State: "success", Complete: true},
+			threads: gh.ReviewThreadResult{Complete: true},
+		}, nil
+	}, resolve: func(context.Context, repository.Options) (repository.Context, error) {
+		return repository.Context{}, config.ErrConfigNotFound
+	}, resolveTarget: func(context.Context, repository.Options, string) (repository.Target, error) {
+		return repository.Target{Repository: "example/repo"}, nil
+	}}
+
+	result, err := workflow.Dashboard(PullRequestInput{Number: 42, Repository: "example/repo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.ReferencedIssues) != 1 || result.ReferencedIssues[0] != 7 {
+		t.Fatalf("referenced issues = %v", result.ReferencedIssues)
+	}
+	warnings := strings.Join(result.Warnings, "\n")
+	if !strings.Contains(warnings, "configuration unavailable") || !strings.Contains(warnings, "issue readiness unavailable") {
+		t.Fatalf("warnings = %v", result.Warnings)
+	}
+	if len(result.IssueReadiness) != 0 {
+		t.Fatalf("issue readiness = %+v", result.IssueReadiness)
+	}
+}
+
 func TestPullRequestDashboardDoesNotProjectIncompleteSummaries(t *testing.T) {
 	workflow := PullRequestWorkflow{newClient: func(context.Context, PullRequestInput) (PullRequestGitHub, error) {
 		return pullRequestGitHub{

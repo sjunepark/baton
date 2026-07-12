@@ -34,14 +34,15 @@ type PullRequest struct {
 }
 
 type Snapshot struct {
-	SchemaVersion int            `json:"schemaVersion"`
-	Kind          string         `json:"kind"`
-	Repo          string         `json:"repo"`
-	Counts        SnapshotCounts `json:"counts"`
-	BranchHealth  *BranchHealth  `json:"branchHealth,omitempty"`
-	Issues        []IssueState   `json:"issues"`
-	PullRequests  []PullState    `json:"pullRequests"`
-	Help          []string       `json:"help,omitempty"`
+	SchemaVersion    int            `json:"schemaVersion"`
+	Kind             string         `json:"kind"`
+	Repo             string         `json:"repo"`
+	ReferenceKeyword string         `json:"-"`
+	Counts           SnapshotCounts `json:"counts"`
+	BranchHealth     *BranchHealth  `json:"branchHealth,omitempty"`
+	Issues           []IssueState   `json:"issues"`
+	PullRequests     []PullState    `json:"pullRequests"`
+	Help             []string       `json:"help,omitempty"`
 }
 
 type SnapshotCounts struct {
@@ -165,14 +166,15 @@ func BuildSnapshotWithLifecycle(repo string, cfg config.Config, issues []Issue, 
 		counts.BranchHealthState = branchHealth.CheckState
 	}
 	return Snapshot{
-		SchemaVersion: 1,
-		Kind:          "queueSnapshot",
-		Repo:          repo,
-		Counts:        counts,
-		BranchHealth:  branchHealth,
-		Issues:        issueStates,
-		PullRequests:  prStates,
-		Help:          snapshotHelp(issueStates, prStates),
+		SchemaVersion:    1,
+		Kind:             "queueSnapshot",
+		Repo:             repo,
+		ReferenceKeyword: cfg.PRPolicy.RequiredReferenceKeyword,
+		Counts:           counts,
+		BranchHealth:     branchHealth,
+		Issues:           issueStates,
+		PullRequests:     prStates,
+		Help:             snapshotHelp(issueStates, prStates),
 	}
 }
 
@@ -216,7 +218,7 @@ func RecommendNext(snapshot Snapshot) NextCandidates {
 		sortCandidates(deferred)
 		return nextCandidates(snapshot.Repo, "issue-implementation", "eligible-issue", selectedCandidates,
 			deferred,
-			[]string{"Choose exactly one candidate.", "Work in a caller-provided isolated checkout.", "Open a PR to the staging branch with Refs #<issue-number>.", "Do not merge."},
+			[]string{"Choose exactly one candidate.", "Work in a caller-provided isolated checkout.", "Open a PR to the staging branch with " + referenceInstruction(snapshot.ReferenceKeyword) + ".", "Do not merge."},
 		)
 	}
 
@@ -232,6 +234,13 @@ func RecommendNext(snapshot Snapshot) NextCandidates {
 	}
 
 	return nextCandidates(snapshot.Repo, "none", "no eligible issue or PR follow-up", []NextCandidate{}, []NextCandidate{}, []string{})
+}
+
+func referenceInstruction(keyword string) string {
+	if keyword = strings.TrimSpace(keyword); keyword == "" {
+		keyword = "Refs"
+	}
+	return keyword + " #<issue-number>"
 }
 
 func RecommendNextInvestigation(snapshot Snapshot) NextCandidates {

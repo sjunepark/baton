@@ -56,6 +56,33 @@ func TestPullRequestPolicyWorkflowAcquiresEventFacts(t *testing.T) {
 	}
 }
 
+func TestPullRequestPolicyWorkflowUsesConfiguredReferenceKeyword(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.DefaultConfig()
+	cfg.PRPolicy.RequiredReferenceKeyword = "Tracks"
+	configContent, err := config.MarshalYAML(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(dir, "baton.yml")
+	if err := os.WriteFile(configPath, configContent, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	eventPath := filepath.Join(dir, "event.json")
+	event := `{"pull_request":{"number":12,"title":"Work","body":"Tracks #7","base":{"ref":"agent","repo":{"full_name":"event/repo"}},"head":{"ref":"agent-work/7-work","repo":{"full_name":"event/repo"}}}}`
+	if err := os.WriteFile(eventPath, []byte(event), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	client := &pullRequestPolicyGitHub{}
+	workflow := PullRequestPolicyWorkflow{newClient: func(context.Context, PullRequestPolicyInput) (PullRequestPolicyGitHub, error) { return client, nil }}
+	if _, err := workflow.Run(PullRequestPolicyInput{EventPath: eventPath, ConfigPath: configPath, EnvironmentRepo: "event/repo"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(client.issueNumbers) != 1 || client.issueNumbers[0] != 7 {
+		t.Fatalf("issues = %v", client.issueNumbers)
+	}
+}
+
 func TestPullRequestPolicyWorkflowRejectsRepositoryMismatchBeforeClient(t *testing.T) {
 	dir := t.TempDir()
 	eventPath := filepath.Join(dir, "event.json")

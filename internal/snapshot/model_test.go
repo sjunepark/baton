@@ -154,6 +154,31 @@ func TestBuildRepositorySnapshotRequestedInvestigation(t *testing.T) {
 	}
 }
 
+func TestBuildRepositorySnapshotUsesConfiguredReferenceKeyword(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.PRPolicy.RequiredReferenceKeyword = "Tracks"
+	queueProjection := queue.BuildSnapshot("example/repo", cfg,
+		[]queue.Issue{{Number: 9, Labels: []string{"agent:ready-bounded"}}}, nil,
+	)
+	started := time.Date(2026, 7, 13, 0, 0, 0, 0, time.UTC)
+	result, err := Build(BuildInput{
+		Facts: Acquisition{Repository: "example/repo", Completeness: Complete},
+		Queue: queueProjection, StartedAt: started, CompletedAt: started.Add(time.Second),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, instructions := range map[string][]string{
+		"recommendation": result.Recommendation.Instructions,
+		"legacy next":    result.NextV2().Instructions,
+	} {
+		joined := strings.Join(instructions, " ")
+		if !strings.Contains(joined, "Tracks #<issue-number>") || strings.Contains(joined, "Refs #<issue-number>") {
+			t.Fatalf("%s instructions = %q", name, joined)
+		}
+	}
+}
+
 func TestBuildRepositorySnapshotCarriesRevisionBoundCandidateAndNonNullCollections(t *testing.T) {
 	result := buildSnapshotForTest(t, Complete, nil, []PullRequestFacts{pullRequestFact(7, "failure", "approved")}, nil)
 	candidate := result.Recommendation.Candidates[0]

@@ -93,7 +93,7 @@ func (workflow PullRequestPolicyWorkflow) RunContext(ctx context.Context, input 
 	if err != nil {
 		return policy.PRPolicyDecision{}, err
 	}
-	issueNumbers := pullRequestIssueNumbers(event)
+	issueNumbers := pullRequestIssueNumbers(event, cfg.PRPolicy.RequiredReferenceKeyword)
 	if len(issueNumbers) > 0 {
 		issues, err := client.FetchIssueLabelsContext(ctx, repo, issueNumbers)
 		if err != nil {
@@ -144,8 +144,11 @@ func policyPullRequest(event gh.PullRequestEvent) policy.PullRequest {
 	}
 }
 
-func pullRequestIssueNumbers(event gh.PullRequestEvent) []int {
-	values := append(policy.ExtractReferenceIssueNumbers(event.Title), policy.ExtractReferenceIssueNumbers(event.Body)...)
+func pullRequestIssueNumbers(event gh.PullRequestEvent, referenceKeyword string) []int {
+	values := append(
+		policy.ExtractReferenceIssueNumbersForPolicy(event.Title, referenceKeyword),
+		policy.ExtractReferenceIssueNumbersForPolicy(event.Body, referenceKeyword)...,
+	)
 	values = append(values, policy.ExtractClosingIssueNumbers(event.Title)...)
 	values = append(values, policy.ExtractClosingIssueNumbers(event.Body)...)
 	seen := map[int]struct{}{}

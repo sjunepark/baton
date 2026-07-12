@@ -2,6 +2,7 @@ package queue
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/sjunepark/baton/internal/config"
@@ -186,6 +187,19 @@ func TestRecommendNextIssueImplementationCandidates(t *testing.T) {
 	}
 	if next.Candidates[0].Number != 1 || next.Candidates[1].Number != 3 {
 		t.Fatalf("candidates not sorted by number: %#v", next.Candidates)
+	}
+}
+
+func TestRecommendNextUsesConfiguredReferenceKeyword(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.PRPolicy.RequiredReferenceKeyword = "Tracks"
+	snapshot := BuildSnapshot("example-org/example-repo", cfg,
+		[]Issue{{Number: 7, Labels: []string{"agent:ready-bounded"}}}, nil,
+	)
+
+	instructions := strings.Join(RecommendNext(snapshot).Instructions, " ")
+	if !strings.Contains(instructions, "Tracks #<issue-number>") || strings.Contains(instructions, "Refs #<issue-number>") {
+		t.Fatalf("instructions = %q", instructions)
 	}
 }
 

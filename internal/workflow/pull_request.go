@@ -107,7 +107,14 @@ func (workflow PullRequestWorkflow) DashboardContext(ctx context.Context, input 
 		return PullRequestDashboard{}, classifyGitHubError(err)
 	}
 	pr := queuePullRequests([]gh.PullRequest{transportPR})[0]
-	result := buildPullRequestDashboard(session.repo, pr, *session.config)
+	cfg := config.DefaultConfig()
+	if session.config != nil {
+		cfg = *session.config
+	}
+	result := buildPullRequestDashboard(session.repo, pr, cfg)
+	if session.config == nil {
+		result.Warnings = append(result.Warnings, "Baton configuration unavailable: default PR reference policy was used and issue readiness may be incomplete")
+	}
 	checksAvailable := false
 	checks, err := session.client.GetCheckRollupContext(ctx, session.repo, pr.Number, pr.HeadSHA)
 	if err == nil && checks.Complete {

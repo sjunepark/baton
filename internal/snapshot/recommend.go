@@ -3,6 +3,7 @@ package snapshot
 import (
 	"math"
 	"sort"
+	"strings"
 )
 
 func recommend(repository RepositorySnapshot, requestedAction string) Recommendation {
@@ -206,7 +207,11 @@ func recommendIssues(repository RepositorySnapshot, action Action) *Recommendati
 	if len(selected) > 1 {
 		outcome = OutcomeHumanChoiceRequired
 	}
-	reason, instructions := "eligible-issue", []string{"Choose exactly one candidate.", "Work in a caller-provided isolated checkout.", "Open a PR to the staging branch with Refs #<issue-number>.", "Do not merge."}
+	referenceKeyword := strings.TrimSpace(repository.Queue.ReferenceKeyword)
+	if referenceKeyword == "" {
+		referenceKeyword = "Refs"
+	}
+	reason, instructions := "eligible-issue", []string{"Choose exactly one candidate.", "Work in a caller-provided isolated checkout.", "Open a PR to the staging branch with " + referenceKeyword + " #<issue-number>.", "Do not merge."}
 	if action == ActionIssueInvestigation {
 		reason = "eligible-investigation"
 		instructions = []string{"Choose exactly one candidate.", "Do not edit files unless the user explicitly changes scope.", "Inspect and comment with findings, evidence, and a recommended next label."}
