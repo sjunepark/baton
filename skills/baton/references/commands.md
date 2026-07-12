@@ -46,7 +46,8 @@ automation contracts and mutating command results.
   Actions.
 - `baton pr-transition --event "$GITHUB_EVENT_PATH" --dry-run|--apply --json`:
   plan or apply the idempotent merged-work awaiting-review transition. The
-  generated trusted workflow owns routine apply.
+  generated privileged workflow owns routine apply, checks out trusted
+  base-repository code, and never checks out or executes PR-head code.
 - `baton migrate-config --dry-run|--apply`: convert legacy
   `.github/agent-issue-policy.yml` into `.github/baton.yml`.
 Mutating commands require explicit `--apply`, `--yes`, or user-provided

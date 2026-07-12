@@ -135,9 +135,12 @@ argument.
   update a normal reviewed PR for needed Baton runtime, baseline, config,
   template, or label changes. Do not merge.
 - `automate`: read `references/automation-setup.md`, verify prerequisites with
-  read-only commands, confirm the repository has only one unattended
-  dispatcher, and prepare a scheduled automation prompt that uses `$baton run
-  --repo owner/name` when repo selection must be explicit.
+  read-only commands, and inspect the owning automation platforms' scheduler
+  listings to prove the proposed schedule will leave exactly one unattended
+  dispatcher for the repository. If read-only evidence cannot establish that
+  condition, stop and require explicit operator confirmation before preparing
+  or scheduling automation. Use `$baton run --repo owner/name` when repo
+  selection must be explicit.
 
 ## PR Follow-Up
 

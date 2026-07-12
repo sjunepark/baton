@@ -21,9 +21,9 @@ for example to monitor one PR, one deployment, or one long-running review loop.
 Do not use a scheduled implementation automation until a manual test run of the
 same prompt succeeds in a normal Codex thread.
 
-Baton Recommendations are not claims. Configure at most one unattended
-dispatcher per repository unless the caller provides stronger serialization;
-do not run independent Coda and standalone dispatchers against the same queue.
+Baton Recommendations are not claims. Configure exactly one unattended
+dispatcher per repository. Running independent Coda and standalone dispatchers
+against the same queue is unsafe.
 
 ## Prerequisites
 
