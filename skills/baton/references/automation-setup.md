@@ -21,6 +21,10 @@ for example to monitor one PR, one deployment, or one long-running review loop.
 Do not use a scheduled implementation automation until a manual test run of the
 same prompt succeeds in a normal Codex thread.
 
+Baton Recommendations are not claims. Configure exactly one unattended
+dispatcher per repository. Running independent Coda and standalone dispatchers
+against the same queue is unsafe.
+
 ## Prerequisites
 
 Before scheduling, verify the target repository is Baton-ready:
@@ -30,7 +34,7 @@ baton home --format toon
 baton doctor --format toon
 baton ensure-branch --json
 baton sync-labels --dry-run --repo owner/name --json
-baton next --format toon --repo owner/name
+baton snapshot --format toon --repo owner/name
 ```
 
 If setup is incomplete, install Baton repository files first:
@@ -52,6 +56,7 @@ baton sync-labels --apply --repo owner/name --json
 - `.github/ISSUE_TEMPLATE/agent-work.yml`
 - `.github/workflows/issue-policy.yml`
 - `.github/workflows/pr-policy.yml`
+- `.github/workflows/work-item-transition.yml`
 
 Review the `baton init --dry-run --json` plan before applying it. Use
 `baton ensure-branch --apply` to create or verify the staging branch, normally
@@ -66,14 +71,16 @@ autonomous agents should work from the GitHub issue/PR queue:
 ## Baton Automation
 
 - Use `$baton` for unattended GitHub issue and PR work.
-- Run `baton next --format toon` before choosing queue work.
+- Run `baton snapshot --format toon` before choosing unattended work. Continue
+  only for `outcome: actionable`.
 - Choose and handle at most one Baton candidate per run.
 - Verify the automation is running in an isolated checkout before editing
   files; do not mutate the primary checkout for automation work.
 - Push, comment, or open PRs only according to the chosen Baton candidate's
   action.
-- Run focused validation and record completion with `baton complete` when
-  useful.
+- Run focused validation and report the summary and evidence to the caller.
+- Do not create a second completion ledger; Coda or the invoking automation
+  owns execution completion, while GitHub PR/issue state owns work-item state.
 - Stop and report on auth failures, missing isolation, ambiguous requirements,
   human product/security/schema decisions, unrelated red branch health, or
   unsafe branch/dirty checkout state.
@@ -171,7 +178,7 @@ After scheduling, inspect the first few automation outputs before trusting the
 cadence. Check that each run:
 
 - loaded `$baton`;
-- ran `baton next` before selecting work;
+- ran `baton snapshot` and gated on `outcome: actionable` before selecting work;
 - handled zero or one unit;
 - verified isolated checkout context before edits;
 - worked only in that isolated checkout;

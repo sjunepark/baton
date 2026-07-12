@@ -114,6 +114,7 @@ For a consuming repository, `baton init --apply` should be able to install:
 .github/ISSUE_TEMPLATE/agent-work.yml
 .github/workflows/issue-policy.yml
 .github/workflows/pr-policy.yml
+.github/workflows/work-item-transition.yml
 ```
 
 The workflow files should call Baton, not copied scripts.

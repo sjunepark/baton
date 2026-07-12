@@ -16,6 +16,26 @@ Automation-facing commands must support stable JSON:
 --repo <owner/name>
 ```
 
+For the policy-backed `snapshot`, `queue`, `prs`, and `next` commands, Baton resolves the git
+top-level, policy config, configured remote, and GitHub identity as one context. `--repo` is an
+identity assertion, not an unchecked override: when the configured checkout
+remote identifies a different repository, Baton returns structured error v1
+with category `config` and exit 3 before contacting GitHub. There is no mismatch
+override because no maintained workflow requires one.
+
+The remote host must also match the GitHub endpoint: `github.com` for the
+default API, or the host represented by `GITHUB_API_URL` for GitHub Enterprise.
+
+`pr`, `checks`, and `review-threads` also validate the checkout target. They use
+the configured remote when policy is available and otherwise use a policy-free
+target context through `origin`. Event-backed policy commands, label sync, and
+transition writes preserve their documented flag/event/environment target
+precedence and validate the selected `owner/name` before GitHub I/O.
+
+When invoked below the repository root, implicit config discovery starts at the
+resolved git top-level. An explicit relative `--config` path remains relative
+to the invocation directory for compatibility.
+
 Read-heavy commands also support:
 
 ```sh
@@ -67,7 +87,11 @@ baton home --json
 
 ### `baton init`
 
-Create or preview target-repo files.
+Reconcile target-repository files rendered from one compiled Repository
+Policy. Dry-run JSON includes exact desired content, full diffs,
+ownership/conflict classification, observed content preconditions, and a
+stable plan identity. Apply refuses all conflicts before its first target write
+and uses atomic per-file replacement.
 
 Implemented flags:
 
@@ -81,6 +105,10 @@ baton init --install-command '<trusted install command>'
 ```
 <!-- x-release-please-end -->
 
+The generated work-item transition workflow is a trusted mutation boundary.
+It always installs `--go-install` at an exact `@vX.Y.Z` and ignores the
+arbitrary `--install-command` escape hatch used by non-mutating policy checks.
+
 Must create or update, with explicit user confirmation:
 
 - `.github/baton.yml`
@@ -89,6 +117,7 @@ Must create or update, with explicit user confirmation:
 - `.github/ISSUE_TEMPLATE/agent-work.yml`
 - `.github/workflows/issue-policy.yml`
 - `.github/workflows/pr-policy.yml`
+- `.github/workflows/work-item-transition.yml`
 
 ### `baton doctor`
 
@@ -204,6 +233,38 @@ JSON result:
 }
 ```
 
+### `baton pr-transition`
+
+Plan or apply the one persisted work-item transition: a merged work PR adds
+the configured `awaiting_review_label` to every referenced open issue.
+
+```sh
+baton pr-transition --event "$GITHUB_EVENT_PATH" --dry-run --json
+baton pr-transition --event "$GITHUB_EVENT_PATH" --apply --json
+```
+
+Exactly one of `--dry-run` and `--apply` is required. Apply rechecks the PR
+revision and every issue before the first write, skips closed or already-labeled
+issues, and reports unavoidable partial GitHub effects. Promotion and manual
+issue closure remain GitHub-native; Baton does not merge or close them.
+
+### `baton snapshot`
+
+Acquire repository facts once and return `repositorySnapshot` schema v1 with
+the acquisition window, completeness and warnings, queue facts, revision-bound
+branch and pull-request facts, and one typed Recommendation.
+
+```sh
+baton snapshot --format toon
+baton snapshot --repo owner/name --json
+```
+
+Recommendation Outcome and Action are separate. Callers must gate on Outcome:
+only `actionable` identifies one immediately useful agent mutation.
+`human_choice_required`, `waiting`, `blocked`, `idle`, and `degraded` do not
+authorize work. Action is advice and never represents a running or completed
+operation.
+
 ### `baton queue`
 
 Return open issues and why each is eligible or skipped.
@@ -241,7 +302,7 @@ Includes:
 - referenced issue numbers;
 - issue label readiness when Baton config and open issue data are available;
 - check state, count, and summary counts;
-- review-thread count and unresolved human/bot summary counts;
+- review-thread count and unresolved human/bot/unknown-author summary counts;
 - likely next command;
 - warnings when optional enrichment cannot be fetched.
 
@@ -309,6 +370,11 @@ baton next --action issue-investigation --format toon
 baton next --json
 ```
 
+`nextCandidates` v2 is a lossy compatibility projection from the unified
+snapshot implementation. It cannot express the new Outcome distinction and
+must not be interpreted as execution state. New integrations should consume
+`baton snapshot --json`.
+
 JSON result:
 
 ```json
@@ -370,12 +436,6 @@ Allowed `selectedAction` values:
 priority took precedence. Issue candidates may include `priorityLabel`; queue
 snapshot issue entries may also include `priorityRank` so JSON snapshots retain
 configured priority ordering.
-
-### `baton complete`
-
-Record local completion metadata and optionally comment on GitHub.
-
-GitHub comments require explicit `--comment --repo owner/name --issue N|--pr N`.
 
 ## Human Output
 

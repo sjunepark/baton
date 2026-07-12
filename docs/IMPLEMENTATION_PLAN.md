@@ -3,7 +3,7 @@
 ## Current State
 
 - Baton is a Go CLI with policy, queue, GitHub inspection, install, label sync,
-  branch setup, doctor, migration, and completion commands.
+  branch setup, doctor, migration, and work-item transition commands.
 - Baton ships a bundled Codex skill under `skills/baton/`.
 - Baton no longer owns worktree leasing, release, pruning, or checkout cleanup.
   Execution isolation is caller-provided; see

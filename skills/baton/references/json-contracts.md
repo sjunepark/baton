@@ -8,6 +8,24 @@ Common fields:
 - `count`, `counts`, or `summary`: precomputed totals for agent triage.
 - `help`: concrete next commands or stop-condition guidance.
 
+`repositorySnapshot`:
+
+- `repository`: validated GitHub `owner/name` identity.
+- `acquisition.startedAt` / `completedAt`: the bounded observation window.
+- `completeness`: `complete` or `degraded`; degraded Recommendations never
+  include an Action.
+- `warnings[]`: scoped partial, stale, unknown, or upstream failure evidence.
+- `queue`, `branches[]`, and `pullRequests[]`: facts from the same acquisition.
+- `recommendation.outcome`: `actionable`, `human_choice_required`, `waiting`,
+  `blocked`, `idle`, or `degraded`.
+- `recommendation.action`: optional typed repository work, never execution
+  state or authority.
+- `recommendation.candidates[].identity`: repository-scoped issue, PR revision,
+  or branch revision identity.
+
+New integrations should use `repositorySnapshot` v1. `nextCandidates` v2 and
+`queueSnapshot` v1 remain migration projections.
+
 `nextCandidates`:
 
 - `selectedAction`: one of `pr-followup`, `branch-health`,
@@ -41,9 +59,24 @@ Common fields:
 
 - `summary.unresolved`: unresolved thread count.
 - `summary.humanUnresolved`: unresolved threads with human comments.
+- `summary.unknownUnresolved`: unresolved threads whose actor type is not
+  available or recognized.
 - `threads[].isResolved`: whether the thread is resolved.
 - `threads[].isOutdated`: whether GitHub marks the thread outdated.
 - `threads[].comments[].authorKind`: `human`, `codex`, `coderabbit`,
   `greptile`, `bot`, or `unknown`.
+- `threads[].comments[].authorType`: GitHub's neutral GraphQL actor type when
+  available; bot-like substrings in a human login do not change its kind.
 - `threads[].comments[].bodyTruncated`: whether the body was bounded for
   output. Use `fullCommand` when more body context is required.
+
+`workItemTransitionPlan`:
+
+- `eventAction`, `pullRequestNumber`, and `flow`: the verified PR lifecycle
+  input and repository-policy flow.
+- `operations[]`: deterministic issue-label writes planned for merged staging
+  work.
+- `warnings[]`: non-mutating edge conditions such as a merged work PR without
+  configured issue references.
+- `report`: present after apply, with per-operation `applied`, `unchanged`,
+  `refused`, `failed`, or `not_attempted` outcomes.
