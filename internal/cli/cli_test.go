@@ -524,6 +524,7 @@ func TestPolicyCommandFailsWhenRepoConfigMissing(t *testing.T) {
 }
 
 func TestNextMissingStagingBranchReturnsSetupError(t *testing.T) {
+	t.Setenv("GITHUB_REPOSITORY", "")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/repos/example-org/example-repo/issues":
@@ -565,6 +566,7 @@ func TestNextMissingStagingBranchReturnsSetupError(t *testing.T) {
 }
 
 func TestSnapshotCommandReturnsOneUnifiedObservation(t *testing.T) {
+	t.Setenv("GITHUB_REPOSITORY", "")
 	server := newSnapshotTestServer(t, false)
 	defer server.Close()
 	t.Setenv("GH_TOKEN", "token")
@@ -599,6 +601,7 @@ func TestSnapshotCommandReturnsOneUnifiedObservation(t *testing.T) {
 }
 
 func TestSnapshotCommandReturnsDegradedFactsAsData(t *testing.T) {
+	t.Setenv("GITHUB_REPOSITORY", "")
 	server := newSnapshotTestServer(t, true)
 	defer server.Close()
 	t.Setenv("GH_TOKEN", "token")
@@ -656,6 +659,7 @@ func newSnapshotTestServer(t *testing.T, failRules bool) *httptest.Server {
 }
 
 func TestNextRepositoryMismatchReturnsStructuredConfigErrorBeforeGitHubAccess(t *testing.T) {
+	t.Setenv("GITHUB_REPOSITORY", "")
 	dir := t.TempDir()
 	runTestGit(t, dir, "init")
 	runTestGit(t, dir, "remote", "add", "origin", "https://github.com/example/local.git")
