@@ -1,27 +1,26 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/sjunepark/baton/internal/complete"
+	"github.com/sjunepark/baton/internal/apperror"
 	"github.com/sjunepark/baton/internal/config"
 	"github.com/sjunepark/baton/internal/doctor"
 	"github.com/sjunepark/baton/internal/gh"
 	"github.com/sjunepark/baton/internal/git"
-	"github.com/sjunepark/baton/internal/install"
-	"github.com/sjunepark/baton/internal/labels"
+	"github.com/sjunepark/baton/internal/operation"
 	"github.com/sjunepark/baton/internal/policy"
 	"github.com/sjunepark/baton/internal/queue"
+	"github.com/sjunepark/baton/internal/snapshot"
+	"github.com/sjunepark/baton/internal/workflow"
 )
 
 const (
@@ -58,105 +57,23 @@ type formatFlags struct {
 }
 
 type errorResult struct {
-	SchemaVersion int    `json:"schemaVersion"`
-	Kind          string `json:"kind"`
-	Category      string `json:"category"`
-	ExitCode      int    `json:"exitCode"`
-	Message       string `json:"message"`
-	Hint          string `json:"hint,omitempty"`
-	Retryable     bool   `json:"retryable"`
-}
-
-type pullRequestsResult struct {
 	SchemaVersion int               `json:"schemaVersion"`
 	Kind          string            `json:"kind"`
-	Repo          string            `json:"repo"`
-	Count         int               `json:"count"`
-	Counts        pullRequestCounts `json:"counts"`
-	PullRequests  []queue.PullState `json:"pullRequests"`
-	Help          []string          `json:"help,omitempty"`
+	Category      string            `json:"category"`
+	ExitCode      int               `json:"exitCode"`
+	Message       string            `json:"message"`
+	Hint          string            `json:"hint,omitempty"`
+	Retryable     bool              `json:"retryable"`
+	HTTPStatus    int               `json:"httpStatus,omitempty"`
+	RequestID     string            `json:"requestId,omitempty"`
+	RetryAfter    int64             `json:"retryAfterSeconds,omitempty"`
+	Details       map[string]string `json:"details,omitempty"`
+	Report        *operation.Report `json:"report,omitempty"`
 }
 
-type pullRequestCounts struct {
-	Success int `json:"success"`
-	Failure int `json:"failure"`
-	Pending int `json:"pending"`
-	Unknown int `json:"unknown"`
-}
-
-type pullRequestDashboard struct {
-	SchemaVersion     int                         `json:"schemaVersion"`
-	Kind              string                      `json:"kind"`
-	Repo              string                      `json:"repo"`
-	PullRequest       queue.PullRequest           `json:"pullRequest"`
-	ReferencedIssues  []int                       `json:"referencedIssues"`
-	IssueReadiness    []pullRequestIssueReadiness `json:"issueReadiness,omitempty"`
-	Checks            pullRequestCheckSummary     `json:"checks"`
-	ReviewThreads     pullRequestReviewSummary    `json:"reviewThreads"`
-	LikelyNextCommand string                      `json:"likelyNextCommand"`
-	Warnings          []string                    `json:"warnings,omitempty"`
-	Help              []string                    `json:"help,omitempty"`
-}
-
-type pullRequestIssueReadiness struct {
-	Number  int      `json:"number"`
-	Found   bool     `json:"found"`
-	Ready   bool     `json:"ready"`
-	Action  string   `json:"action,omitempty"`
-	Labels  []string `json:"labels,omitempty"`
-	Reasons []string `json:"reasons"`
-}
-
-type pullRequestCheckSummary struct {
-	State   string          `json:"state"`
-	Count   int             `json:"count"`
-	Summary gh.CheckSummary `json:"summary"`
-}
-
-type pullRequestReviewSummary struct {
-	Count   int              `json:"count"`
-	Summary gh.ThreadSummary `json:"summary"`
-}
-
-type configMigrationResult struct {
-	SchemaVersion    int    `json:"schemaVersion"`
-	Kind             string `json:"kind"`
-	From             string `json:"from"`
-	To               string `json:"to"`
-	Action           string `json:"action"`
-	Content          string `json:"content,omitempty"`
-	ContentChars     int    `json:"contentChars,omitempty"`
-	ContentTruncated bool   `json:"contentTruncated,omitempty"`
-	ContentPreview   string `json:"contentPreview,omitempty"`
-	FullCommand      string `json:"fullCommand,omitempty"`
-}
-
-type completionResult struct {
-	SchemaVersion       int       `json:"schemaVersion"`
-	Kind                string    `json:"kind"`
-	ID                  string    `json:"id"`
-	Summary             string    `json:"summary"`
-	SummaryChars        int       `json:"summaryChars"`
-	SummaryTruncated    bool      `json:"summaryTruncated"`
-	SummaryPreview      string    `json:"summaryPreview,omitempty"`
-	Validation          string    `json:"validation,omitempty"`
-	ValidationChars     int       `json:"validationChars,omitempty"`
-	ValidationTruncated bool      `json:"validationTruncated,omitempty"`
-	ValidationPreview   string    `json:"validationPreview,omitempty"`
-	FullCommand         string    `json:"fullCommand,omitempty"`
-	CreatedAt           time.Time `json:"createdAt"`
-}
-
-type homeResult struct {
-	SchemaVersion int      `json:"schemaVersion"`
-	Kind          string   `json:"kind"`
-	Bin           string   `json:"bin"`
-	Description   string   `json:"description"`
-	Repo          string   `json:"repo"`
-	Config        string   `json:"config"`
-	Auth          string   `json:"auth"`
-	Next          string   `json:"next"`
-	Help          []string `json:"help"`
+type issuePolicyOutput struct {
+	policy.IssuePolicyDecision
+	Report *operation.Report `json:"report,omitempty"`
 }
 
 func newRenderer(stdout, stderr io.Writer, structured bool) renderer {
@@ -234,22 +151,37 @@ func (r renderer) Error(code int, err error, hint string) int {
 	if err == nil {
 		err = fmt.Errorf("command failed")
 	}
-	return r.ErrorMessage(code, err.Error(), hint)
+	applicationError := apperror.Wrap(categoryForExit(code), err.Error(), err, hint)
+	applicationError.Retryable = errorRetryable(code)
+	return r.ApplicationError(applicationError)
 }
 
 func (r renderer) ErrorMessage(code int, message, hint string) int {
+	return r.ApplicationError(apperror.New(categoryForExit(code), message, hint))
+}
+
+func (r renderer) ApplicationError(applicationError *apperror.Error) int {
+	if applicationError == nil {
+		applicationError = apperror.New(apperror.Usage, "command failed", "")
+	}
+	code := applicationError.ExitCode()
 	if !r.Structured() {
-		fmt.Fprintln(r.stderr, message)
+		fmt.Fprintln(r.stderr, applicationError.Error())
 		return code
 	}
 	result := errorResult{
 		SchemaVersion: schemaVersionV1,
 		Kind:          "error",
-		Category:      exitCategory(code),
+		Category:      string(applicationError.Category),
 		ExitCode:      code,
-		Message:       message,
-		Hint:          firstNonEmpty(hint, defaultErrorHint(code, message)),
-		Retryable:     errorRetryable(code),
+		Message:       applicationError.Error(),
+		Hint:          firstNonEmpty(applicationError.Hint, defaultErrorHint(code, applicationError.Error())),
+		Retryable:     publicErrorRetryable(applicationError),
+		HTTPStatus:    applicationError.HTTPStatus,
+		RequestID:     applicationError.RequestID,
+		RetryAfter:    int64(applicationError.RetryAfter / time.Second),
+		Details:       applicationError.Details,
+		Report:        applicationError.Report,
 	}
 	if r.format == formatTOON {
 		return r.TOONError(result, code)
@@ -258,6 +190,13 @@ func (r renderer) ErrorMessage(code int, message, hint string) int {
 		return writeCode
 	}
 	return code
+}
+
+// Structured error v1 historically classified every completed GitHub request
+// failure as retryable. Preserve that public projection while workflows retain
+// the more accurate typed retryability metadata for a future schema version.
+func publicErrorRetryable(applicationError *apperror.Error) bool {
+	return applicationError.Retryable || applicationError.Category == apperror.GitHub
 }
 
 func (r renderer) TOONError(result errorResult, code int) int {
@@ -270,14 +209,24 @@ func (r renderer) TOONError(result errorResult, code int) int {
 		fmt.Fprintf(r.stdout, "hint: %s\n", result.Hint)
 	}
 	fmt.Fprintf(r.stdout, "retryable: %v\n", result.Retryable)
+	if result.Report != nil {
+		fmt.Fprintf(r.stdout, "report:\n  kind: %s\n  schemaVersion: %d\n  status: %s\n  operations[%d]:\n", result.Report.Kind, result.Report.SchemaVersion, result.Report.Status, len(result.Report.Operations))
+		for _, operationResult := range result.Report.Operations {
+			fmt.Fprintf(r.stdout, "    - id: %s\n      resource: %s\n      action: %s\n      status: %s\n", operationResult.ID, operationResult.Resource, operationResult.Action, operationResult.Status)
+		}
+	}
 	return code
 }
 
 // Run executes the Baton command line. It is small by design: command packages
 // own deterministic decisions, and this layer only parses flags and renders.
 func Run(args []string, stdout, stderr io.Writer, version string) int {
+	return RunContext(context.Background(), args, stdout, stderr, version)
+}
+
+func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer, version string) int {
 	if len(args) == 0 {
-		return runHome(nil, stdout, stderr)
+		return runHome(ctx, nil, stdout, stderr)
 	}
 	if args[0] == "--version" {
 		if len(args) > 1 {
@@ -319,37 +268,39 @@ func Run(args []string, stdout, stderr io.Writer, version string) int {
 		fmt.Fprintln(stdout, version)
 		return exitOK
 	case "home":
-		return runHome(args[1:], stdout, stderr)
+		return runHome(ctx, args[1:], stdout, stderr)
 	case "init":
 		return runInit(args[1:], stdout, stderr)
 	case "migrate-config":
 		return runMigrateConfig(args[1:], stdout, stderr)
 	case "doctor":
-		return runDoctor(args[1:], stdout, stderr)
+		return runDoctor(ctx, args[1:], stdout, stderr)
 	case "issue-policy":
-		return runIssuePolicy(args[1:], stdout, stderr)
+		return runIssuePolicy(ctx, args[1:], stdout, stderr)
 	case "pr-policy":
-		return runPRPolicy(args[1:], stdout, stderr)
+		return runPRPolicy(ctx, args[1:], stdout, stderr)
+	case "pr-transition":
+		return runPRTransition(ctx, args[1:], stdout, stderr)
 	case "sync-labels":
-		return runSyncLabels(args[1:], stdout, stderr)
+		return runSyncLabels(ctx, args[1:], stdout, stderr)
+	case "snapshot":
+		return runSnapshot(ctx, args[1:], stdout, stderr)
 	case "queue":
-		return runQueue(args[1:], stdout, stderr)
+		return runQueue(ctx, args[1:], stdout, stderr)
 	case "prs":
-		return runPRs(args[1:], stdout, stderr)
+		return runPRs(ctx, args[1:], stdout, stderr)
 	case "pr":
-		return runPR(args[1:], stdout, stderr)
+		return runPR(ctx, args[1:], stdout, stderr)
 	case "checks":
-		return runChecks(args[1:], stdout, stderr)
+		return runChecks(ctx, args[1:], stdout, stderr)
 	case "review-threads":
-		return runReviewThreads(args[1:], stdout, stderr)
+		return runReviewThreads(ctx, args[1:], stdout, stderr)
 	case "next":
-		return runNext(args[1:], stdout, stderr)
-	case "complete":
-		return runComplete(args[1:], stdout, stderr)
+		return runNext(ctx, args[1:], stdout, stderr)
 	case "ensure-branch":
-		return runEnsureBranch(args[1:], stdout, stderr)
+		return runEnsureBranch(ctx, args[1:], stdout, stderr)
 	case "labels":
-		return runLabels(args[1:], stdout, stderr)
+		return runLabels(ctx, args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n", args[0])
 		return exitUsage
@@ -357,35 +308,13 @@ func Run(args []string, stdout, stderr io.Writer, version string) int {
 }
 
 func printHelp(w io.Writer) {
-	fmt.Fprint(w, `baton coordinates reusable GitHub issue/PR agent workflows.
-
-Usage:
-  baton --help
-  baton --version
-  baton version
-  baton home [--format text|json|toon] [--json]
-  baton init --dry-run|--apply [--profile default] [--go-install module@version|--install-command <cmd>] [--yes] [--json]
-  baton migrate-config --dry-run|--apply [--from <path>] [--to <path>] [--yes] [--full] [--body-limit <chars>] [--json]
-  baton doctor [--config <path>] [--format text|json|toon] [--json]
-  baton issue-policy --body-file <path> [--labels a,b] [--config <path>] [--json]
-  baton issue-policy --event <path> [--apply] [--repo owner/name] [--config <path>] [--json]
-  baton pr-policy --fixture <path> [--config <path>] [--json]
-  baton pr-policy --event <path> [--config <path>] [--json]
-  baton sync-labels --dry-run|--apply [--repo owner/name] [--labels-file <path>] [--json]
-  baton queue [--repo owner/name] [--config <path>] [--fields a,b] [--format text|json|toon] [--json]
-  baton prs [--repo owner/name] [--config <path>] [--fields a,b] [--format text|json|toon] [--json]
-  baton pr <number> --json [--repo owner/name] [--config <path>]
-  baton checks <number> [--repo owner/name] [--config <path>] [--fields a,b] [--format text|json|toon] [--json]
-  baton review-threads <number> [--repo owner/name] [--config <path>] [--full] [--body-limit <chars>] [--format text|json|toon] [--json]
-  baton next [--repo owner/name] [--config <path>] [--format text|json|toon] [--json]
-  baton complete --summary <text> [--validation <text>] [--comment --repo owner/name --issue N|--pr N] [--full] [--body-limit <chars>] [--json]
-  baton ensure-branch [--apply] [--remote origin] [--base main] [--target agent] [--json]
-  baton labels --file <path> [--json]
-
-The current implementation includes policy checks, install planning, GitHub
-label/policy writes, read-only queue inspection, and branch setup. Callers own
-checkout isolation and execution context.
-`)
+	fmt.Fprintln(w, "baton coordinates reusable GitHub issue/PR agent workflows.")
+	fmt.Fprint(w, "\nUsage:\n  baton --help\n  baton --version\n")
+	for _, name := range commandOrder {
+		fmt.Fprintf(w, "  %s\n", commandHelps[name].Usage)
+	}
+	fmt.Fprintln(w, "\nBaton owns deterministic GitHub policy, observation, recommendation, and")
+	fmt.Fprintln(w, "work-item transitions. Callers own checkout isolation and execution state.")
 }
 
 type commandHelp struct {
@@ -394,6 +323,12 @@ type commandHelp struct {
 	Flags    []string
 	Examples []string
 	Related  []string
+}
+
+var commandOrder = []string{
+	"version", "home", "init", "migrate-config", "doctor", "issue-policy",
+	"pr-policy", "pr-transition", "sync-labels", "snapshot", "queue", "prs",
+	"pr", "checks", "review-threads", "next", "ensure-branch", "labels",
 }
 
 var commandHelps = map[string]commandHelp{
@@ -412,7 +347,7 @@ var commandHelps = map[string]commandHelp{
 	"init": {
 		Purpose:  "Preview or install Baton repository automation files.",
 		Usage:    "baton init --dry-run|--apply [--profile default] [--go-install module@version|--install-command <cmd>] [--yes] [--json]",
-		Flags:    []string{"--dry-run: preview installed files", "--apply: write installed files", "--yes: overwrite changed files when applying", "--json: emit structured JSON"},
+		Flags:    []string{"--dry-run: preview installed files", "--apply: write installed files", "--profile: install profile", "--go-install: exact Go module install target", "--install-command: trusted custom install command for non-mutating workflows", "--yes: overwrite changed files when applying", "--json: emit structured JSON"},
 		Examples: []string{"baton init --dry-run --json", "baton init --apply --yes"},
 		Related:  []string{"baton doctor --json", "baton labels --file internal/install/templates/.github/labels.yml --json"},
 	},
@@ -433,21 +368,28 @@ var commandHelps = map[string]commandHelp{
 	"issue-policy": {
 		Purpose:  "Evaluate issue-form labels and optionally apply the policy result.",
 		Usage:    "baton issue-policy --body-file <path>|--event <path> [--labels a,b] [--apply] [--repo owner/name] [--config <path>] [--json]",
-		Flags:    []string{"--body-file: issue body markdown file", "--event: GitHub issue event payload", "--apply: apply labels and policy comment", "--json: emit structured JSON"},
+		Flags:    []string{"--body-file: issue body markdown file", "--event: GitHub issue event payload", "--labels: comma-separated current labels", "--apply: apply labels and policy comment", "--repo: GitHub repository owner/name", "--config: policy config path", "--json: emit structured JSON"},
 		Examples: []string{"baton issue-policy --body-file issue.md --json", "baton issue-policy --event event.json --apply --repo owner/name --json"},
 		Related:  []string{"baton queue --json"},
 	},
 	"pr-policy": {
 		Purpose:  "Evaluate pull request policy from a fixture or GitHub event.",
 		Usage:    "baton pr-policy --fixture <path>|--event <path> [--repo owner/name] [--config <path>] [--json]",
-		Flags:    []string{"--fixture: pure PR policy fixture JSON", "--event: GitHub pull_request event payload", "--json: emit structured JSON"},
+		Flags:    []string{"--fixture: pure PR policy fixture JSON", "--event: GitHub pull_request event payload", "--repo: GitHub repository owner/name", "--config: policy config path", "--json: emit structured JSON"},
 		Examples: []string{"baton pr-policy --fixture pr.json --config .github/baton.yml --json"},
 		Related:  []string{"baton pr <number> --json", "baton checks <number> --json"},
 	},
+	"pr-transition": {
+		Purpose:  "Plan or apply GitHub-authoritative work-item transitions from a pull request event.",
+		Usage:    "baton pr-transition --event <path> --dry-run|--apply [--repo owner/name] [--config <path>] [--json]",
+		Flags:    []string{"--event: GitHub pull_request event payload", "--dry-run: preview transition operations", "--apply: apply idempotent issue label transitions", "--repo: GitHub repository owner/name", "--config: policy config path", "--json: emit structured JSON"},
+		Examples: []string{"baton pr-transition --event event.json --dry-run --json", "baton pr-transition --event event.json --apply --repo owner/name --json"},
+		Related:  []string{"baton pr-policy --event <path> --json", "baton queue --json"},
+	},
 	"sync-labels": {
 		Purpose:  "Compare or apply GitHub repository labels from a labels manifest.",
-		Usage:    "baton sync-labels --dry-run|--apply [--repo owner/name] [--labels-file <path>] [--json]",
-		Flags:    []string{"--dry-run: preview label changes", "--apply: apply label changes", "--labels-file: labels manifest path", "--json: emit structured JSON"},
+		Usage:    "baton sync-labels --dry-run|--apply [--repo owner/name] [--config <path>] [--labels-file <path>] [--json]",
+		Flags:    []string{"--dry-run: preview label changes", "--apply: apply label changes", "--repo: GitHub repository owner/name", "--config: repository policy path", "--labels-file: override policy manifest path", "--json: emit structured JSON"},
 		Examples: []string{"baton sync-labels --dry-run --json", "baton sync-labels --apply --repo owner/name --json"},
 		Related:  []string{"baton labels --file <path> --json"},
 	},
@@ -457,6 +399,13 @@ var commandHelps = map[string]commandHelp{
 		Flags:    []string{"--repo: GitHub repository owner/name", "--config: policy config path", "--fields: compact fields, for example number,title,action,reasons", "--format: output format text, json, or toon", "--json: emit structured JSON"},
 		Examples: []string{"baton queue --format toon", "baton queue --fields number,title,action,reasons --format toon", "baton queue --repo owner/name --config .github/baton.yml --json"},
 		Related:  []string{"baton next --json", "baton prs --json"},
+	},
+	"snapshot": {
+		Purpose:  "Observe repository facts and return one typed Baton recommendation.",
+		Usage:    "baton snapshot [--repo owner/name] [--config <path>] [--format text|json|toon] [--json]",
+		Flags:    []string{"--repo: GitHub repository owner/name", "--config: policy config path", "--format: output format text, json, or toon", "--json: emit structured JSON"},
+		Examples: []string{"baton snapshot --format toon", "baton snapshot --repo owner/name --json"},
+		Related:  []string{"baton next --json", "baton queue --json"},
 	},
 	"prs": {
 		Purpose:  "List open pull requests relevant to Baton queue work.",
@@ -493,25 +442,18 @@ var commandHelps = map[string]commandHelp{
 		Examples: []string{"baton next --format toon", "baton next --action issue-investigation --format toon"},
 		Related:  []string{"baton queue --json", "baton prs --json"},
 	},
-	"complete": {
-		Purpose:  "Record completion details and optionally post a GitHub comment.",
-		Usage:    "baton complete --summary <text> [--validation <text>] [--comment --repo owner/name --issue N|--pr N] [--full] [--body-limit <chars>] [--json]",
-		Flags:    []string{"--summary: completion summary", "--validation: validation performed", "--comment: post a GitHub comment", "--full: include full summary and validation text", "--body-limit: maximum default text characters", "--json: emit structured JSON"},
-		Examples: []string{"baton complete --summary done --validation 'go test ./...' --json", "baton complete --summary done --full --json"},
-		Related:  []string{"baton next --json"},
-	},
 	"ensure-branch": {
 		Purpose:  "Plan or apply Baton staging branch setup.",
-		Usage:    "baton ensure-branch [--apply] [--remote origin] [--base main] [--target agent] [--json]",
-		Flags:    []string{"--apply: run planned git commands", "--remote: remote name", "--base: base branch", "--target: staging branch", "--json: emit structured JSON"},
+		Usage:    "baton ensure-branch [--apply] [--config <path>] [--remote <name>] [--base <branch>] [--target <branch>] [--remote-base <sha>] [--remote-target <sha>] [--local-target <sha>] [--local-upstream <ref>] [--json]",
+		Flags:    []string{"--apply: run planned git commands", "--config: repository policy path", "--remote: remote name", "--base: base branch", "--target: staging branch", "--remote-base: observed remote base SHA", "--remote-target: observed remote target SHA", "--local-target: observed local target SHA", "--local-upstream: observed local upstream ref", "--json: emit structured JSON"},
 		Examples: []string{"baton ensure-branch --json", "baton ensure-branch --apply"},
 		Related:  []string{"baton doctor --json"},
 	},
 	"labels": {
 		Purpose:  "Read and validate a Baton labels manifest.",
-		Usage:    "baton labels --file <path> [--json]",
-		Flags:    []string{"--file: labels manifest path", "--json: emit structured JSON"},
-		Examples: []string{"baton labels --file internal/install/templates/.github/labels.yml --json"},
+		Usage:    "baton labels [--config <path>] [--file <path>] [--json]",
+		Flags:    []string{"--config: repository policy path", "--file: override policy manifest path", "--json: emit structured JSON"},
+		Examples: []string{"baton labels --json", "baton labels --file internal/install/templates/.github/labels.yml --json"},
 		Related:  []string{"baton sync-labels --dry-run --json"},
 	},
 }
@@ -540,7 +482,7 @@ func printHelpList(w io.Writer, title string, values []string) {
 	}
 }
 
-func runHome(args []string, stdout, stderr io.Writer) int {
+func runHome(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("home", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	formats := addFormatFlags(fs)
@@ -551,7 +493,9 @@ func runHome(args []string, stdout, stderr io.Writer) int {
 	if code != exitOK {
 		return code
 	}
-	result := buildHomeResult()
+	result := workflow.NewHomeWorkflow().RunContext(ctx, workflow.HomeInput{
+		EnvironmentRepo: os.Getenv("GITHUB_REPOSITORY"), GitHubToken: os.Getenv("GITHUB_TOKEN"), GHToken: os.Getenv("GH_TOKEN"),
+	})
 	switch format {
 	case formatJSON:
 		return out.JSON(result)
@@ -585,18 +529,11 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 	if *goInstall != "" && *installCommand != "" {
 		return out.ErrorMessage(exitUsage, "init accepts only one of --go-install or --install-command", "")
 	}
-	options := install.Options{GoInstall: *goInstall, InstallCommand: *installCommand}
-	var (
-		plan install.Plan
-		err  error
-	)
-	if *apply {
-		plan, err = install.ApplyWithOptions(".", *yes, options)
-	} else {
-		plan, err = install.PreviewWithOptions(".", options)
-	}
+	plan, err := (workflow.RepositoryFilesWorkflow{}).Init(workflow.InitInput{
+		Apply: *apply, Overwrite: *yes, GoInstall: *goInstall, InstallCommand: *installCommand,
+	})
 	if err != nil {
-		return out.Error(exitConfig, err, "")
+		return renderWorkflowError(out, err)
 	}
 	if *jsonOut {
 		return out.JSON(plan)
@@ -628,52 +565,27 @@ func runMigrateConfig(args []string, stdout, stderr io.Writer) int {
 	if *dryRun == *apply {
 		return out.ErrorMessage(exitUsage, "migrate-config requires exactly one of --dry-run or --apply", "Run `baton migrate-config --dry-run` to preview or `baton migrate-config --apply` to write.")
 	}
-	cfg, err := config.Load(*from)
+	result, err := (workflow.RepositoryFilesWorkflow{}).MigrateConfig(workflow.ConfigMigrationInput{
+		From: *from, To: *to, Apply: *apply, Overwrite: *yes, Full: *full, BodyLimit: *bodyLimit,
+	})
 	if err != nil {
-		return out.Error(exitConfig, err, "")
+		return renderWorkflowError(out, err)
 	}
-	content, err := config.MarshalYAML(cfg)
-	if err != nil {
-		return out.Error(exitConfig, err, "")
-	}
-	action := "create"
-	if existing, err := os.ReadFile(*to); err == nil {
-		if string(existing) == string(content) {
-			action = "unchanged"
-		} else {
-			action = "overwrite"
-		}
-	} else if !os.IsNotExist(err) {
-		return out.Error(exitConfig, err, "")
-	}
-	result := configMigrationResult{SchemaVersion: 1, Kind: "configMigration", From: *from, To: *to, Action: action}
 	if *dryRun {
-		result = withConfigMigrationContent(result, string(content), *bodyLimit, *full)
 		if *jsonOut {
 			return out.JSON(result)
 		}
-		fmt.Fprintf(stdout, "%s %s from %s\n\n%s", action, *to, *from, result.Content)
+		fmt.Fprintf(stdout, "%s %s from %s\n\n%s", result.Action, *to, *from, result.Content)
 		return exitOK
-	}
-	if action == "overwrite" && !*yes {
-		return out.ErrorMessage(exitConfig, fmt.Sprintf("%s already exists with different content; rerun with --yes to overwrite", *to), "")
-	}
-	if action != "unchanged" {
-		if err := os.MkdirAll(filepath.Dir(*to), 0o755); err != nil {
-			return out.Error(exitConfig, err, "")
-		}
-		if err := os.WriteFile(*to, content, 0o644); err != nil {
-			return out.Error(exitConfig, err, "")
-		}
 	}
 	if *jsonOut {
 		return out.JSON(result)
 	}
-	fmt.Fprintf(stdout, "%s %s\n", action, *to)
+	fmt.Fprintf(stdout, "%s %s\n", result.Action, *to)
 	return exitOK
 }
 
-func runDoctor(args []string, stdout, stderr io.Writer) int {
+func runDoctor(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	configPath := fs.String("config", "", "policy config path")
@@ -685,7 +597,9 @@ func runDoctor(args []string, stdout, stderr io.Writer) int {
 	if code != exitOK {
 		return code
 	}
-	result := doctor.Run(*configPath)
+	result := doctor.RunWithOptionsContext(ctx, doctor.Options{
+		ConfigPath: *configPath, GitHubToken: os.Getenv("GITHUB_TOKEN"), GHToken: os.Getenv("GH_TOKEN"),
+	})
 	if format == formatJSON {
 		if code := out.JSON(result); code != exitOK {
 			return code
@@ -709,7 +623,7 @@ func runDoctor(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-func runIssuePolicy(args []string, stdout, stderr io.Writer) int {
+func runIssuePolicy(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("issue-policy", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	bodyFile := fs.String("body-file", "", "issue body markdown file")
@@ -727,40 +641,15 @@ func runIssuePolicy(args []string, stdout, stderr io.Writer) int {
 		return out.ErrorMessage(exitUsage, "issue-policy requires exactly one of --body-file or --event", "Run `baton issue-policy --body-file <path>` or `baton issue-policy --event <path>`.")
 	}
 
-	cfg, err := loadConfig(*configPath)
-	if err != nil {
-		return out.Error(exitConfig, err, "")
-	}
-	body := ""
-	currentLabels := splitCSV(*labelsCSV)
-	eventIssueNumber := 0
-	eventRepo := ""
-	if *eventPath != "" {
-		content, err := os.ReadFile(*eventPath)
-		if err != nil {
-			return out.ErrorMessage(exitUsage, fmt.Sprintf("read issue event: %v", err), "")
-		}
-		event, err := gh.ParseIssueEvent(content)
-		if err != nil {
-			return out.Error(exitUsage, err, "")
-		}
-		body = event.Body
-		currentLabels = event.Labels
-		eventIssueNumber = event.Number
-		eventRepo = event.Repository
-	} else {
-		content, err := os.ReadFile(*bodyFile)
-		if err != nil {
-			return out.ErrorMessage(exitUsage, fmt.Sprintf("read issue body: %v", err), "")
-		}
-		body = string(content)
-	}
-
-	decision := policy.ComputeIssuePolicy(policy.IssuePolicyInput{
-		Body:          body,
-		CurrentLabels: currentLabels,
-		Policy:        cfg.IssuePolicy,
+	result, workflowErr := workflow.NewIssuePolicyWorkflow().RunContext(ctx, workflow.IssuePolicyInput{
+		BodyPath: *bodyFile, EventPath: *eventPath, CurrentLabels: splitCSV(*labelsCSV), ConfigPath: *configPath,
+		Repository: *repoFlag, EnvironmentRepo: os.Getenv("GITHUB_REPOSITORY"), Apply: *apply,
+		GitHubAPIURL: os.Getenv("GITHUB_API_URL"), GitHubToken: os.Getenv("GITHUB_TOKEN"), GHToken: os.Getenv("GH_TOKEN"),
 	})
+	if workflowErr != nil && !result.Evaluated {
+		return renderWorkflowError(out, workflowErr)
+	}
+	decision := result.Decision
 	if !decision.IsFormIssue {
 		if !*jsonOut {
 			fmt.Fprintln(stdout, "Issue policy: body does not match the configured form.")
@@ -771,16 +660,16 @@ func runIssuePolicy(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stdout, "Missing required sections: %s\n", strings.Join(decision.MissingRequiredSections, ", "))
 		}
 	}
-	if code := applyIssueDecisionIfRequested(*apply, *eventPath, *repoFlag, eventRepo, eventIssueNumber, decision, cfg, out); code != exitOK {
-		return code
+	if workflowErr != nil {
+		return renderWorkflowError(out, workflowErr)
 	}
 	if *jsonOut {
-		return out.JSON(decision)
+		return out.JSON(issuePolicyOutput{IssuePolicyDecision: decision, Report: result.Report})
 	}
 	return exitOK
 }
 
-func runPRPolicy(args []string, stdout, stderr io.Writer) int {
+func runPRPolicy(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("pr-policy", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fixturePath := fs.String("fixture", "", "pure PR policy fixture JSON")
@@ -795,54 +684,14 @@ func runPRPolicy(args []string, stdout, stderr io.Writer) int {
 	if (*fixturePath == "") == (*eventPath == "") {
 		return out.ErrorMessage(exitUsage, "pr-policy requires exactly one of --fixture or --event", "Run `baton pr-policy --fixture <path>` or `baton pr-policy --event <path>`.")
 	}
-	cfg, err := loadConfig(*configPath)
+	decision, err := workflow.NewPullRequestPolicyWorkflow().RunContext(ctx, workflow.PullRequestPolicyInput{
+		FixturePath: *fixturePath, EventPath: *eventPath, ConfigPath: *configPath,
+		Repository: *repoFlag, EnvironmentRepo: os.Getenv("GITHUB_REPOSITORY"), GitHubAPIURL: os.Getenv("GITHUB_API_URL"),
+		GitHubToken: os.Getenv("GITHUB_TOKEN"), GHToken: os.Getenv("GH_TOKEN"),
+	})
 	if err != nil {
-		return out.Error(exitConfig, err, "")
+		return renderWorkflowError(out, err)
 	}
-	var input policy.PRPolicyInput
-	if *fixturePath != "" {
-		content, err := os.ReadFile(*fixturePath)
-		if err != nil {
-			return out.ErrorMessage(exitUsage, fmt.Sprintf("read PR policy fixture: %v", err), "")
-		}
-		if err := json.Unmarshal(content, &input); err != nil {
-			return out.ErrorMessage(exitUsage, fmt.Sprintf("parse PR policy fixture: %v", err), "")
-		}
-	} else {
-		content, err := os.ReadFile(*eventPath)
-		if err != nil {
-			return out.ErrorMessage(exitUsage, fmt.Sprintf("read PR event: %v", err), "")
-		}
-		pr, err := gh.ParsePullRequestEvent(content)
-		if err != nil {
-			return out.Error(exitUsage, err, "")
-		}
-		input.PullRequest = pr
-		repo := firstNonEmpty(*repoFlag, pr.BaseRepositoryFullName)
-		if repo == "" {
-			return out.ErrorMessage(exitUsage, "--repo, GITHUB_REPOSITORY, or pull_request.base.repo.full_name is required", "")
-		}
-		client, err := gh.NewClientFromEnv()
-		if err != nil {
-			return out.Error(exitAuth, err, "")
-		}
-		issueNumbers := gh.IssueNumbersForPR(pr)
-		if len(issueNumbers) > 0 {
-			issues, err := client.FetchIssueLabels(repo, issueNumbers)
-			if err != nil {
-				return out.Error(exitGitHub, err, "")
-			}
-			input.ReferencedIssues = issues
-		}
-		messages, reachedCap, err := client.FetchCommitListing(repo, pr.Number)
-		if err != nil {
-			return out.Error(exitGitHub, err, "")
-		}
-		input.CommitMessages = messages
-		input.CommitListingReachedCap = reachedCap
-	}
-	input.Policy = cfg
-	decision := policy.ComputePullRequestPolicy(input)
 	if *jsonOut {
 		if code := out.JSON(decision); code != exitOK {
 			return code
@@ -863,13 +712,54 @@ func runPRPolicy(args []string, stdout, stderr io.Writer) int {
 	return exitPolicy
 }
 
-func runSyncLabels(args []string, stdout, stderr io.Writer) int {
+func runPRTransition(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("pr-transition", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	eventPath := fs.String("event", "", "GitHub pull_request event payload")
+	repoFlag := fs.String("repo", "", "GitHub repository owner/name")
+	configPath := fs.String("config", "", "policy config path")
+	dryRun := fs.Bool("dry-run", false, "preview transition operations")
+	apply := fs.Bool("apply", false, "apply transition operations to GitHub")
+	jsonOut := fs.Bool("json", false, "emit JSON")
+	if err := fs.Parse(args); err != nil {
+		return exitUsage
+	}
+	out := newRenderer(stdout, stderr, *jsonOut)
+	if strings.TrimSpace(*eventPath) == "" {
+		return out.ErrorMessage(exitUsage, "pr-transition requires --event", "Run `baton pr-transition --event <path> --dry-run`.")
+	}
+	if *dryRun == *apply {
+		return out.ErrorMessage(exitUsage, "pr-transition requires exactly one of --dry-run or --apply", "Preview with --dry-run before applying.")
+	}
+	result, err := workflow.NewPullRequestTransitionWorkflow().RunContext(ctx, workflow.PullRequestTransitionInput{
+		EventPath: *eventPath, ConfigPath: *configPath, Repository: *repoFlag, EnvironmentRepo: os.Getenv("GITHUB_REPOSITORY"), Apply: *apply,
+		GitHubAPIURL: os.Getenv("GITHUB_API_URL"), GitHubToken: os.Getenv("GITHUB_TOKEN"), GHToken: os.Getenv("GH_TOKEN"),
+	})
+	if err != nil {
+		return renderWorkflowError(out, err)
+	}
+	if *jsonOut {
+		return out.JSON(result)
+	}
+	mode := "Planned"
+	if *apply {
+		mode = "Applied"
+	}
+	fmt.Fprintf(stdout, "%s %d work-item transition operation(s) for PR #%d.\n", mode, len(result.Operations), result.PullRequestNumber)
+	for _, warning := range result.Warnings {
+		fmt.Fprintf(stdout, "Warning: %s\n", warning)
+	}
+	return exitOK
+}
+
+func runSyncLabels(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("sync-labels", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	dryRun := fs.Bool("dry-run", false, "preview label changes")
 	apply := fs.Bool("apply", false, "apply label changes")
 	repoFlag := fs.String("repo", "", "GitHub repository owner/name")
-	labelsFile := fs.String("labels-file", ".github/labels.yml", "labels manifest path")
+	labelsFile := fs.String("labels-file", "", "override repository-policy labels manifest path")
+	configPath := fs.String("config", "", "repository policy path")
 	jsonOut := fs.Bool("json", false, "emit JSON")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
@@ -878,36 +768,12 @@ func runSyncLabels(args []string, stdout, stderr io.Writer) int {
 	if *dryRun == *apply {
 		return out.ErrorMessage(exitUsage, "sync-labels requires exactly one of --dry-run or --apply", "Run `baton sync-labels --dry-run` to preview or `baton sync-labels --apply` to update GitHub labels.")
 	}
-	repo, err := gh.RepoFromEnvOrFlag(*repoFlag)
+	plan, err := workflow.NewLabelSyncWorkflow().RunContext(ctx, workflow.LabelSyncInput{
+		Repository: *repoFlag, EnvironmentRepo: os.Getenv("GITHUB_REPOSITORY"), ManifestPath: *labelsFile, ConfigPath: *configPath, Apply: *apply,
+		GitHubAPIURL: os.Getenv("GITHUB_API_URL"), GitHubToken: os.Getenv("GITHUB_TOKEN"), GHToken: os.Getenv("GH_TOKEN"),
+	})
 	if err != nil {
-		return out.Error(exitUsage, err, "")
-	}
-	manifest, err := labels.LoadManifest(*labelsFile)
-	if err != nil {
-		return out.Error(exitConfig, err, "")
-	}
-	client, err := gh.NewClientFromEnv()
-	if err != nil {
-		return out.Error(exitAuth, err, "")
-	}
-	existing, err := client.ListLabels(repo)
-	if err != nil {
-		return out.Error(exitGitHub, err, "")
-	}
-	plan := labels.PlanSync(repo, manifest.Labels, existing)
-	if *apply {
-		for _, change := range plan.Changes {
-			switch change.Action {
-			case "create":
-				if err := client.CreateLabel(repo, labels.Label{Name: change.Name, Color: change.Color, Description: change.Description}); err != nil {
-					return out.Error(exitGitHub, err, "")
-				}
-			case "update":
-				if err := client.UpdateLabel(repo, labels.Label{Name: change.Name, Color: change.Color, Description: change.Description}); err != nil {
-					return out.Error(exitGitHub, err, "")
-				}
-			}
-		}
+		return renderWorkflowError(out, err)
 	}
 	if *jsonOut {
 		return out.JSON(plan)
@@ -922,7 +788,7 @@ func runSyncLabels(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-func runQueue(args []string, stdout, stderr io.Writer) int {
+func runQueue(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("queue", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	repoFlag := fs.String("repo", "", "GitHub repository owner/name")
@@ -936,9 +802,9 @@ func runQueue(args []string, stdout, stderr io.Writer) int {
 	if code != exitOK {
 		return code
 	}
-	snapshot, code := fetchQueueSnapshot(*repoFlag, *configPath, false, out)
-	if code != exitOK {
-		return code
+	snapshot, err := workflow.NewObservationWorkflow().QueueContext(ctx, observationInput(*repoFlag, *configPath))
+	if err != nil {
+		return renderWorkflowError(out, err)
 	}
 	if format == formatJSON {
 		return out.JSON(snapshot)
@@ -961,7 +827,38 @@ func runQueue(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-func runPRs(args []string, stdout, stderr io.Writer) int {
+func runSnapshot(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("snapshot", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	repoFlag := fs.String("repo", "", "GitHub repository owner/name")
+	configPath := fs.String("config", "", "policy config path")
+	formats := addFormatFlags(fs)
+	if err := fs.Parse(args); err != nil {
+		return exitUsage
+	}
+	out, format, code := rendererFromFormatFlags(stdout, stderr, formats)
+	if code != exitOK {
+		return code
+	}
+	result, err := workflow.NewObservationWorkflow().SnapshotContext(ctx, observationInput(*repoFlag, *configPath), "")
+	if err != nil {
+		return renderWorkflowError(out, err)
+	}
+	if format == formatJSON {
+		return out.JSON(result)
+	}
+	if format == formatTOON {
+		return writeRepositorySnapshotTOON(stdout, result)
+	}
+	fmt.Fprintf(stdout, "Repository: %s\nCompleteness: %s\nOutcome: %s\n", result.Repository, result.Completeness, result.Recommendation.Outcome)
+	if result.Recommendation.Action != nil {
+		fmt.Fprintf(stdout, "Action: %s\n", *result.Recommendation.Action)
+	}
+	fmt.Fprintf(stdout, "Candidates: %d\nWarnings: %d\n", len(result.Recommendation.Candidates), len(result.Warnings))
+	return exitOK
+}
+
+func runPRs(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("prs", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	repoFlag := fs.String("repo", "", "GitHub repository owner/name")
@@ -975,11 +872,10 @@ func runPRs(args []string, stdout, stderr io.Writer) int {
 	if code != exitOK {
 		return code
 	}
-	snapshot, code := fetchQueueSnapshot(*repoFlag, *configPath, true, out)
-	if code != exitOK {
-		return code
+	result, err := workflow.NewObservationWorkflow().PullRequestListingContext(ctx, observationInput(*repoFlag, *configPath))
+	if err != nil {
+		return renderWorkflowError(out, err)
 	}
-	result := buildPullRequestsResult(snapshot.Repo, snapshot.PullRequests)
 	if format == formatJSON {
 		return out.JSON(result)
 	}
@@ -1001,49 +897,20 @@ func runPRs(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-func runPR(args []string, stdout, stderr io.Writer) int {
+func runPR(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	number, flags, code := parseNumberCommand("pr", args, stdout, stderr)
 	out := newRenderer(stdout, stderr, flags.json)
 	if code != exitOK {
 		return code
 	}
-	if code := validateOptionalConfig(flags.config, out); code != exitOK {
-		return code
-	}
-	repo, client, code := githubClientForRepo(flags.repo, out)
-	if code != exitOK {
-		return code
-	}
-	pr, err := client.GetPullRequest(repo, number)
+	result, err := workflow.NewPullRequestWorkflow().DashboardContext(ctx, pullRequestInput(number, flags))
 	if err != nil {
-		return out.Error(exitGitHub, err, "")
+		return renderWorkflowError(out, err)
 	}
-	result := buildPullRequestDashboard(repo, pr)
-	checkSummaryAvailable := false
-	checks, err := client.GetCheckRollup(repo, pr)
-	if err == nil {
-		checkSummaryAvailable = true
-		pr.CheckState = checks.State
-		result.PullRequest = pr
-		result.Checks = pullRequestCheckSummary{State: checks.State, Count: checks.Count, Summary: checks.Summary}
-	} else {
-		result.Warnings = append(result.Warnings, "check summary unavailable: "+err.Error())
-	}
-	reviewSummaryAvailable := false
-	threads, err := client.GetReviewThreads(repo, number)
-	if err == nil {
-		reviewSummaryAvailable = true
-		result.ReviewThreads = pullRequestReviewSummary{Count: threads.Count, Summary: threads.Summary}
-	} else {
-		result.Warnings = append(result.Warnings, "review thread summary unavailable: "+err.Error())
-	}
-	addIssueReadiness(&result, flags.config, client)
-	result.LikelyNextCommand = pullRequestLikelyNextCommand(number, result.Checks.Summary, result.ReviewThreads.Summary, checkSummaryAvailable, reviewSummaryAvailable)
-	result.Help = pullRequestDashboardHelp(number, result.Checks.Summary, result.ReviewThreads.Summary)
 	if flags.json {
 		return out.JSON(result)
 	}
-	fmt.Fprintf(stdout, "#%d %s -> %s checks=%s reviewThreads=%d unresolved=%d\n", pr.Number, pr.HeadRef, pr.BaseRef, result.Checks.State, result.ReviewThreads.Count, result.ReviewThreads.Summary.Unresolved)
+	fmt.Fprintf(stdout, "#%d %s -> %s checks=%s reviewThreads=%d unresolved=%d\n", result.PullRequest.Number, result.PullRequest.HeadRef, result.PullRequest.BaseRef, result.Checks.State, result.ReviewThreads.Count, result.ReviewThreads.Summary.Unresolved)
 	if len(result.ReferencedIssues) > 0 {
 		fmt.Fprintf(stdout, "referencedIssues=%s\n", intList(result.ReferencedIssues))
 	}
@@ -1053,26 +920,15 @@ func runPR(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-func runChecks(args []string, stdout, stderr io.Writer) int {
+func runChecks(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	number, flags, code := parseNumberCommand("checks", args, stdout, stderr)
 	out := newFormatRenderer(stdout, stderr, flags.format)
 	if code != exitOK {
 		return code
 	}
-	if code := validateOptionalConfig(flags.config, out); code != exitOK {
-		return code
-	}
-	repo, client, code := githubClientForRepo(flags.repo, out)
-	if code != exitOK {
-		return code
-	}
-	pr, err := client.GetPullRequest(repo, number)
+	rollup, err := workflow.NewPullRequestWorkflow().ChecksContext(ctx, pullRequestInput(number, flags))
 	if err != nil {
-		return out.Error(exitGitHub, err, "")
-	}
-	rollup, err := client.GetCheckRollup(repo, pr)
-	if err != nil {
-		return out.Error(exitGitHub, err, "")
+		return renderWorkflowError(out, err)
 	}
 	if flags.format == formatJSON {
 		return out.JSON(rollup)
@@ -1091,27 +947,19 @@ func runChecks(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-func runReviewThreads(args []string, stdout, stderr io.Writer) int {
+func runReviewThreads(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	number, flags, code := parseNumberCommand("review-threads", args, stdout, stderr)
 	out := newFormatRenderer(stdout, stderr, flags.format)
 	if code != exitOK {
 		return code
 	}
-	if code := validateOptionalConfig(flags.config, out); code != exitOK {
-		return code
-	}
 	if flags.bodyLimit < 0 {
 		return out.ErrorMessage(exitUsage, "review-threads --body-limit must be non-negative", "")
 	}
-	repo, client, code := githubClientForRepo(flags.repo, out)
-	if code != exitOK {
-		return code
-	}
-	threads, err := client.GetReviewThreads(repo, number)
+	threads, err := workflow.NewPullRequestWorkflow().ReviewThreadsContext(ctx, pullRequestInput(number, flags))
 	if err != nil {
-		return out.Error(exitGitHub, err, "")
+		return renderWorkflowError(out, err)
 	}
-	threads = truncateReviewThreadBodies(threads, flags.bodyLimit, flags.full)
 	if flags.format == formatJSON {
 		return out.JSON(threads)
 	}
@@ -1129,7 +977,7 @@ func runReviewThreads(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-func runNext(args []string, stdout, stderr io.Writer) int {
+func runNext(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("next", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	repoFlag := fs.String("repo", "", "GitHub repository owner/name")
@@ -1146,13 +994,9 @@ func runNext(args []string, stdout, stderr io.Writer) int {
 	if *actionFlag != "" && *actionFlag != "issue-investigation" {
 		return out.ErrorMessage(exitUsage, "next --action currently supports issue-investigation only", "Run `baton next --action issue-investigation --format toon`.")
 	}
-	snapshot, code := fetchQueueSnapshot(*repoFlag, *configPath, true, out)
-	if code != exitOK {
-		return code
-	}
-	next := queue.RecommendNext(snapshot)
-	if *actionFlag == "issue-investigation" {
-		next = queue.RecommendNextInvestigation(snapshot)
+	next, err := workflow.NewObservationWorkflow().NextContext(ctx, observationInput(*repoFlag, *configPath), *actionFlag)
+	if err != nil {
+		return renderWorkflowError(out, err)
 	}
 	if format == formatJSON {
 		return out.JSON(next)
@@ -1171,62 +1015,36 @@ func runNext(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-func runComplete(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("complete", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	summary := fs.String("summary", "", "completion summary")
-	validation := fs.String("validation", "", "validation performed")
-	comment := fs.Bool("comment", false, "post completion as a GitHub issue/PR comment")
-	repoFlag := fs.String("repo", "", "GitHub repository owner/name")
-	issueNumber := fs.Int("issue", 0, "issue number to comment on")
-	prNumber := fs.Int("pr", 0, "PR number to comment on")
-	stateRoot := fs.String("state-root", "", "Baton state root")
-	full := fs.Bool("full", false, "include full summary and validation text")
-	bodyLimit := fs.Int("body-limit", defaultDocumentBodyLimit, "maximum default text characters")
-	jsonOut := fs.Bool("json", false, "emit JSON")
-	if err := fs.Parse(args); err != nil {
-		return exitUsage
+func observationInput(repo, configPath string) workflow.RepositoryInput {
+	return workflow.RepositoryInput{
+		Repository: repo, ConfigPath: configPath,
+		EnvironmentRepo: os.Getenv("GITHUB_REPOSITORY"), GitHubAPIURL: os.Getenv("GITHUB_API_URL"),
+		GitHubToken: os.Getenv("GITHUB_TOKEN"), GHToken: os.Getenv("GH_TOKEN"),
 	}
-	out := newRenderer(stdout, stderr, *jsonOut)
-	if *bodyLimit < 0 {
-		return out.ErrorMessage(exitUsage, "complete --body-limit must be non-negative", "")
-	}
-	record, err := complete.Write(*stateRoot, *summary, *validation, time.Now().UTC())
-	if err != nil {
-		return out.Error(exitUsage, err, "")
-	}
-	if *comment {
-		target := *issueNumber
-		if *prNumber != 0 {
-			if target != 0 {
-				return out.ErrorMessage(exitUsage, "complete --comment requires only one of --issue or --pr", "")
-			}
-			target = *prNumber
-		}
-		if target == 0 {
-			return out.ErrorMessage(exitUsage, "complete --comment requires --issue or --pr", "")
-		}
-		repo, client, code := githubClientForRepo(*repoFlag, out)
-		if code != exitOK {
-			return code
-		}
-		if err := client.CreateIssueComment(repo, target, complete.CommentBody(record)); err != nil {
-			return out.Error(exitGitHub, err, "")
-		}
-	}
-	if *jsonOut {
-		return out.JSON(completionResultFromRecord(record, *bodyLimit, *full))
-	}
-	fmt.Fprintf(stdout, "Recorded completion %s\n", record.ID)
-	return exitOK
 }
 
-func runEnsureBranch(args []string, stdout, stderr io.Writer) int {
+func pullRequestInput(number int, flags numberFlags) workflow.PullRequestInput {
+	return workflow.PullRequestInput{
+		Number: number, Repository: flags.repo, EnvironmentRepo: os.Getenv("GITHUB_REPOSITORY"), ConfigPath: flags.config,
+		GitHubAPIURL: os.Getenv("GITHUB_API_URL"), GitHubToken: os.Getenv("GITHUB_TOKEN"), GHToken: os.Getenv("GH_TOKEN"),
+		BodyLimit: flags.bodyLimit, Full: flags.full,
+	}
+}
+
+func renderWorkflowError(out renderer, err error) int {
+	if applicationError := apperror.As(err); applicationError != nil {
+		return out.ApplicationError(applicationError)
+	}
+	return out.ApplicationError(apperror.Wrap(apperror.Usage, "command failed", err, ""))
+}
+
+func runEnsureBranch(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("ensure-branch", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	remote := fs.String("remote", "origin", "remote name")
-	base := fs.String("base", "main", "base branch")
-	target := fs.String("target", "agent", "staging branch")
+	remote := fs.String("remote", "", "override repository-policy remote name")
+	base := fs.String("base", "", "override repository-policy base branch")
+	target := fs.String("target", "", "override repository-policy staging branch")
+	configPath := fs.String("config", "", "repository policy path")
 	remoteBase := fs.String("remote-base", "", "remote base SHA")
 	remoteTarget := fs.String("remote-target", "", "remote target SHA")
 	localTarget := fs.String("local-target", "", "local target SHA")
@@ -1237,7 +1055,7 @@ func runEnsureBranch(args []string, stdout, stderr io.Writer) int {
 		return exitUsage
 	}
 	out := newRenderer(stdout, stderr, *jsonOut)
-	input := git.AgentBranchPlanInput{
+	plan, err := workflow.NewBranchWorkflow().RunContext(ctx, workflow.BranchInput{ConfigPath: *configPath, Plan: git.AgentBranchPlanInput{
 		Remote:              *remote,
 		BaseBranch:          *base,
 		TargetBranch:        *target,
@@ -1245,15 +1063,10 @@ func runEnsureBranch(args []string, stdout, stderr io.Writer) int {
 		RemoteTargetSHA:     *remoteTarget,
 		LocalTargetSHA:      *localTarget,
 		LocalTargetUpstream: *localUpstream,
+	}, Apply: *apply})
+	if err != nil {
+		return renderWorkflowError(out, err)
 	}
-	if *remoteBase == "" && *remoteTarget == "" && *localTarget == "" && *localUpstream == "" {
-		inspected, err := git.InspectAgentBranchRefs(input)
-		if err != nil {
-			return out.Error(exitLocalGit, err, "")
-		}
-		input = inspected
-	}
-	plan := git.ComputeAgentBranchPlan(input)
 	if *jsonOut {
 		if code := out.JSON(plan); code != exitOK {
 			return code
@@ -1281,9 +1094,6 @@ func runEnsureBranch(args []string, stdout, stderr io.Writer) int {
 		return exitOK
 	}
 	if *apply {
-		if err := git.ApplyAgentBranchPlan(plan); err != nil {
-			return out.Error(exitLocalGit, err, "")
-		}
 		return exitOK
 	}
 	if !*jsonOut {
@@ -1296,18 +1106,19 @@ func runEnsureBranch(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-func runLabels(args []string, stdout, stderr io.Writer) int {
+func runLabels(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("labels", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	path := fs.String("file", ".github/labels.yml", "labels manifest path")
+	path := fs.String("file", "", "override repository-policy labels manifest path")
+	configPath := fs.String("config", "", "repository policy path")
 	jsonOut := fs.Bool("json", false, "emit JSON")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
 	out := newRenderer(stdout, stderr, *jsonOut)
-	manifest, err := labels.LoadManifest(*path)
+	manifest, err := (workflow.RepositoryFilesWorkflow{}).LabelsContext(ctx, workflow.LabelsInput{Path: *path, ConfigPath: *configPath})
 	if err != nil {
-		return out.Error(exitConfig, err, "")
+		return renderWorkflowError(out, err)
 	}
 	if *jsonOut {
 		return out.JSON(manifest)
@@ -1318,27 +1129,6 @@ func runLabels(args []string, stdout, stderr io.Writer) int {
 	}
 	for _, label := range manifest.Labels {
 		fmt.Fprintf(stdout, "%s\t%s\t%s\n", label.Name, label.Color, label.Description)
-	}
-	return exitOK
-}
-
-func applyIssueDecisionIfRequested(apply bool, eventPath, repoFlag, eventRepo string, issueNumber int, decision policy.IssuePolicyDecision, cfg config.Config, out renderer) int {
-	if !apply {
-		return exitOK
-	}
-	if eventPath == "" {
-		return out.ErrorMessage(exitUsage, "issue-policy --apply requires --event", "")
-	}
-	repo := firstNonEmpty(repoFlag, eventRepo, os.Getenv("GITHUB_REPOSITORY"))
-	if repo == "" || issueNumber == 0 {
-		return out.ErrorMessage(exitUsage, "issue-policy --apply requires a repository and issue number", "")
-	}
-	client, err := gh.NewClientFromEnv()
-	if err != nil {
-		return out.Error(exitAuth, err, "")
-	}
-	if err := client.ApplyIssueDecision(repo, issueNumber, decision, cfg.IssuePolicy.PolicyCommentMarker, policy.QualityGateLabel(cfg.IssuePolicy)); err != nil {
-		return out.Error(exitGitHub, err, "")
 	}
 	return exitOK
 }
@@ -1396,93 +1186,6 @@ func parseNumberCommand(name string, args []string, stdout, stderr io.Writer) (i
 		fields = parsed
 	}
 	return number, numberFlags{repo: *repoFlag, config: *configPath, json: format == formatJSON, format: format, fields: fields, full: full, bodyLimit: bodyLimit}, exitOK
-}
-
-func validateOptionalConfig(path string, out renderer) int {
-	if path == "" {
-		return exitOK
-	}
-	if _, err := loadConfig(path); err != nil {
-		return out.Error(exitConfig, err, "")
-	}
-	return exitOK
-}
-
-func fetchQueueSnapshot(repoFlag, configPath string, includeChecks bool, out renderer) (queue.Snapshot, int) {
-	cfg, err := loadConfig(configPath)
-	if err != nil {
-		return queue.Snapshot{}, out.Error(exitConfig, err, "")
-	}
-	repo, client, code := githubClientForRepo(repoFlag, out)
-	if code != exitOK {
-		return queue.Snapshot{}, code
-	}
-	issues, err := client.ListOpenIssues(repo)
-	if err != nil {
-		return queue.Snapshot{}, out.Error(exitGitHub, err, "")
-	}
-	prs, err := client.ListOpenPullRequests(repo, cfg.Repository.StagingBranch)
-	if err != nil {
-		return queue.Snapshot{}, out.Error(exitGitHub, err, "")
-	}
-	if cfg.Repository.BaseBranch != "" && cfg.Repository.BaseBranch != cfg.Repository.StagingBranch {
-		promotionPRs, err := client.ListOpenPullRequests(repo, cfg.Repository.BaseBranch)
-		if err != nil {
-			return queue.Snapshot{}, out.Error(exitGitHub, err, "")
-		}
-		for _, pr := range promotionPRs {
-			if pr.HeadRef == cfg.Repository.StagingBranch {
-				prs = append(prs, pr)
-			}
-		}
-	}
-	if includeChecks {
-		for i := range prs {
-			rollup, err := client.GetCheckRollup(repo, prs[i])
-			if err != nil {
-				return queue.Snapshot{}, out.Error(exitGitHub, err, "")
-			}
-			prs[i].CheckState = rollup.State
-		}
-	}
-	branchHealth, err := client.GetBranchHealth(repo, cfg.Repository.StagingBranch)
-	if err != nil {
-		if gh.IsNotFound(err) {
-			return queue.Snapshot{}, out.ErrorMessage(
-				exitConfig,
-				fmt.Sprintf("staging branch %q was not found in %s", cfg.Repository.StagingBranch, repo),
-				"Run `baton ensure-branch --json`, then `baton ensure-branch --apply` after reviewing the plan.",
-			)
-		}
-		return queue.Snapshot{}, out.Error(exitGitHub, err, "")
-	}
-	return queue.BuildSnapshotWithBranchHealth(repo, cfg, issues, prs, branchHealth), exitOK
-}
-
-func githubClientForRepo(repoFlag string, out renderer) (string, *gh.Client, int) {
-	repo, err := gh.RepoFromEnvOrFlag(repoFlag)
-	if err != nil {
-		return "", nil, out.Error(exitUsage, err, "")
-	}
-	client, err := gh.NewClientFromEnv()
-	if err != nil {
-		return "", nil, out.Error(exitAuth, err, "")
-	}
-	return repo, client, exitOK
-}
-
-func loadConfig(path string) (config.Config, error) {
-	if path != "" {
-		return config.Load(path)
-	}
-	cfg, err := config.LoadForRepo(".")
-	if err == nil {
-		return cfg, nil
-	}
-	if errors.Is(err, config.ErrConfigNotFound) {
-		return config.Config{}, err
-	}
-	return config.Config{}, err
 }
 
 func firstNonEmpty(values ...string) string {
@@ -1548,128 +1251,7 @@ func outputFormatFromArgs(args []string) outputFormat {
 	return formatText
 }
 
-func buildHomeResult() homeResult {
-	return buildHomeResultForExecutable(defaultCurrentExecutablePath())
-}
-
-func buildHomeResultForExecutable(executablePath string) homeResult {
-	cfgStatus := "missing (.github/baton.yml)"
-	if _, err := config.LoadForRepo("."); err == nil {
-		cfgStatus = "ok"
-	} else if !errors.Is(err, config.ErrConfigNotFound) {
-		cfgStatus = "invalid (" + err.Error() + ")"
-	}
-	next := "run `baton next --format toon`"
-	if !strings.HasPrefix(cfgStatus, "ok") {
-		next = "unavailable (" + cfgStatus + ")"
-	}
-	return homeResult{
-		SchemaVersion: schemaVersionV1,
-		Kind:          "home",
-		Bin:           homeRelative(executablePath),
-		Description:   "Coordinate GitHub issue/PR agent workflows for this repository",
-		Repo:          localRepoName(),
-		Config:        cfgStatus,
-		Auth:          localAuthStatus(),
-		Next:          next,
-		Help: []string{
-			"Run `baton init --dry-run --json`.",
-			"Run `baton doctor --format toon`.",
-			"Run `baton --help`.",
-		},
-	}
-}
-
-func defaultCurrentExecutablePath() string {
-	if exe, err := os.Executable(); err == nil && exe != "" {
-		return exe
-	}
-	if len(os.Args) == 0 || os.Args[0] == "" {
-		return ""
-	}
-	if resolved, err := exec.LookPath(os.Args[0]); err == nil && resolved != "" {
-		return resolved
-	}
-	return os.Args[0]
-}
-
-func localRepoName() string {
-	if repo := strings.TrimSpace(os.Getenv("GITHUB_REPOSITORY")); repo != "" {
-		return repo
-	}
-	remote, err := localGitOutput("remote", "get-url", "origin")
-	if err == nil {
-		if repo := repoNameFromRemote(strings.TrimSpace(remote)); repo != "" {
-			return repo
-		}
-	}
-	root, err := localGitOutput("rev-parse", "--show-toplevel")
-	if err != nil {
-		return "unknown"
-	}
-	return filepath.Base(strings.TrimSpace(root))
-}
-
-func localAuthStatus() string {
-	if os.Getenv("GITHUB_TOKEN") != "" || os.Getenv("GH_TOKEN") != "" {
-		return "ok (token env)"
-	}
-	if _, err := exec.Command("gh", "auth", "token").Output(); err == nil {
-		return "ok (gh auth token)"
-	}
-	return "missing"
-}
-
-func localGitOutput(args ...string) (string, error) {
-	out, err := exec.Command("git", args...).CombinedOutput()
-	if err != nil {
-		return "", err
-	}
-	return string(out), nil
-}
-
-func repoNameFromRemote(remote string) string {
-	remote = strings.TrimSuffix(remote, ".git")
-	if strings.HasPrefix(remote, "git@") {
-		if idx := strings.Index(remote, ":"); idx >= 0 {
-			return strings.TrimPrefix(remote[idx+1:], "/")
-		}
-	}
-	if strings.HasPrefix(remote, "https://") || strings.HasPrefix(remote, "http://") {
-		parts := strings.Split(remote, "/")
-		if len(parts) >= 2 {
-			return parts[len(parts)-2] + "/" + parts[len(parts)-1]
-		}
-	}
-	if strings.Count(remote, "/") == 1 {
-		return remote
-	}
-	return ""
-}
-
-func homeRelative(path string) string {
-	if path == "" {
-		return path
-	}
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return path
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return abs
-	}
-	rel, err := filepath.Rel(home, abs)
-	if err == nil && rel != "." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) && rel != ".." {
-		return filepath.Join("~", rel)
-	}
-	if abs == home {
-		return "~"
-	}
-	return abs
-}
-
-func writeHomeText(w io.Writer, result homeResult) int {
+func writeHomeText(w io.Writer, result workflow.HomeResult) int {
 	fmt.Fprintf(w, "bin: %s\n", result.Bin)
 	fmt.Fprintf(w, "description: %s\n", result.Description)
 	fmt.Fprintf(w, "repo: %s\n", result.Repo)
@@ -1680,7 +1262,7 @@ func writeHomeText(w io.Writer, result homeResult) int {
 	return exitOK
 }
 
-func writeHomeTOON(w io.Writer, result homeResult) int {
+func writeHomeTOON(w io.Writer, result workflow.HomeResult) int {
 	fmt.Fprintln(w, "kind: home")
 	fmt.Fprintf(w, "schemaVersion: %d\n", result.SchemaVersion)
 	fmt.Fprintf(w, "bin: %s\n", result.Bin)
@@ -1739,11 +1321,11 @@ func writeQueueTOONFields(w io.Writer, snapshot queue.Snapshot, fields []string)
 	return exitOK
 }
 
-func writePRsTOON(w io.Writer, result pullRequestsResult) int {
+func writePRsTOON(w io.Writer, result workflow.PullRequestsResult) int {
 	return writePRsTOONFields(w, result, nil)
 }
 
-func writePRsTOONFields(w io.Writer, result pullRequestsResult, fields []string) int {
+func writePRsTOONFields(w io.Writer, result workflow.PullRequestsResult, fields []string) int {
 	if len(fields) == 0 {
 		fields = []string{"number", "headRef", "baseRef", "checkState", "title"}
 	}
@@ -1827,6 +1409,34 @@ func writeNextTOON(w io.Writer, next queue.NextCandidates) int {
 	fmt.Fprintf(w, "instructions[%d]:\n", len(next.Instructions))
 	for _, instruction := range next.Instructions {
 		fmt.Fprintf(w, "  - %s\n", oneLine(instruction))
+	}
+	return exitOK
+}
+
+func writeRepositorySnapshotTOON(w io.Writer, result snapshot.RepositorySnapshot) int {
+	fmt.Fprintln(w, "kind: repositorySnapshot")
+	fmt.Fprintf(w, "schemaVersion: %d\n", result.SchemaVersion)
+	fmt.Fprintf(w, "repository: %s\n", result.Repository)
+	fmt.Fprintf(w, "acquisition.startedAt: %s\n", result.Acquisition.StartedAt.Format(time.RFC3339Nano))
+	fmt.Fprintf(w, "acquisition.completedAt: %s\n", result.Acquisition.CompletedAt.Format(time.RFC3339Nano))
+	fmt.Fprintf(w, "completeness: %s\n", result.Completeness)
+	fmt.Fprintf(w, "warnings: %d\n", len(result.Warnings))
+	fmt.Fprintf(w, "recommendation.outcome: %s\n", result.Recommendation.Outcome)
+	if result.Recommendation.Action != nil {
+		fmt.Fprintf(w, "recommendation.action: %s\n", *result.Recommendation.Action)
+	}
+	fmt.Fprintf(w, "recommendation.selectionRequired: %v\n", result.Recommendation.SelectionRequired)
+	fmt.Fprintf(w, "recommendation.candidates[%d]:\n", len(result.Recommendation.Candidates))
+	for _, candidate := range result.Recommendation.Candidates {
+		identity := candidate.Identity
+		switch identity.Kind {
+		case snapshot.CandidateIssue:
+			fmt.Fprintf(w, "  - kind=%s repository=%s number=%d state=%s\n", identity.Kind, identity.Repository, identity.Number, candidate.State)
+		case snapshot.CandidatePullRequest:
+			fmt.Fprintf(w, "  - kind=%s repository=%s number=%d headSha=%s baseSha=%s state=%s\n", identity.Kind, identity.Repository, identity.Number, identity.HeadSHA, identity.BaseSHA, candidate.State)
+		case snapshot.CandidateBranch:
+			fmt.Fprintf(w, "  - kind=%s repository=%s ref=%s sha=%s state=%s\n", identity.Kind, identity.Repository, identity.Ref, identity.SHA, candidate.State)
+		}
 	}
 	return exitOK
 }
@@ -2014,256 +1624,6 @@ func oneLine(value string) string {
 	return strings.Join(strings.Fields(value), " ")
 }
 
-func buildPullRequestsResult(repo string, prs []queue.PullState) pullRequestsResult {
-	return pullRequestsResult{
-		SchemaVersion: schemaVersionV1,
-		Kind:          "pullRequests",
-		Repo:          repo,
-		Count:         len(prs),
-		Counts:        countPullRequests(prs),
-		PullRequests:  prs,
-		Help:          pullRequestsHelp(prs),
-	}
-}
-
-func buildPullRequestDashboard(repo string, pr queue.PullRequest) pullRequestDashboard {
-	referencedIssues := pullRequestReferencedIssues(pr)
-	return pullRequestDashboard{
-		SchemaVersion:    schemaVersionV1,
-		Kind:             "pullRequest",
-		Repo:             repo,
-		PullRequest:      pr,
-		ReferencedIssues: referencedIssues,
-		Checks:           pullRequestCheckSummary{State: firstNonEmpty(pr.CheckState, "unknown")},
-		ReviewThreads:    pullRequestReviewSummary{},
-		Help:             pullRequestDashboardHelp(pr.Number, gh.CheckSummary{}, gh.ThreadSummary{}),
-	}
-}
-
-func addIssueReadiness(result *pullRequestDashboard, configPath string, client *gh.Client) {
-	if len(result.ReferencedIssues) == 0 {
-		return
-	}
-	cfg, err := loadConfig(configPath)
-	if err != nil {
-		result.Warnings = append(result.Warnings, "issue readiness unavailable: "+err.Error())
-		return
-	}
-	issues, err := client.ListOpenIssues(result.Repo)
-	if err != nil {
-		result.Warnings = append(result.Warnings, "issue readiness unavailable: "+err.Error())
-		return
-	}
-	result.IssueReadiness = buildIssueReadiness(result.ReferencedIssues, issues, cfg)
-}
-
-func buildIssueReadiness(referenced []int, issues []queue.Issue, cfg config.Config) []pullRequestIssueReadiness {
-	issuesByNumber := map[int]queue.Issue{}
-	for _, issue := range issues {
-		issuesByNumber[issue.Number] = issue
-	}
-	readiness := make([]pullRequestIssueReadiness, 0, len(referenced))
-	for _, number := range referenced {
-		issue, ok := issuesByNumber[number]
-		if !ok {
-			readiness = append(readiness, pullRequestIssueReadiness{Number: number, Found: false, Ready: false, Reasons: []string{"referenced issue is not open or was not returned by GitHub"}})
-			continue
-		}
-		readiness = append(readiness, classifyIssueReadiness(issue, cfg))
-	}
-	return readiness
-}
-
-func classifyIssueReadiness(issue queue.Issue, cfg config.Config) pullRequestIssueReadiness {
-	result := pullRequestIssueReadiness{Number: issue.Number, Found: true, Ready: true, Labels: issue.Labels, Reasons: []string{}}
-	labels := stringSet(issue.Labels)
-	if hasAny(labels, cfg.IssuePolicy.ImplementationLabels) {
-		result.Action = "issue-implementation"
-	} else if hasAny(labels, cfg.IssuePolicy.CommentOnlyLabels) {
-		result.Action = "issue-investigation"
-	} else {
-		result.Ready = false
-		result.Reasons = append(result.Reasons, "missing implementation or investigation label")
-	}
-	for _, skip := range cfg.IssuePolicy.SkipLabels {
-		if _, ok := labels[skip]; ok {
-			result.Ready = false
-			result.Reasons = append(result.Reasons, "skip label "+skip)
-		}
-	}
-	if len(result.Reasons) == 0 {
-		result.Reasons = append(result.Reasons, "ready")
-	}
-	return result
-}
-
-func pullRequestReferencedIssues(pr queue.PullRequest) []int {
-	values := append(policy.ExtractReferenceIssueNumbers(pr.Title), policy.ExtractReferenceIssueNumbers(pr.Body)...)
-	seen := map[int]struct{}{}
-	out := make([]int, 0, len(values))
-	for _, value := range values {
-		if _, ok := seen[value]; ok {
-			continue
-		}
-		seen[value] = struct{}{}
-		out = append(out, value)
-	}
-	return out
-}
-
-func pullRequestLikelyNextCommand(prNumber int, checks gh.CheckSummary, threads gh.ThreadSummary, checksAvailable, reviewAvailable bool) string {
-	switch {
-	case threads.HumanUnresolved > 0:
-		return fmt.Sprintf("baton review-threads %d --format toon", prNumber)
-	case checks.Failed > 0:
-		return fmt.Sprintf("baton checks %d --format toon", prNumber)
-	case checks.Pending > 0:
-		return fmt.Sprintf("baton checks %d --format toon", prNumber)
-	case threads.BotUnresolved > 0:
-		return fmt.Sprintf("baton review-threads %d --format toon", prNumber)
-	case !reviewAvailable:
-		return fmt.Sprintf("baton review-threads %d --format toon", prNumber)
-	case !checksAvailable:
-		return fmt.Sprintf("baton checks %d --format toon", prNumber)
-	default:
-		return "baton next --format toon"
-	}
-}
-
-func pullRequestDashboardHelp(prNumber int, checks gh.CheckSummary, threads gh.ThreadSummary) []string {
-	help := []string{
-		fmt.Sprintf("Run `baton checks %d --format toon` for check details.", prNumber),
-		fmt.Sprintf("Run `baton review-threads %d --format toon` for review comments.", prNumber),
-	}
-	if checks.Failed > 0 {
-		help = append(help, "Inspect failed check URLs before editing.")
-	}
-	if threads.HumanUnresolved > 0 {
-		help = append(help, "Stop and ask the user if unresolved human comments require product judgment.")
-	}
-	return help
-}
-
-func stringSet(values []string) map[string]struct{} {
-	set := make(map[string]struct{}, len(values))
-	for _, value := range values {
-		set[value] = struct{}{}
-	}
-	return set
-}
-
-func hasAny(labels map[string]struct{}, candidates []string) bool {
-	for _, label := range candidates {
-		if _, ok := labels[label]; ok {
-			return true
-		}
-	}
-	return false
-}
-
-func countPullRequests(prs []queue.PullState) pullRequestCounts {
-	counts := pullRequestCounts{}
-	for _, pr := range prs {
-		switch pr.PullRequest.CheckState {
-		case "success":
-			counts.Success++
-		case "failure":
-			counts.Failure++
-		case "pending":
-			counts.Pending++
-		default:
-			counts.Unknown++
-		}
-	}
-	return counts
-}
-
-func pullRequestsHelp(prs []queue.PullState) []string {
-	if len(prs) == 0 {
-		return []string{"Run `baton queue --json` to inspect eligible issue work."}
-	}
-	return []string{
-		"Run `baton pr <number> --json` for PR details.",
-		"Run `baton checks <number> --json` to inspect check status.",
-		"Run `baton review-threads <number> --json` before completing review work.",
-	}
-}
-
-func truncateReviewThreadBodies(result gh.ReviewThreadResult, limit int, full bool) gh.ReviewThreadResult {
-	threads := make([]gh.ReviewThread, len(result.Threads))
-	copy(threads, result.Threads)
-	result.Threads = threads
-	for threadIndex := range result.Threads {
-		comments := make([]gh.ReviewComment, len(result.Threads[threadIndex].Comments))
-		for commentIndex, comment := range result.Threads[threadIndex].Comments {
-			comments[commentIndex] = truncateReviewComment(comment, result.PRNumber, limit, full)
-		}
-		result.Threads[threadIndex].Comments = comments
-	}
-	return result
-}
-
-func truncateReviewComment(comment gh.ReviewComment, prNumber, limit int, full bool) gh.ReviewComment {
-	bodyRunes := []rune(comment.Body)
-	comment.BodyChars = len(bodyRunes)
-	if full || len(bodyRunes) <= limit {
-		comment.BodyTruncated = false
-		return comment
-	}
-	preview := string(bodyRunes[:limit])
-	comment.Body = preview
-	comment.BodyPreview = preview
-	comment.BodyTruncated = true
-	comment.FullCommand = fmt.Sprintf("baton review-threads %d --full --json", prNumber)
-	return comment
-}
-
-func withConfigMigrationContent(result configMigrationResult, content string, limit int, full bool) configMigrationResult {
-	preview, chars, truncated := limitString(content, limit, full)
-	result.Content = preview
-	result.ContentChars = chars
-	result.ContentTruncated = truncated
-	if truncated {
-		result.ContentPreview = preview
-		result.FullCommand = "baton migrate-config --dry-run --full --json"
-	}
-	return result
-}
-
-func completionResultFromRecord(record complete.Record, limit int, full bool) completionResult {
-	summary, summaryChars, summaryTruncated := limitString(record.Summary, limit, full)
-	validation, validationChars, validationTruncated := limitString(record.Validation, limit, full)
-	result := completionResult{
-		SchemaVersion:       record.SchemaVersion,
-		Kind:                record.Kind,
-		ID:                  record.ID,
-		Summary:             summary,
-		SummaryChars:        summaryChars,
-		SummaryTruncated:    summaryTruncated,
-		Validation:          validation,
-		ValidationChars:     validationChars,
-		ValidationTruncated: validationTruncated,
-		CreatedAt:           record.CreatedAt,
-	}
-	if summaryTruncated {
-		result.SummaryPreview = summary
-		result.FullCommand = "baton complete --summary <text> --full --json"
-	}
-	if validationTruncated {
-		result.ValidationPreview = validation
-		result.FullCommand = "baton complete --summary <text> --validation <text> --full --json"
-	}
-	return result
-}
-
-func limitString(value string, limit int, full bool) (string, int, bool) {
-	runes := []rune(value)
-	if full || len(runes) <= limit {
-		return value, len(runes), false
-	}
-	return string(runes[:limit]), len(runes), true
-}
-
 func exitCategory(code int) string {
 	switch code {
 	case exitPolicy:
@@ -2281,6 +1641,10 @@ func exitCategory(code int) string {
 	default:
 		return "unknown"
 	}
+}
+
+func categoryForExit(code int) apperror.Category {
+	return apperror.Category(exitCategory(code))
 }
 
 func errorRetryable(code int) bool {

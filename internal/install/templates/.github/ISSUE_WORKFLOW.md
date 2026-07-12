@@ -21,10 +21,14 @@ Comment-only label:
 
 Skip labels:
 
-- `agent:blocked`: The issue is missing required policy fields or has another
+- `needs-info`: The issue is missing required policy fields or has another
   blocker.
 - `needs:discussion`: A human decision is needed before implementation.
 - `needs:review`: Agent work has been committed and needs human review.
+
+When a work PR merges to `agent`, Baton's transition workflow idempotently
+adds `needs:review` to its referenced open issues. Closed issues and issues
+already carrying the label are unchanged.
 
 ## Policy Gate
 
@@ -33,8 +37,8 @@ form, updates controlled labels, and posts one updatable policy comment when a
 ready issue is incomplete.
 
 Ready issues require summary, context/evidence, and acceptance criteria. If a
-ready issue is missing required fields, Baton adds `agent:blocked`. When the
-form becomes complete, Baton removes `agent:blocked`.
+ready issue is missing required fields, Baton adds `needs-info`. When the form
+becomes complete, Baton removes `needs-info`.
 
 ## PR Protocol
 

@@ -1,0 +1,13 @@
+{
+  "action": "closed",
+  "repository": {"full_name": "example/repo"},
+  "pull_request": {
+    "number": 42,
+    "title": "Implement queue",
+    "body": "Refs #7 and #8",
+    "state": "closed",
+    "merged": true,
+    "base": {"ref": "agent", "sha": "base", "repo": {"full_name": "example/repo"}},
+    "head": {"ref": "agent-work/42", "sha": "head", "repo": {"full_name": "example/repo"}}
+  }
+}

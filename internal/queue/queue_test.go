@@ -5,7 +5,29 @@ import (
 	"testing"
 
 	"github.com/sjunepark/baton/internal/config"
+	"github.com/sjunepark/baton/internal/workitem"
 )
+
+func TestBuildSnapshotWithLifecycleKeepsMergedWorkOutOfIntake(t *testing.T) {
+	cfg := config.DefaultConfig()
+	snapshot := BuildSnapshotWithLifecycle("example/repo", cfg,
+		[]Issue{{Number: 7, Labels: []string{"agent:ready-bounded"}}}, nil,
+		[]PullRequest{{Number: 42, BaseRef: "agent", HeadRef: "agent-work/7", Body: "Refs #7", Merged: true}}, nil)
+	if snapshot.Issues[0].Eligible || snapshot.Issues[0].State != workitem.StateAwaitingReview {
+		t.Fatalf("issue state = %+v", snapshot.Issues[0])
+	}
+}
+
+func TestBuildSnapshotUsesConfiguredReferencesAndOnlyWorkPRsBlock(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.PRPolicy.RequiredReferenceKeyword = "Tracks"
+	snapshot := BuildSnapshot("example/repo", cfg,
+		[]Issue{{Number: 7, Labels: []string{"agent:ready-bounded"}}},
+		[]PullRequest{{Number: 42, BaseRef: "main", HeadRef: "feature", Body: "Refs #7\nTracks #7"}})
+	if !snapshot.Issues[0].Eligible || len(snapshot.Issues[0].LinkedPRs) != 0 {
+		t.Fatalf("direct PR blocked intake: %+v", snapshot.Issues[0])
+	}
+}
 
 func TestBuildSnapshotEligibility(t *testing.T) {
 	cfg := config.DefaultConfig()

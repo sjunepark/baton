@@ -61,9 +61,8 @@ func TestDoctorCountsAndReadyState(t *testing.T) {
 
 func TestDoctorWarnsWhenStagingBranchSetupIsNeeded(t *testing.T) {
 	work := setupDoctorGitRepo(t, true)
-	t.Chdir(work)
 
-	result := Run("")
+	result := RunWithOptions(Options{WorkingDir: work, GitHubToken: "token"})
 	check := findCheck(t, result.Checks, "staging-branch")
 	if check.Status != "warn" {
 		t.Fatalf("staging-branch check = %#v, want warn", check)
@@ -78,9 +77,8 @@ func TestDoctorWarnsWhenStagingBranchSetupIsNeeded(t *testing.T) {
 
 func TestDoctorFailsWhenBaseBranchIsMissing(t *testing.T) {
 	work := setupDoctorGitRepo(t, false)
-	t.Chdir(work)
 
-	result := Run("")
+	result := RunWithOptions(Options{WorkingDir: work, GitHubToken: "token"})
 	check := findCheck(t, result.Checks, "staging-branch")
 	if check.Status != "fail" {
 		t.Fatalf("staging-branch check = %#v, want fail", check)

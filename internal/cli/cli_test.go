@@ -3,17 +3,23 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/sjunepark/baton/internal/apperror"
 	"github.com/sjunepark/baton/internal/config"
 	"github.com/sjunepark/baton/internal/doctor"
 	"github.com/sjunepark/baton/internal/gh"
+	"github.com/sjunepark/baton/internal/operation"
+	"github.com/sjunepark/baton/internal/policy"
 	"github.com/sjunepark/baton/internal/queue"
+	"github.com/sjunepark/baton/internal/workflow"
 )
 
 func TestNumberedReadCommandsValidateExplicitConfig(t *testing.T) {
@@ -52,6 +58,22 @@ func TestWriteJSONIsCompact(t *testing.T) {
 	}
 	if got := stdout.String(); got != `{"items":[1,2],"kind":"example"}`+"\n" {
 		t.Fatalf("json = %q, want compact object", got)
+	}
+}
+
+func TestPRTransitionRequiresExplicitExecutionMode(t *testing.T) {
+	for _, args := range [][]string{
+		{"pr-transition", "--event", "event.json", "--json"},
+		{"pr-transition", "--event", "event.json", "--dry-run", "--apply", "--json"},
+	} {
+		var stdout, stderr bytes.Buffer
+		code := Run(args, &stdout, &stderr, "test")
+		if code != exitUsage {
+			t.Fatalf("Run(%v) exit = %d, want %d", args, code, exitUsage)
+		}
+		if result := decodeErrorResult(t, stdout.String()); !strings.Contains(result.Message, "exactly one") {
+			t.Fatalf("error = %+v", result)
+		}
 	}
 }
 
@@ -173,7 +195,7 @@ func TestHomeBinUsesCurrentExecutablePath(t *testing.T) {
 		t.Fatalf("UserHomeDir: %v", err)
 	}
 
-	result := buildHomeResultForExecutable(filepath.Join(home, "go", "bin", "baton"))
+	result := workflow.NewHomeWorkflow().Run(workflow.HomeInput{ExecutablePath: filepath.Join(home, "go", "bin", "baton"), HomeDir: home})
 	if result.Bin != filepath.Join("~", "go", "bin", "baton") {
 		t.Fatalf("home bin = %q, want home-relative executable path", result.Bin)
 	}
@@ -248,7 +270,7 @@ func TestTOONRenderersStable(t *testing.T) {
 	}
 
 	stdout.Reset()
-	writePRsTOON(&stdout, buildPullRequestsResult("example/repo", []queue.PullState{{PullRequest: queue.PullRequest{Number: 8, Title: "Update docs", HeadRef: "agent-work/8", BaseRef: "agent", CheckState: "success"}}}))
+	writePRsTOON(&stdout, workflow.BuildPullRequestsResult("example/repo", []queue.PullState{{PullRequest: queue.PullRequest{Number: 8, Title: "Update docs", HeadRef: "agent-work/8", BaseRef: "agent", CheckState: "success"}}}))
 	if !strings.Contains(stdout.String(), "kind: pullRequests\n") || !strings.Contains(stdout.String(), "pullRequests[1]:\n  - number=8 headRef=agent-work/8 baseRef=agent checkState=success title=Update docs\n") {
 		t.Fatalf("prs toon = %q", stdout.String())
 	}
@@ -260,7 +282,7 @@ func TestTOONRenderersStable(t *testing.T) {
 	}
 
 	stdout.Reset()
-	writePRsTOONFields(&stdout, buildPullRequestsResult("example/repo", []queue.PullState{{PullRequest: queue.PullRequest{Number: 8, Title: "Update docs", HeadRef: "agent-work/8", CheckState: "success"}}}), []string{"number", "title", "headRef", "checkState"})
+	writePRsTOONFields(&stdout, workflow.BuildPullRequestsResult("example/repo", []queue.PullState{{PullRequest: queue.PullRequest{Number: 8, Title: "Update docs", HeadRef: "agent-work/8", CheckState: "success"}}}), []string{"number", "title", "headRef", "checkState"})
 	if !strings.Contains(stdout.String(), "pullRequests[1]:\n  - number=8 title=Update docs headRef=agent-work/8 checkState=success\n") {
 		t.Fatalf("prs fields toon = %q", stdout.String())
 	}
@@ -325,66 +347,8 @@ func TestParseFieldsRejectsUnknownField(t *testing.T) {
 	}
 }
 
-func TestPullRequestDashboardSummaries(t *testing.T) {
-	pr := queue.PullRequest{Number: 42, Title: "Refs #7", Body: "Also refs #8 and refs #7", HeadRef: "agent/42", BaseRef: "agent", CheckState: "pending"}
-	result := buildPullRequestDashboard("example/repo", pr)
-	result.Checks = pullRequestCheckSummary{State: "failure", Count: 2, Summary: gh.CheckSummary{Failed: 1, Pending: 1}}
-	result.ReviewThreads = pullRequestReviewSummary{Count: 3, Summary: gh.ThreadSummary{Total: 3, Unresolved: 2, HumanUnresolved: 1, BotUnresolved: 1}}
-	result.LikelyNextCommand = pullRequestLikelyNextCommand(pr.Number, result.Checks.Summary, result.ReviewThreads.Summary, true, true)
-	result.Help = pullRequestDashboardHelp(pr.Number, result.Checks.Summary, result.ReviewThreads.Summary)
-
-	if result.Kind != "pullRequest" || result.Repo != "example/repo" {
-		t.Fatalf("dashboard identity = %#v", result)
-	}
-	if got := intList(result.ReferencedIssues); got != "7|8" {
-		t.Fatalf("referenced issues = %s, want 7|8", got)
-	}
-	if result.LikelyNextCommand != "baton review-threads 42 --format toon" {
-		t.Fatalf("likely next = %q", result.LikelyNextCommand)
-	}
-	if !strings.Contains(strings.Join(result.Help, "\n"), "unresolved human comments") {
-		t.Fatalf("help = %#v, want human-review guidance", result.Help)
-	}
-}
-
-func TestPullRequestLikelyNextCommandForUnavailableSummaries(t *testing.T) {
-	if got := pullRequestLikelyNextCommand(42, gh.CheckSummary{}, gh.ThreadSummary{}, false, true); got != "baton checks 42 --format toon" {
-		t.Fatalf("missing checks next = %q", got)
-	}
-	if got := pullRequestLikelyNextCommand(42, gh.CheckSummary{}, gh.ThreadSummary{}, true, false); got != "baton review-threads 42 --format toon" {
-		t.Fatalf("missing reviews next = %q", got)
-	}
-	if got := pullRequestLikelyNextCommand(42, gh.CheckSummary{}, gh.ThreadSummary{}, true, true); got != "baton next --format toon" {
-		t.Fatalf("complete summaries next = %q", got)
-	}
-}
-
-func TestBuildIssueReadinessUsesLabels(t *testing.T) {
-	cfg := config.DefaultConfig()
-	cfg.IssuePolicy.ImplementationLabels = []string{"agent:ready-trivial"}
-	cfg.IssuePolicy.CommentOnlyLabels = []string{"agent:needs-investigation"}
-	cfg.IssuePolicy.SkipLabels = []string{"needs-info"}
-	readiness := buildIssueReadiness([]int{7, 8, 9}, []queue.Issue{
-		{Number: 7, Labels: []string{"agent:ready-trivial"}},
-		{Number: 8, Labels: []string{"agent:ready-trivial", "needs-info"}},
-	}, cfg)
-
-	if len(readiness) != 3 {
-		t.Fatalf("readiness len = %d", len(readiness))
-	}
-	if !readiness[0].Ready || readiness[0].Action != "issue-implementation" {
-		t.Fatalf("ready issue = %#v", readiness[0])
-	}
-	if readiness[1].Ready || !strings.Contains(strings.Join(readiness[1].Reasons, ","), "skip label needs-info") {
-		t.Fatalf("blocked issue = %#v", readiness[1])
-	}
-	if readiness[2].Found || readiness[2].Ready {
-		t.Fatalf("missing issue = %#v", readiness[2])
-	}
-}
-
-func TestRemovedLeaseCommandsReturnUsage(t *testing.T) {
-	for _, command := range []string{"lease", "leases", "release", "prune"} {
+func TestRemovedCommandsReturnUsage(t *testing.T) {
+	for _, command := range []string{"lease", "leases", "release", "prune", "complete"} {
 		t.Run(command, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 			code := Run([]string{command}, &stdout, &stderr, "test")
@@ -401,29 +365,43 @@ func TestRemovedLeaseCommandsReturnUsage(t *testing.T) {
 	}
 }
 
-func TestReviewThreadBodyTruncation(t *testing.T) {
-	result := gh.ReviewThreadResult{
-		SchemaVersion: 1,
-		Kind:          "reviewThreads",
-		PRNumber:      12,
-		Threads: []gh.ReviewThread{{
-			Comments: []gh.ReviewComment{{Body: "abcdef", AuthorKind: "human"}},
-		}},
+func TestGlobalHelpUsesCommandHelpCatalog(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"--help"}, &stdout, &stderr, "test"); code != exitOK {
+		t.Fatalf("exit = %d stderr=%s", code, stderr.String())
 	}
+	output := stdout.String()
+	for _, name := range commandOrder {
+		help, ok := commandHelps[name]
+		if !ok || !strings.Contains(output, help.Usage) {
+			t.Fatalf("command %q missing from help catalog/output", name)
+		}
+	}
+	if strings.Contains(output, "baton complete") {
+		t.Fatalf("removed command remains in help:\n%s", output)
+	}
+	if len(commandOrder) != len(commandHelps) {
+		t.Fatalf("command order has %d entries, help catalog has %d", len(commandOrder), len(commandHelps))
+	}
+}
 
-	truncated := truncateReviewThreadBodies(result, 3, false)
-	comment := truncated.Threads[0].Comments[0]
-	if comment.Body != "abc" || comment.BodyPreview != "abc" || !comment.BodyTruncated {
-		t.Fatalf("truncated comment = %#v", comment)
+func TestCommandHelpCatalogCoversSafetyRelevantFlags(t *testing.T) {
+	required := map[string][]string{
+		"init":          {"profile", "go-install", "install-command"},
+		"issue-policy":  {"labels", "repo", "config"},
+		"pr-policy":     {"repo", "config"},
+		"pr-transition": {"dry-run", "apply", "repo", "config"},
+		"sync-labels":   {"dry-run", "apply", "repo", "config", "labels-file"},
+		"snapshot":      {"repo", "config", "format", "json"},
+		"ensure-branch": {"apply", "config", "remote-base", "remote-target", "local-target", "local-upstream"},
 	}
-	if comment.BodyChars != 6 || comment.FullCommand != "baton review-threads 12 --full --json" {
-		t.Fatalf("truncation metadata = %#v", comment)
-	}
-
-	full := truncateReviewThreadBodies(result, 3, true)
-	comment = full.Threads[0].Comments[0]
-	if comment.Body != "abcdef" || comment.BodyTruncated || comment.BodyPreview != "" || comment.BodyChars != 6 {
-		t.Fatalf("full comment = %#v", comment)
+	for command, flags := range required {
+		documented := strings.Join(commandHelps[command].Flags, "\n")
+		for _, flag := range flags {
+			if !strings.Contains(documented, "--"+flag+":") {
+				t.Errorf("%s help omits --%s", command, flag)
+			}
+		}
 	}
 }
 
@@ -450,7 +428,7 @@ func TestMigrateConfigDryRunTruncatesContent(t *testing.T) {
 	if code != exitOK {
 		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitOK, stdout.String(), stderr.String())
 	}
-	var result configMigrationResult
+	var result workflow.ConfigMigrationResult
 	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
 		t.Fatalf("decode config migration: %v\n%s", err, stdout.String())
 	}
@@ -472,7 +450,7 @@ func TestMigrateConfigDryRunFullContent(t *testing.T) {
 	if code != exitOK {
 		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitOK, stdout.String(), stderr.String())
 	}
-	var result configMigrationResult
+	var result workflow.ConfigMigrationResult
 	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
 		t.Fatalf("decode config migration: %v\n%s", err, stdout.String())
 	}
@@ -481,52 +459,6 @@ func TestMigrateConfigDryRunFullContent(t *testing.T) {
 	}
 	if result.ContentChars != len([]rune(result.Content)) {
 		t.Fatalf("contentChars = %d, content length = %d", result.ContentChars, len([]rune(result.Content)))
-	}
-}
-
-func TestCompleteJSONTruncatesOutputButPersistsFullRecord(t *testing.T) {
-	dir := t.TempDir()
-	summary := "abcdef"
-	validation := "uvwxyz"
-
-	var stdout, stderr bytes.Buffer
-	code := Run([]string{"complete", "--summary", summary, "--validation", validation, "--state-root", dir, "--body-limit", "3", "--json"}, &stdout, &stderr, "test")
-	if code != exitOK {
-		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitOK, stdout.String(), stderr.String())
-	}
-	var result completionResult
-	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
-		t.Fatalf("decode completion: %v\n%s", err, stdout.String())
-	}
-	if result.Summary != "abc" || !result.SummaryTruncated || result.SummaryChars != 6 {
-		t.Fatalf("summary result = %#v", result)
-	}
-	if result.Validation != "uvw" || !result.ValidationTruncated || result.ValidationChars != 6 {
-		t.Fatalf("validation result = %#v", result)
-	}
-
-	content, err := os.ReadFile(filepath.Join(dir, "completions", result.ID+".json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(content), summary) || !strings.Contains(string(content), validation) {
-		t.Fatalf("persisted record = %s, want full summary and validation", content)
-	}
-}
-
-func TestCompleteJSONFullOutput(t *testing.T) {
-	dir := t.TempDir()
-	var stdout, stderr bytes.Buffer
-	code := Run([]string{"complete", "--summary", "abcdef", "--state-root", dir, "--body-limit", "3", "--full", "--json"}, &stdout, &stderr, "test")
-	if code != exitOK {
-		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitOK, stdout.String(), stderr.String())
-	}
-	var result completionResult
-	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
-		t.Fatalf("decode completion: %v\n%s", err, stdout.String())
-	}
-	if result.Summary != "abcdef" || result.SummaryTruncated || result.SummaryPreview != "" {
-		t.Fatalf("result = %#v", result)
 	}
 }
 
@@ -598,7 +530,7 @@ func TestNextMissingStagingBranchReturnsSetupError(t *testing.T) {
 			w.Write([]byte(`[]`))
 		case r.Method == http.MethodGet && r.URL.Path == "/repos/example-org/example-repo/pulls":
 			w.Write([]byte(`[]`))
-		case r.Method == http.MethodGet && r.URL.Path == "/repos/example-org/example-repo/git/ref/heads/agent":
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/example-org/example-repo/branches/agent":
 			http.NotFound(w, r)
 		default:
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
@@ -609,6 +541,7 @@ func TestNextMissingStagingBranchReturnsSetupError(t *testing.T) {
 	t.Setenv("GH_TOKEN", "token")
 	t.Setenv("GITHUB_API_URL", server.URL)
 	dir := t.TempDir()
+	t.Chdir(dir)
 	configPath := writeDefaultConfig(t, dir)
 
 	var stdout, stderr bytes.Buffer
@@ -628,6 +561,145 @@ func TestNextMissingStagingBranchReturnsSetupError(t *testing.T) {
 	}
 	if !strings.Contains(result.Hint, "baton ensure-branch --json") {
 		t.Fatalf("hint = %q, want ensure-branch guidance", result.Hint)
+	}
+}
+
+func TestSnapshotCommandReturnsOneUnifiedObservation(t *testing.T) {
+	server := newSnapshotTestServer(t, false)
+	defer server.Close()
+	t.Setenv("GH_TOKEN", "token")
+	t.Setenv("GITHUB_API_URL", server.URL)
+	dir := t.TempDir()
+	t.Chdir(dir)
+	configPath := writeDefaultConfig(t, dir)
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"snapshot", "--repo", "example-org/example-repo", "--config", configPath, "--json"}, &stdout, &stderr, "test")
+	if code != exitOK || stderr.Len() != 0 {
+		t.Fatalf("exit=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	var result struct {
+		SchemaVersion int    `json:"schemaVersion"`
+		Kind          string `json:"kind"`
+		Repository    string `json:"repository"`
+		Completeness  string `json:"completeness"`
+		Queue         struct {
+			Kind string `json:"kind"`
+		} `json:"queue"`
+		Recommendation struct {
+			Outcome string `json:"outcome"`
+		} `json:"recommendation"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.SchemaVersion != 1 || result.Kind != "repositorySnapshot" || result.Repository != "example-org/example-repo" || result.Completeness != "complete" || result.Queue.Kind != "queueSnapshot" || result.Recommendation.Outcome != "idle" {
+		t.Fatalf("snapshot = %+v", result)
+	}
+}
+
+func TestSnapshotCommandReturnsDegradedFactsAsData(t *testing.T) {
+	server := newSnapshotTestServer(t, true)
+	defer server.Close()
+	t.Setenv("GH_TOKEN", "token")
+	t.Setenv("GITHUB_API_URL", server.URL)
+	dir := t.TempDir()
+	t.Chdir(dir)
+	configPath := writeDefaultConfig(t, dir)
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"snapshot", "--repo", "example-org/example-repo", "--config", configPath, "--json"}, &stdout, &stderr, "test")
+	if code != exitOK || stderr.Len() != 0 {
+		t.Fatalf("exit=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	var result struct {
+		Completeness   string `json:"completeness"`
+		Warnings       []any  `json:"warnings"`
+		Recommendation struct {
+			Outcome string  `json:"outcome"`
+			Action  *string `json:"action"`
+		} `json:"recommendation"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Completeness != "degraded" || len(result.Warnings) == 0 || result.Recommendation.Outcome != "degraded" || result.Recommendation.Action != nil {
+		t.Fatalf("snapshot = %+v", result)
+	}
+}
+
+func newSnapshotTestServer(t *testing.T, failRules bool) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/repos/example-org/example-repo/issues":
+			w.Write([]byte(`[]`))
+		case r.URL.Path == "/repos/example-org/example-repo/pulls":
+			w.Write([]byte(`[]`))
+		case r.URL.Path == "/repos/example-org/example-repo/branches/agent":
+			w.Write([]byte(`{"name":"agent","commit":{"sha":"agent-sha"}}`))
+		case r.URL.Path == "/repos/example-org/example-repo/branches/main":
+			w.Write([]byte(`{"name":"main","commit":{"sha":"main-sha"}}`))
+		case strings.Contains(r.URL.Path, "/check-runs"):
+			w.Write([]byte(`{"total_count":0,"check_runs":[]}`))
+		case strings.Contains(r.URL.Path, "/statuses"):
+			w.Write([]byte(`[]`))
+		case strings.Contains(r.URL.Path, "/rules/branches/") && failRules:
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte(`{"message":"temporarily unavailable"}`))
+		case strings.Contains(r.URL.Path, "/rules/branches/"):
+			w.Write([]byte(`[]`))
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+		}
+	}))
+}
+
+func TestNextRepositoryMismatchReturnsStructuredConfigErrorBeforeGitHubAccess(t *testing.T) {
+	dir := t.TempDir()
+	runTestGit(t, dir, "init")
+	runTestGit(t, dir, "remote", "add", "origin", "https://github.com/example/local.git")
+	configPath := filepath.Join(dir, ".github", "baton.yml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeDefaultConfig(t, filepath.Dir(configPath))
+	t.Chdir(dir)
+	t.Setenv("GH_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "")
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"next", "--repo", "example/other", "--json"}, &stdout, &stderr, "test")
+	if code != exitConfig {
+		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitConfig, stdout.String(), stderr.String())
+	}
+	if stderr.String() != "" {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+	result := decodeErrorResult(t, stdout.String())
+	if result.SchemaVersion != 1 || result.Category != "config" || result.ExitCode != exitConfig {
+		t.Fatalf("error result = %+v", result)
+	}
+	if !strings.Contains(result.Message, "repository mismatch") || !strings.Contains(result.Message, "example/local") {
+		t.Fatalf("message = %q", result.Message)
+	}
+}
+
+func TestNextRepositoryInspectionFailureReturnsStructuredLocalGitError(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".git"), []byte("invalid gitfile\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"next", "--repo", "example/project", "--json"}, &stdout, &stderr, "test")
+	if code != exitLocalGit {
+		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitLocalGit, stdout.String(), stderr.String())
+	}
+	result := decodeErrorResult(t, stdout.String())
+	if result.Category != "localGit" || result.ExitCode != exitLocalGit {
+		t.Fatalf("error result = %+v", result)
 	}
 }
 
@@ -674,6 +746,90 @@ func TestJSONUsageErrorReturnsStructuredError(t *testing.T) {
 	}
 }
 
+func TestApplicationErrorRendererPreservesAllStableCategories(t *testing.T) {
+	tests := []struct {
+		category apperror.Category
+		code     int
+	}{
+		{apperror.Policy, exitPolicy}, {apperror.Usage, exitUsage}, {apperror.Config, exitConfig},
+		{apperror.Auth, exitAuth}, {apperror.GitHub, exitGitHub}, {apperror.LocalGit, exitLocalGit},
+	}
+	for _, test := range tests {
+		t.Run(string(test.category), func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := newRenderer(&stdout, &stderr, true).ApplicationError(apperror.New(test.category, "safe message", "safe hint"))
+			result := decodeErrorResult(t, stdout.String())
+			if code != test.code || result.Category != string(test.category) || result.ExitCode != test.code || result.Message != "safe message" {
+				t.Fatalf("code=%d result=%+v", code, result)
+			}
+			if test.category == apperror.GitHub && !result.Retryable {
+				t.Fatalf("GitHub error v1 must preserve retryable=true: %+v", result)
+			}
+			if stderr.Len() != 0 {
+				t.Fatalf("stderr = %q", stderr.String())
+			}
+		})
+	}
+}
+
+func TestApplicationErrorRendererIncludesOperationReportInSingleErrorObject(t *testing.T) {
+	report := operation.NewReport([]operation.Result{
+		{ID: "local", Resource: "record", Action: "write", Status: operation.StatusApplied},
+		{ID: "remote", Resource: "issue", Action: "comment", Status: operation.StatusFailed},
+	})
+	applicationError := apperror.New(apperror.GitHub, "comment failed", "retry")
+	applicationError.Report = &report
+
+	var stdout, stderr bytes.Buffer
+	code := newRenderer(&stdout, &stderr, true).ApplicationError(applicationError)
+	result := decodeErrorResult(t, stdout.String())
+	if code != exitGitHub || result.Report == nil || result.Report.Status != operation.ReportPartial || len(result.Report.Operations) != 2 {
+		t.Fatalf("code=%d result=%+v", code, result)
+	}
+	decoder := json.NewDecoder(strings.NewReader(stdout.String()))
+	var object map[string]any
+	if err := decoder.Decode(&object); err != nil {
+		t.Fatal(err)
+	}
+	if decoder.Decode(&object) != io.EOF {
+		t.Fatalf("structured failure emitted more than one JSON object: %q", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestIssuePolicyOutputPreservesDecisionShapeAndAddsReport(t *testing.T) {
+	report := operation.NewReport([]operation.Result{{ID: "one", Resource: "issue", Action: "label", Status: operation.StatusApplied}})
+	output := issuePolicyOutput{
+		IssuePolicyDecision: policy.IssuePolicyDecision{SchemaVersion: 1, Kind: "issuePolicyDecision", IsFormIssue: true, LabelsToAdd: []string{}, LabelsToRemove: []string{}, MissingRequiredSections: []string{}},
+		Report:              &report,
+	}
+	content, err := json.Marshal(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(content, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded["kind"] != "issuePolicyDecision" || decoded["report"] == nil || decoded["Decision"] != nil {
+		t.Fatalf("output = %s", content)
+	}
+}
+
+func TestTOONApplicationErrorIncludesOperationReport(t *testing.T) {
+	report := operation.NewReport([]operation.Result{{ID: "remote", Resource: "issue", Action: "comment", Status: operation.StatusFailed}})
+	applicationError := apperror.New(apperror.GitHub, "comment failed", "retry")
+	applicationError.Report = &report
+
+	var stdout, stderr bytes.Buffer
+	code := newFormatRenderer(&stdout, &stderr, formatTOON).ApplicationError(applicationError)
+	if code != exitGitHub || !strings.Contains(stdout.String(), "report:\n") || !strings.Contains(stdout.String(), "status: failed") || !strings.Contains(stdout.String(), "- id: remote") {
+		t.Fatalf("code=%d stdout=%q", code, stdout.String())
+	}
+}
+
 func decodeErrorResult(t *testing.T, content string) errorResult {
 	t.Helper()
 	var result errorResult
@@ -694,4 +850,13 @@ func writeDefaultConfig(t *testing.T, dir string) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func runTestGit(t *testing.T, root string, args ...string) {
+	t.Helper()
+	commandArgs := append([]string{"-C", root}, args...)
+	output, err := exec.Command("git", commandArgs...).CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v: %s", commandArgs, err, output)
+	}
 }

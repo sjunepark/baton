@@ -9,6 +9,7 @@ import (
 
 	"github.com/sjunepark/baton/internal/config"
 	"github.com/sjunepark/baton/internal/policy"
+	"github.com/sjunepark/baton/internal/workitem"
 )
 
 type Issue struct {
@@ -28,6 +29,8 @@ type PullRequest struct {
 	HeadRef    string `json:"headRef"`
 	HeadSHA    string `json:"headSha"`
 	CheckState string `json:"checkState,omitempty"`
+	State      string `json:"-"`
+	Merged     bool   `json:"-"`
 }
 
 type Snapshot struct {
@@ -57,13 +60,14 @@ type BranchHealth struct {
 }
 
 type IssueState struct {
-	Issue         Issue    `json:"issue"`
-	Eligible      bool     `json:"eligible"`
-	Action        string   `json:"action,omitempty"`
-	PriorityLabel string   `json:"priorityLabel,omitempty"`
-	PriorityRank  int      `json:"priorityRank,omitempty"`
-	Reasons       []string `json:"reasons"`
-	LinkedPRs     []int    `json:"linkedPrs"`
+	Issue         Issue          `json:"issue"`
+	State         workitem.State `json:"-"`
+	Eligible      bool           `json:"eligible"`
+	Action        string         `json:"action,omitempty"`
+	PriorityLabel string         `json:"priorityLabel,omitempty"`
+	PriorityRank  int            `json:"priorityRank,omitempty"`
+	Reasons       []string       `json:"reasons"`
+	LinkedPRs     []int          `json:"linkedPrs"`
 }
 
 type PullState struct {
@@ -105,14 +109,29 @@ func BuildSnapshot(repo string, cfg config.Config, issues []Issue, prs []PullReq
 }
 
 func BuildSnapshotWithBranchHealth(repo string, cfg config.Config, issues []Issue, prs []PullRequest, branchHealth *BranchHealth) Snapshot {
+	return BuildSnapshotWithLifecycle(repo, cfg, issues, prs, nil, branchHealth)
+}
+
+func BuildSnapshotWithLifecycle(repo string, cfg config.Config, issues []Issue, prs, mergedWorkPRs []PullRequest, branchHealth *BranchHealth) Snapshot {
 	prStates := make([]PullState, 0, len(prs))
 	prsByIssue := map[int][]int{}
+	mergedPRsByIssue := map[int][]int{}
 	for _, pr := range prs {
-		referenced := referencedIssues(pr)
-		for _, issueNumber := range referenced {
-			prsByIssue[issueNumber] = append(prsByIssue[issueNumber], pr.Number)
+		referenced := referencedIssues(pr, cfg.PRPolicy.RequiredReferenceKeyword)
+		if policy.ClassifyPullRequestFlow(policy.PullRequest{BaseRef: pr.BaseRef, HeadRef: pr.HeadRef}, cfg) == policy.PRFlowWork {
+			for _, issueNumber := range referenced {
+				prsByIssue[issueNumber] = append(prsByIssue[issueNumber], pr.Number)
+			}
 		}
 		prStates = append(prStates, PullState{PullRequest: pr, ReferencedIssues: referenced})
+	}
+	for _, pr := range mergedWorkPRs {
+		if !pr.Merged || policy.ClassifyPullRequestFlow(policy.PullRequest{BaseRef: pr.BaseRef, HeadRef: pr.HeadRef}, cfg) != policy.PRFlowWork {
+			continue
+		}
+		for _, issueNumber := range referencedIssues(pr, cfg.PRPolicy.RequiredReferenceKeyword) {
+			mergedPRsByIssue[issueNumber] = append(mergedPRsByIssue[issueNumber], pr.Number)
+		}
 	}
 
 	issueStates := make([]IssueState, 0, len(issues))
@@ -123,30 +142,11 @@ func BuildSnapshotWithBranchHealth(repo string, cfg config.Config, issues []Issu
 		if linkedPRs == nil {
 			linkedPRs = []int{}
 		}
-		state := IssueState{Issue: issue, Eligible: true, Reasons: []string{}, LinkedPRs: linkedPRs}
+		state := IssueState{Issue: issue, Reasons: []string{}, LinkedPRs: linkedPRs}
 		labels := stringSet(issue.Labels)
 		state.PriorityLabel, state.PriorityRank = issuePriority(cfg.IssuePolicy, labels)
-		if hasAny(labels, cfg.IssuePolicy.ImplementationLabels) {
-			state.Action = "issue-implementation"
-		} else if hasAny(labels, cfg.IssuePolicy.CommentOnlyLabels) {
-			state.Action = "issue-investigation"
-		} else {
-			state.Eligible = false
-			state.Reasons = append(state.Reasons, "missing implementation or investigation label")
-		}
-		for _, skip := range cfg.IssuePolicy.SkipLabels {
-			if _, ok := labels[skip]; ok {
-				state.Eligible = false
-				state.Reasons = append(state.Reasons, "skip label "+skip)
-			}
-		}
-		if len(state.LinkedPRs) > 0 && state.Action == "issue-implementation" {
-			state.Eligible = false
-			state.Reasons = append(state.Reasons, "active linked PR")
-		}
-		if len(state.Reasons) == 0 {
-			state.Reasons = append(state.Reasons, "eligible")
-		}
+		readiness := workitem.ClassifyIssue(workitem.IssueFacts{Open: true, Labels: issue.Labels, LinkedWorkPRs: linkedPRs, MergedWorkPRs: mergedPRsByIssue[issue.Number]}, cfg.IssuePolicy)
+		state.State, state.Eligible, state.Action, state.Reasons = readiness.State, readiness.Eligible, readiness.Action, readiness.Reasons
 		if state.Eligible {
 			eligibleIssues++
 			eligibleByAction[state.Action]++
@@ -478,8 +478,8 @@ func issuePriority(issuePolicy config.IssuePolicy, labels map[string]struct{}) (
 	return "", 0
 }
 
-func referencedIssues(pr PullRequest) []int {
-	values := append(policy.ExtractReferenceIssueNumbers(pr.Title), policy.ExtractReferenceIssueNumbers(pr.Body)...)
+func referencedIssues(pr PullRequest, keyword string) []int {
+	values := append(policy.ExtractReferenceIssueNumbersForPolicy(pr.Title, keyword), policy.ExtractReferenceIssueNumbersForPolicy(pr.Body, keyword)...)
 	seen := map[int]struct{}{}
 	out := make([]int, 0, len(values))
 	for _, value := range values {
@@ -498,15 +498,6 @@ func stringSet(values []string) map[string]struct{} {
 		set[value] = struct{}{}
 	}
 	return set
-}
-
-func hasAny(labels map[string]struct{}, candidates []string) bool {
-	for _, label := range candidates {
-		if _, ok := labels[label]; ok {
-			return true
-		}
-	}
-	return false
 }
 
 func snapshotHelp(issues []IssueState, prs []PullState) []string {

@@ -57,6 +57,17 @@ func TestDefaultConfigIncludesPriorityPolicy(t *testing.T) {
 	}
 }
 
+func TestAwaitingReviewLabelIsExplicitAndBlocksIntake(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.IssuePolicy.AwaitingReviewLabel != "needs:review" || !containsFold(cfg.IssuePolicy.SkipLabels, cfg.IssuePolicy.AwaitingReviewLabel) {
+		t.Fatalf("awaiting review policy = %+v", cfg.IssuePolicy)
+	}
+	cfg.IssuePolicy.SkipLabels = []string{"needs-info"}
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "skip_labels") {
+		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
 func TestLoadOldBatonConfigWithoutPriorityDoesNotEnablePriority(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "baton.yml")
@@ -199,6 +210,71 @@ func TestLoadDefaultsDirectBaseBranchPRsToAllowed(t *testing.T) {
 	}
 	if !cfg.PRPolicy.AllowDirectBaseBranchPRs {
 		t.Fatal("allow_direct_base_branch_prs should default to true")
+	}
+}
+
+func TestLoadRejectsUnknownFieldsAndUnsupportedVersions(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{name: "unknown current field", content: strings.Replace(oldBatonPolicyYAML, "version: 1\n", "version: 1\nunknown: true\n", 1), want: "field unknown not found"},
+		{name: "unknown nested field", content: strings.Replace(oldBatonPolicyYAML, "  default_remote: origin\n", "  default_remote: origin\n  typo_remote: upstream\n", 1), want: "field typo_remote not found"},
+		{name: "unknown legacy field", content: legacyPolicyYAML + "typo_marker: value\n", want: "field typo_marker not found"},
+		{name: "unsupported version", content: strings.Replace(oldBatonPolicyYAML, "version: 1", "version: 2", 1), want: "unsupported config version 2"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "baton.yml")
+			if err := os.WriteFile(path, []byte(test.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := Load(path)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestValidateRejectsInvalidCompiledIssuePolicy(t *testing.T) {
+	tests := []struct {
+		name string
+		edit func(*Config)
+		want string
+	}{
+		{name: "empty marker", edit: func(cfg *Config) { cfg.IssuePolicy.PolicyCommentMarker = "" }, want: "stable versioned HTML comment"},
+		{name: "unstable marker", edit: func(cfg *Config) { cfg.IssuePolicy.PolicyCommentMarker = "<!-- baton -->" }, want: "stable versioned HTML comment"},
+		{name: "duplicate controlled label", edit: func(cfg *Config) { cfg.IssuePolicy.ControlledLabelGroups["quality_gate"] = []string{"bug"} }, want: "appears in both"},
+		{name: "unmapped implementation label", edit: func(cfg *Config) {
+			cfg.IssuePolicy.ImplementationLabels = append(cfg.IssuePolicy.ImplementationLabels, "agent:unknown")
+		}, want: "unmapped agent-mode label"},
+		{name: "unknown required mode", edit: func(cfg *Config) { cfg.IssuePolicy.RequiredSections["unknown-mode"] = []string{"summary"} }, want: "does not match an agent_mode_labels option"},
+		{name: "duplicate heading", edit: func(cfg *Config) { cfg.IssuePolicy.FormSections["notes"] = cfg.IssuePolicy.FormSections["summary"] }, want: "duplicates heading"},
+		{name: "invalid base branch", edit: func(cfg *Config) { cfg.Repository.BaseBranch = "release..next" }, want: "not a valid git branch"},
+		{name: "invalid staging branch", edit: func(cfg *Config) { cfg.Repository.StagingBranch = "feature:next" }, want: "invalid git ref character"},
+		{name: "symbolic head branch", edit: func(cfg *Config) { cfg.Repository.StagingBranch = "HEAD" }, want: "not a valid git branch"},
+		{name: "option-like remote", edit: func(cfg *Config) { cfg.Repository.DefaultRemote = "--upload-pack" }, want: "non-option git remote"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			test.edit(&cfg)
+			if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestMarshalYAMLOmitsObsoleteAutomationPolicy(t *testing.T) {
+	content, err := MarshalYAML(DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(content), "automation:") || strings.Contains(string(content), "allow_merge") || strings.Contains(string(content), "prefer_pr_followup") {
+		t.Fatalf("obsolete automation policy was emitted:\n%s", content)
 	}
 }
 

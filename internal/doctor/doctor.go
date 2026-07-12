@@ -1,10 +1,13 @@
 package doctor
 
 import (
+	"context"
 	"os"
-	"os/exec"
+	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/sjunepark/baton/internal/auth"
 	"github.com/sjunepark/baton/internal/config"
 	"github.com/sjunepark/baton/internal/git"
 )
@@ -31,10 +34,44 @@ type Check struct {
 }
 
 func Run(configPath string) Result {
+	return RunWithOptionsContext(context.Background(), Options{
+		ConfigPath: configPath, GitHubToken: os.Getenv("GITHUB_TOKEN"), GHToken: os.Getenv("GH_TOKEN"),
+	})
+}
+
+type Options struct {
+	WorkingDir  string
+	ConfigPath  string
+	GitHubToken string
+	GHToken     string
+}
+
+func RunWithOptions(options Options) Result {
+	return RunWithOptionsContext(context.Background(), options)
+}
+
+func RunWithOptionsContext(ctx context.Context, options Options) Result {
+	if _, bounded := ctx.Deadline(); !bounded {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+	}
+	workingDir := options.WorkingDir
+	if workingDir == "" {
+		workingDir = "."
+	}
+	root := workingDir
+	if resolved, err := git.RepositoryRootContext(ctx, workingDir); err == nil {
+		root = resolved
+	}
 	checks := []Check{}
 	var cfg config.Config
 	configOK := false
-	if configPath != "" {
+	if options.ConfigPath != "" {
+		configPath := options.ConfigPath
+		if !filepath.IsAbs(configPath) {
+			configPath = filepath.Join(workingDir, configPath)
+		}
 		loaded, err := config.Load(configPath)
 		if err != nil {
 			checks = append(checks, Check{Name: "config", Status: "fail", Message: err.Error()})
@@ -44,7 +81,7 @@ func Run(configPath string) Result {
 			checks = append(checks, Check{Name: "config", Status: "ok", Message: configPath})
 		}
 	} else {
-		loaded, err := config.LoadForRepo(".")
+		loaded, err := config.LoadForRepo(root)
 		if err != nil {
 			checks = append(checks, Check{Name: "config", Status: "warn", Message: err.Error()})
 		} else {
@@ -53,28 +90,36 @@ func Run(configPath string) Result {
 			checks = append(checks, Check{Name: "config", Status: "ok"})
 		}
 	}
-	if _, err := exec.LookPath("git"); err != nil {
+	if err := git.Available(); err != nil {
 		checks = append(checks, Check{Name: "git", Status: "fail", Message: err.Error()})
 	} else {
 		checks = append(checks, Check{Name: "git", Status: "ok"})
 	}
-	if out, err := gitOutput("rev-parse", "--show-toplevel"); err != nil {
+	if out, err := git.OutputAtContext(ctx, workingDir, "rev-parse", "--show-toplevel"); err != nil {
 		checks = append(checks, Check{Name: "repo-root", Status: "fail", Message: err.Error()})
 	} else {
 		checks = append(checks, Check{Name: "repo-root", Status: "ok", Message: strings.TrimSpace(out)})
 	}
-	if out, err := gitOutput("remote", "get-url", "origin"); err != nil {
-		checks = append(checks, Check{Name: "remote", Status: "warn", Message: "origin remote not resolved"})
+	remoteName := ""
+	if configOK {
+		remoteName = cfg.Repository.DefaultRemote
+	}
+	if remoteName == "" {
+		checks = append(checks, Check{Name: "remote", Status: "warn", Message: "repository policy remote not available"})
+	} else if out, err := git.OutputAtContext(ctx, root, "remote", "get-url", remoteName); err != nil {
+		checks = append(checks, Check{Name: "remote", Status: "warn", Message: remoteName + " remote not resolved"})
 	} else {
-		checks = append(checks, Check{Name: "remote", Status: "ok", Message: strings.TrimSpace(out)})
+		checks = append(checks, Check{Name: "remote", Status: "ok", Message: git.RedactRemoteURL(strings.TrimSpace(out))})
 	}
 	if configOK {
-		checks = append(checks, stagingBranchCheck(cfg))
+		checks = append(checks, stagingBranchCheck(ctx, root, cfg))
 	}
-	if os.Getenv("GITHUB_TOKEN") != "" || os.Getenv("GH_TOKEN") != "" {
-		checks = append(checks, Check{Name: "github-auth", Status: "ok"})
-	} else if _, err := exec.Command("gh", "auth", "token").Output(); err == nil {
-		checks = append(checks, Check{Name: "github-auth", Status: "ok", Message: "gh auth token"})
+	if credentials, err := auth.DiscoverContext(ctx, auth.Inputs{GitHubToken: options.GitHubToken, GHToken: options.GHToken}); err == nil {
+		message := ""
+		if credentials.Source() == auth.SourceGHCLI {
+			message = "gh auth token"
+		}
+		checks = append(checks, Check{Name: "github-auth", Status: "ok", Message: message})
 	} else {
 		checks = append(checks, Check{Name: "github-auth", Status: "warn", Message: "GITHUB_TOKEN, GH_TOKEN, or gh auth token is not available"})
 	}
@@ -82,8 +127,8 @@ func Run(configPath string) Result {
 	return Result{SchemaVersion: 1, Kind: "doctor", ReadyState: readyState(counts), Counts: counts, Checks: checks, Help: helpForChecks(checks)}
 }
 
-func stagingBranchCheck(cfg config.Config) Check {
-	input, err := git.InspectAgentBranchRefs(git.AgentBranchPlanInput{
+func stagingBranchCheck(ctx context.Context, root string, cfg config.Config) Check {
+	input, err := git.InspectAgentBranchRefsAtContext(ctx, root, git.AgentBranchPlanInput{
 		Remote:       cfg.Repository.DefaultRemote,
 		BaseBranch:   cfg.Repository.BaseBranch,
 		TargetBranch: cfg.Repository.StagingBranch,
@@ -156,9 +201,4 @@ func helpForChecks(checks []Check) []string {
 		}
 	}
 	return help
-}
-
-func gitOutput(args ...string) (string, error) {
-	out, err := exec.Command("git", args...).CombinedOutput()
-	return string(out), err
 }

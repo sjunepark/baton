@@ -1,13 +1,27 @@
 package git
 
 import (
-	"bytes"
+	"context"
 	"fmt"
-	"os/exec"
+	"reflect"
 	"strings"
+
+	"github.com/sjunepark/baton/internal/operation"
 )
 
 func InspectAgentBranchRefs(input AgentBranchPlanInput) (AgentBranchPlanInput, error) {
+	return InspectAgentBranchRefsContext(context.Background(), input)
+}
+
+func InspectAgentBranchRefsAt(root string, input AgentBranchPlanInput) (AgentBranchPlanInput, error) {
+	return InspectAgentBranchRefsAtContext(context.Background(), root, input)
+}
+
+func InspectAgentBranchRefsContext(ctx context.Context, input AgentBranchPlanInput) (AgentBranchPlanInput, error) {
+	return InspectAgentBranchRefsAtContext(ctx, "", input)
+}
+
+func InspectAgentBranchRefsAtContext(ctx context.Context, root string, input AgentBranchPlanInput) (AgentBranchPlanInput, error) {
 	remote := firstNonEmpty(input.Remote, "origin")
 	baseBranch := firstNonEmpty(input.BaseBranch, "main")
 	targetBranch := firstNonEmpty(input.TargetBranch, "agent")
@@ -16,37 +30,81 @@ func InspectAgentBranchRefs(input AgentBranchPlanInput) (AgentBranchPlanInput, e
 	out.BaseBranch = baseBranch
 	out.TargetBranch = targetBranch
 
-	remoteHeads, err := lsRemoteHeads(remote, baseBranch, targetBranch)
+	remoteHeads, err := lsRemoteHeadsAtContext(ctx, root, remote, baseBranch, targetBranch)
 	if err != nil {
 		return AgentBranchPlanInput{}, err
 	}
 	out.RemoteBaseSHA = firstNonEmpty(out.RemoteBaseSHA, remoteHeads[baseBranch])
 	out.RemoteTargetSHA = firstNonEmpty(out.RemoteTargetSHA, remoteHeads[targetBranch])
 
-	localSHA, err := localBranchSHA(targetBranch)
+	localSHA, err := localBranchSHAAtContext(ctx, root, targetBranch)
 	if err != nil {
 		return AgentBranchPlanInput{}, err
 	}
 	out.LocalTargetSHA = firstNonEmpty(out.LocalTargetSHA, localSHA)
-	out.LocalTargetUpstream = firstNonEmpty(out.LocalTargetUpstream, localBranchUpstream(targetBranch))
+	if out.LocalTargetUpstream == "" && out.LocalTargetSHA != "" {
+		upstream, err := localBranchUpstreamAtContext(ctx, root, targetBranch)
+		if err != nil {
+			return AgentBranchPlanInput{}, err
+		}
+		out.LocalTargetUpstream = upstream
+	}
 	return out, nil
 }
 
 func ApplyAgentBranchPlan(plan AgentBranchPlan) error {
-	if len(plan.Errors) > 0 {
-		return fmt.Errorf("cannot apply a plan with errors")
-	}
-	for _, command := range plan.ApplyCommands {
-		if _, err := runGit(command.Args...); err != nil {
-			return err
-		}
-	}
-	return nil
+	return ApplyAgentBranchPlanContext(context.Background(), plan)
 }
 
-func lsRemoteHeads(remote string, branches ...string) (map[string]string, error) {
+func ApplyAgentBranchPlanAt(root string, plan AgentBranchPlan) error {
+	return ApplyAgentBranchPlanAtContext(context.Background(), root, plan)
+}
+
+func ApplyAgentBranchPlanContext(ctx context.Context, plan AgentBranchPlan) error {
+	return ApplyAgentBranchPlanAtContext(ctx, "", plan)
+}
+
+func ApplyAgentBranchPlanAtContext(ctx context.Context, root string, plan AgentBranchPlan) error {
+	_, err := ApplyAgentBranchPlanWithReportAtContext(ctx, root, plan)
+	return err
+}
+
+func ApplyAgentBranchPlanWithReportAtContext(ctx context.Context, root string, plan AgentBranchPlan) (operation.Report, error) {
+	if len(plan.Errors) > 0 {
+		return operation.NewReport([]operation.Result{{
+			ID: "branch-plan-validation", Resource: plan.Preconditions.Remote + "/" + plan.Preconditions.TargetBranch, Action: "validate_plan", Status: operation.StatusRefused,
+			Error: &operation.Failure{Category: "invalidPlan", Message: "branch plan contains errors"},
+		}}), fmt.Errorf("cannot apply a plan with errors")
+	}
+	expected := plan.Preconditions
+	actual, err := InspectAgentBranchRefsAtContext(ctx, root, AgentBranchPlanInput{Remote: expected.Remote, BaseBranch: expected.BaseBranch, TargetBranch: expected.TargetBranch})
+	if err != nil {
+		return operation.NewReport([]operation.Result{{
+			ID: "branch-preflight", Resource: expected.Remote + "/" + expected.TargetBranch, Action: "inspect_refs", Status: operation.StatusFailed,
+			Error: &operation.Failure{Category: "localGit", Message: "branch refs could not be inspected"},
+		}}), err
+	}
+	if !reflect.DeepEqual(actual, expected) {
+		return operation.NewReport([]operation.Result{{ID: "branch-precondition", Resource: expected.Remote + "/" + expected.TargetBranch, Action: "verify_refs", Status: operation.StatusRefused, Error: &operation.Failure{Category: "stale", Message: "branch refs changed after review"}}}), fmt.Errorf("branch plan is stale; inspect and review a new plan before applying")
+	}
+	results := make([]operation.Result, len(plan.ApplyCommands))
+	for index, command := range plan.ApplyCommands {
+		results[index] = operation.Result{ID: fmt.Sprintf("git-%03d", index+1), Resource: expected.Remote + "/" + expected.TargetBranch, Action: command.Description, Status: operation.StatusNotAttempted}
+	}
+	for index, command := range plan.ApplyCommands {
+		if _, err := OutputAtContext(ctx, root, command.Args...); err != nil {
+			results[index].Status = operation.StatusFailed
+			results[index].Error = &operation.Failure{Category: "localGit", Message: "git command failed"}
+			return operation.NewReport(results), err
+		}
+		results[index].Status = operation.StatusApplied
+	}
+	return operation.NewReport(results), nil
+}
+
+func lsRemoteHeadsAtContext(ctx context.Context, root, remote string, branches ...string) (map[string]string, error) {
 	args := append([]string{"ls-remote", "--heads", remote}, branches...)
-	stdout, err := runGit(args...)
+	stdout, err := OutputAtContext(ctx, root, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -65,40 +123,28 @@ func lsRemoteHeads(remote string, branches ...string) (map[string]string, error)
 	return heads, nil
 }
 
-func localBranchSHA(branch string) (string, error) {
-	exists := exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
-	if err := exists.Run(); err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+func localBranchSHAAtContext(ctx context.Context, root, branch string) (string, error) {
+	_, err := OutputAtContext(ctx, root, "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
+	if err != nil {
+		if IsExitCode(err, 1) {
 			return "", nil
 		}
 		return "", err
 	}
-	out, err := runGit("show-ref", "--verify", "--hash", "refs/heads/"+branch)
+	out, err := OutputAtContext(ctx, root, "show-ref", "--verify", "--hash", "refs/heads/"+branch)
 	if err != nil {
 		return "", err
 	}
 	return strings.TrimSpace(out), nil
 }
 
-func localBranchUpstream(branch string) string {
-	out, err := runGit("rev-parse", "--abbrev-ref", "--symbolic-full-name", branch+"@{upstream}")
+func localBranchUpstreamAtContext(ctx context.Context, root, branch string) (string, error) {
+	out, err := OutputAtContext(ctx, root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", branch+"@{upstream}")
 	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(out)
-}
-
-func runGit(args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		message := strings.TrimSpace(stderr.String())
-		if message != "" {
-			return stdout.String(), fmt.Errorf("git %s failed: %w: %s", strings.Join(args, " "), err, message)
+		if IsExitCode(err, 128) && (StderrContains(err, "no upstream configured") || StderrContains(err, "no upstream branch")) {
+			return "", nil
 		}
-		return stdout.String(), fmt.Errorf("git %s failed: %w", strings.Join(args, " "), err)
+		return "", err
 	}
-	return stdout.String(), nil
+	return strings.TrimSpace(out), nil
 }
