@@ -33,7 +33,8 @@ The skill must instruct Codex to:
   users do not need to paste boilerplate workflow prompts.
 - Run `baton home --format toon` or `baton doctor --format toon` when
   repository readiness is uncertain.
-- Run `baton next --format toon` before selecting work.
+- Run `baton snapshot --format toon` before selecting unattended work. Proceed
+  only when `outcome` is `actionable`; every other outcome is report-and-stop.
 - Prefer Baton compact output or JSON over manual GitHub browsing for queue
   state.
 - Create todos as structured GitHub issues with the Agent-readable work item
@@ -91,17 +92,19 @@ Routing rules:
 
 ### General Automation
 
-1. Run `baton next --format toon`.
-2. If `selectedAction` is `none`, report the summary and stop.
-3. Choose exactly one returned candidate.
+1. Run `baton snapshot --format toon`.
+2. Unless `outcome` is `actionable`, report the outcome/reasons and stop.
+3. Choose exactly one returned candidate and follow the typed `action`.
 4. Verify the current working directory is a caller-provided isolated checkout.
 5. Check out the PR `headRef` for follow-up or create an issue-work branch from
    the configured staging branch.
 6. Read target repo `AGENTS.md`.
 7. Implement or investigate exactly the chosen candidate.
 8. Validate with focused checks first.
-9. Push/comment according to `selectedAction` and the chosen candidate.
-10. Record completion with `baton complete` when useful, then stop.
+9. Push/comment according to the snapshot's `action` and the chosen candidate.
+10. Report the summary and validation evidence to the caller, then stop. Coda
+    or the invoking automation owns execution completion; Baton does not keep
+    a parallel completion ledger.
 
 ### PR Follow-Up
 

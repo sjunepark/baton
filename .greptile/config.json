@@ -5,7 +5,7 @@
   "statusCheck": true,
   "updateExistingSummaryComment": true,
   "fixWithAI": false,
-  "instructions": "Baton is a safety-sensitive Go CLI plus bundled Codex skill for reusable GitHub issue and PR agent workflows. Deterministic policy, git, GitHub, queue, install, branch, and completion logic belongs in the CLI; checkout isolation belongs to the caller; agent judgment belongs in the skill. Reviews should prioritize correctness, explicit error handling, dry-run or pure planning paths for mutations, and preservation of target repository policy as the source of truth.",
+  "instructions": "Baton is a safety-sensitive Go CLI plus bundled Codex skill for reusable GitHub issue and PR agent workflows. Deterministic policy, git, GitHub, queue, install, branch, and work-item transition logic belongs in the CLI; execution completion and checkout isolation belong to the caller; agent judgment belongs in the skill. Reviews should prioritize correctness, explicit error handling, dry-run or pure planning paths for mutations, and preservation of target repository policy as the source of truth.",
   "rules": [
     {
       "id": "primary-checkout-safety",

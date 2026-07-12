@@ -5,7 +5,7 @@ Baton has two surfaces:
 - Skill commands such as `$baton run` express the workflow and leave only true
   arguments for the user.
 - CLI commands provide deterministic repository, policy, queue, branch, and
-  completion facts for automation and scripts.
+  work-item facts for automation and scripts.
 
 The Go CLI does not provide `baton todo` or `baton todos`; those are skill
 workflows that prepare issue bodies, preflight them with `baton issue-policy`,
@@ -114,21 +114,24 @@ recommendation.
 
 Use when one ready issue has clear acceptance criteria and no skip label.
 
-- Required input: issue number or a repository where `next` can select one
-  eligible implementation item.
+- Required input: issue number or a repository where `snapshot` reports an
+  `actionable` eligible implementation item.
 - Skill command: `$baton implement <issue>` or `$baton run [repo]`.
 - CLI equivalent:
 
   ```sh
-  baton next --format toon --repo owner/name
+  baton snapshot --format toon --repo owner/name
+  # continue only when outcome is actionable
   # in a caller-provided isolated checkout:
-  git switch -c agent-work/123-short-slug origin/agent
-  # read AGENTS.md, implement, validate, push, and open/update PR
-  baton complete --summary "..." --validation "..." --json
+  # substitute repository.work_branch_prefix, repository.default_remote,
+  # and repository.staging_branch from .github/baton.yml:
+  git switch -c <work_branch_prefix>123-short-slug <default_remote>/<staging_branch>
+  # read AGENTS.md, implement, validate, push, open/update PR, and report
+  # the summary plus validation evidence to the caller
   ```
 
-- Expected output: PR URL or update summary, validation result, completion
-  record.
+- Expected output: PR URL or update summary and validation result returned to
+  the caller.
 - Safety boundaries: edits only inside the caller-provided isolated checkout;
   PR targets the staging branch and references the issue with `Refs #<issue>`.
 - Common stop conditions: missing isolated checkout, ambiguous acceptance
@@ -149,12 +152,11 @@ feedback.
   baton review-threads <number> --format toon --repo owner/name
   # in a caller-provided isolated checkout:
   git switch <head-ref>
-  # fix only the PR follow-up, validate, and push to the same branch
-  baton complete --summary "..." --validation "..." --json
+  # fix only the PR follow-up, validate, push to the same branch, and report
+  # the summary plus validation evidence to the caller
   ```
 
-- Expected output: pushed fixes or a no-action report, validation result,
-  completion record.
+- Expected output: pushed fixes or a no-action report plus validation evidence.
 - Safety boundaries: no replacement PR and no merge; push only to the existing
   PR branch from the isolated checkout.
 - Common stop conditions: review feedback needs human judgment, checks are red
@@ -198,7 +200,8 @@ respected checkout isolation boundaries.
   baton doctor --format toon
   baton ensure-branch --json
   baton sync-labels --dry-run --repo owner/name --json
-  baton next --format toon --repo owner/name
+  baton snapshot --format toon --repo owner/name
+  # schedule implementation only when outcome is actionable
   ```
 
 - Expected output: automation prompt, prerequisites status, recommended cadence,
