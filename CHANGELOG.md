@@ -6,8 +6,6 @@
 ### ⚠ BREAKING CHANGES
 
 * remove baton complete and its local completion ledger, and replace repository file reconciliation plan v1 with v2. Unattended automation should gate work on repositorySnapshot v1 outcome=actionable.
-* remove baton complete and its local completion ledger, and replace repository file reconciliation plan v1 with v2. Unattended automation should gate work on repositorySnapshot v1 outcome=actionable.
-* remove baton complete and its local completion ledger, and replace repository file reconciliation plan v1 with v2. Unattended automation should gate work on repositorySnapshot v1 outcome=actionable.
 
 ### Features
 
