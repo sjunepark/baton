@@ -124,7 +124,11 @@
 <body>
   <div class="layout">
     <aside class="sidebar">
-      <div class="brand"><a href="#top">Baton</a><!-- x-release-please-start-version --><small>v0.4.4 · documentation</small><!-- x-release-please-end --></div>
+      <div class="brand"><a href="#top">Baton</a>
+<!-- x-release-please-start-version -->
+<small>v0.5.0 · documentation</small>
+<!-- x-release-please-end -->
+      </div>
       <input id="q" type="search" placeholder="Search the docs…" aria-label="Search the documentation">
       <nav aria-label="Documentation navigation">
         <details class="navgroup" open>
@@ -286,7 +290,7 @@
           <h3 class="sec">Getting Baton</h3>
           <p>Baton is a single command-line program written in Go, so installing it is one line. You also need the GitHub CLI, <code>gh</code>, signed in to your account — Baton borrows its authentication instead of asking for a token of its own, and never sees or stores your credentials.</p>
 <!-- x-release-please-start-version -->
-<pre><code>go install github.com/sjunepark/baton/cmd/baton@v0.4.4</code></pre>
+<pre><code>go install github.com/sjunepark/baton/cmd/baton@v0.5.0</code></pre>
 <!-- x-release-please-end -->
           <p>If you're working on Baton itself, run it straight from source instead:</p>
 <pre><code>go run ./cmd/baton --help
@@ -334,7 +338,7 @@ help[3]:
 .github/workflows/work-item-transition.yml <span class="cm"># blocks merged work from re-entry</span></code></pre>
           <p>Read that diff like any change to your repo. When you're satisfied, apply it — pinning the exact Baton version the Actions should install, so CI stays reproducible:</p>
 <!-- x-release-please-start-version -->
-<pre><code>baton init --apply --go-install github.com/sjunepark/baton/cmd/baton@v0.4.4</code></pre>
+<pre><code>baton init --apply --go-install github.com/sjunepark/baton/cmd/baton@v0.5.0</code></pre>
 <!-- x-release-please-end -->
           <p>Two pieces finish the setup. The staging branch has to exist, and the labels Baton relies on have to be present. Both preview by default and change nothing until <code>--apply</code>:</p>
 <pre><code>baton ensure-branch          <span class="cm"># plan the `agent` staging branch</span>
@@ -470,7 +474,7 @@ baton doctor --json</code></pre>
               <p>Create or preview the seven files that make a repository Baton-managed. Dry-run/diff by default.</p>
 <!-- x-release-please-start-version -->
 <pre><code>baton init --dry-run --json
-baton init --apply --go-install github.com/sjunepark/baton/cmd/baton@v0.4.4</code></pre>
+baton init --apply --go-install github.com/sjunepark/baton/cmd/baton@v0.5.0</code></pre>
 <!-- x-release-please-end -->
               <div class="eyebrow">Creates</div>
 <pre><code>.github/baton.yml                      <span class="cm"># policy config</span>
@@ -745,7 +749,7 @@ baton next --action issue-investigation --format toon</code></pre>
 <pre><code>version: 1
 
 setup:
-  baseline_baton_version: v0.4.4     <span class="cm"># release the setup files were last reviewed against</span>
+  baseline_baton_version: v0.5.0     <span class="cm"># release the setup files were last reviewed against</span>
 
 repository:
   default_remote: origin              <span class="cm"># git remote used by Baton commands</span>

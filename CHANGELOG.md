@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.5.0](https://github.com/sjunepark/baton/compare/v0.4.4...v0.5.0) (2026-07-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* remove baton complete and its local completion ledger, and replace repository file reconciliation plan v1 with v2. Unattended automation should gate work on repositorySnapshot v1 outcome=actionable.
+
+### Features
+
+* redesign repository orchestration ([e6511e8](https://github.com/sjunepark/baton/commit/e6511e87f7665bc20aa5abcf59c7b4bbefefd089))
+
+
+### Documentation
+
+* align Baton architecture and agent guidance ([ed553c3](https://github.com/sjunepark/baton/commit/ed553c33a3da619f7e84ecde0e8a10e3fae3c247))
+* publish v0.5.0 contract migration ([ffe5e40](https://github.com/sjunepark/baton/commit/ffe5e4046d8cd890b6668d7a982d199ce8afadf8))
+
 ## [0.4.4](https://github.com/sjunepark/baton/compare/v0.4.3...v0.4.4) (2026-07-01)
 
 
