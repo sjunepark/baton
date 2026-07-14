@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -569,7 +570,7 @@ func TestNextMissingStagingBranchReturnsSetupError(t *testing.T) {
 
 func TestSnapshotCommandReturnsOneUnifiedObservation(t *testing.T) {
 	t.Setenv("GITHUB_REPOSITORY", "")
-	server := newSnapshotTestServer(t, false)
+	server := newSnapshotTestServer(t, ruleAPIAvailable)
 	defer server.Close()
 	t.Setenv("GH_TOKEN", "token")
 	t.Setenv("GITHUB_API_URL", server.URL)
@@ -604,7 +605,7 @@ func TestSnapshotCommandReturnsOneUnifiedObservation(t *testing.T) {
 
 func TestSnapshotCommandReturnsDegradedFactsAsData(t *testing.T) {
 	t.Setenv("GITHUB_REPOSITORY", "")
-	server := newSnapshotTestServer(t, true)
+	server := newSnapshotTestServer(t, ruleAPITransientFailure)
 	defer server.Close()
 	t.Setenv("GH_TOKEN", "token")
 	t.Setenv("GITHUB_API_URL", server.URL)
@@ -633,7 +634,56 @@ func TestSnapshotCommandReturnsDegradedFactsAsData(t *testing.T) {
 	}
 }
 
-func newSnapshotTestServer(t *testing.T, failRules bool) *httptest.Server {
+func TestQueueCommandsRemainAvailableWhenBranchRuleAPIsArePlanGated(t *testing.T) {
+	tests := []struct {
+		command string
+		kind    string
+	}{
+		{command: "queue", kind: "queueSnapshot"},
+		{command: "next", kind: "nextCandidates"},
+		{command: "snapshot", kind: "repositorySnapshot"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.command, func(t *testing.T) {
+			t.Setenv("GITHUB_REPOSITORY", "")
+			server := newSnapshotTestServer(t, ruleAPIPlanUnavailable)
+			defer server.Close()
+			t.Setenv("GH_TOKEN", "token")
+			t.Setenv("GITHUB_API_URL", server.URL)
+			dir := t.TempDir()
+			t.Chdir(dir)
+			configPath := writeDefaultConfig(t, dir)
+
+			var stdout, stderr bytes.Buffer
+			code := Run([]string{tt.command, "--repo", "example-org/example-repo", "--config", configPath, "--json"}, &stdout, &stderr, "test")
+			if code != exitOK || stderr.Len() != 0 {
+				t.Fatalf("exit=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+			}
+			var result struct {
+				Kind         string `json:"kind"`
+				Completeness string `json:"completeness"`
+			}
+			if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+				t.Fatal(err)
+			}
+			if result.Kind != tt.kind || result.Completeness == "degraded" {
+				t.Fatalf("result = %+v, want normal %s output", result, tt.kind)
+			}
+		})
+	}
+}
+
+type ruleAPIMode int
+
+const githubPlanUnavailableMessage = "Upgrade to GitHub Pro or make this repository public to enable this feature."
+
+const (
+	ruleAPIAvailable ruleAPIMode = iota
+	ruleAPITransientFailure
+	ruleAPIPlanUnavailable
+)
+
+func newSnapshotTestServer(t *testing.T, ruleMode ruleAPIMode) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -642,16 +692,28 @@ func newSnapshotTestServer(t *testing.T, failRules bool) *httptest.Server {
 		case r.URL.Path == "/repos/example-org/example-repo/pulls":
 			w.Write([]byte(`[]`))
 		case r.URL.Path == "/repos/example-org/example-repo/branches/agent":
-			w.Write([]byte(`{"name":"agent","commit":{"sha":"agent-sha"}}`))
+			fmt.Fprintf(w, `{"name":"agent","protected":%t,"commit":{"sha":"agent-sha"}}`, ruleMode == ruleAPIPlanUnavailable)
 		case r.URL.Path == "/repos/example-org/example-repo/branches/main":
-			w.Write([]byte(`{"name":"main","commit":{"sha":"main-sha"}}`))
+			fmt.Fprintf(w, `{"name":"main","protected":%t,"commit":{"sha":"main-sha"}}`, ruleMode == ruleAPIPlanUnavailable)
 		case strings.Contains(r.URL.Path, "/check-runs"):
 			w.Write([]byte(`{"total_count":0,"check_runs":[]}`))
 		case strings.Contains(r.URL.Path, "/statuses"):
 			w.Write([]byte(`[]`))
-		case strings.Contains(r.URL.Path, "/rules/branches/") && failRules:
+		case strings.Contains(r.URL.Path, "/branches/") && strings.HasSuffix(r.URL.Path, "/protection") && ruleMode == ruleAPIPlanUnavailable:
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]string{
+				"message":           githubPlanUnavailableMessage,
+				"documentation_url": "https://docs.github.com/rest/branches/branch-protection#get-branch-protection",
+			})
+		case strings.Contains(r.URL.Path, "/rules/branches/") && ruleMode == ruleAPITransientFailure:
 			w.WriteHeader(http.StatusServiceUnavailable)
 			w.Write([]byte(`{"message":"temporarily unavailable"}`))
+		case strings.Contains(r.URL.Path, "/rules/branches/") && ruleMode == ruleAPIPlanUnavailable:
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]string{
+				"message":           githubPlanUnavailableMessage,
+				"documentation_url": "https://docs.github.com/rest/repos/rules#get-rules-for-a-branch",
+			})
 		case strings.Contains(r.URL.Path, "/rules/branches/"):
 			w.Write([]byte(`[]`))
 		default:

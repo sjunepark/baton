@@ -134,6 +134,9 @@ func (c *Client) GetClassicBranchRulesContext(ctx context.Context, repo, branch 
 	}
 	path := fmt.Sprintf("/repos/%s/branches/%s/protection", repo, url.PathEscape(branch))
 	if err := c.getJSONContext(ctx, path, &payload); err != nil {
+		if isBranchRulesUnavailableByPlan(err) {
+			return BranchRules{Branch: branch}, nil
+		}
 		return BranchRules{}, err
 	}
 	rules := BranchRules{Branch: branch}
@@ -178,6 +181,9 @@ func (c *Client) GetEffectiveBranchRulesContext(ctx context.Context, repo, branc
 		var batch []branchRulePayload
 		path := fmt.Sprintf("/repos/%s/rules/branches/%s?per_page=100&page=%d", repo, url.PathEscape(branch), page)
 		if err := c.getJSONContext(ctx, path, &batch); err != nil {
+			if page == 1 && isBranchRulesUnavailableByPlan(err) {
+				return BranchRules{Branch: branch}, nil
+			}
 			return BranchRules{}, err
 		}
 		payload = append(payload, batch...)
