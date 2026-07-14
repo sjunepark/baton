@@ -35,6 +35,8 @@ type APIError struct {
 	RateLimited    bool
 	RateLimitReset time.Time
 	Cause          error
+
+	branchRulesUnavailableByPlan bool
 }
 
 func (err APIError) Error() string {
@@ -69,6 +71,11 @@ func (err APIError) UpstreamRetryable() bool {
 func IsNotFound(err error) bool {
 	var apiErr APIError
 	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound
+}
+
+func isBranchRulesUnavailableByPlan(err error) bool {
+	var apiErr APIError
+	return errors.As(err, &apiErr) && apiErr.branchRulesUnavailableByPlan
 }
 
 func NewClientFromEnv() (*Client, error) {
@@ -293,6 +300,7 @@ func (c *Client) doJSONContext(ctx context.Context, method, path string, in any,
 			RequestID: resp.Header.Get("X-GitHub-Request-Id"),
 		}
 		applyRateLimitMetadata(&apiErr, resp.Header, time.Now())
+		applyErrorResponseMetadata(&apiErr, resp.Body)
 		return apiErr
 	}
 	if out == nil || resp.StatusCode == http.StatusNoContent {
@@ -306,6 +314,29 @@ func (c *Client) doJSONContext(ctx context.Context, method, path string, in any,
 		}
 	}
 	return nil
+}
+
+func applyErrorResponseMetadata(apiErr *APIError, body io.Reader) {
+	if apiErr.StatusCode != http.StatusForbidden || apiErr.RateLimited {
+		return
+	}
+	var payload struct {
+		Message          string `json:"message"`
+		DocumentationURL string `json:"documentation_url"`
+	}
+	if err := json.NewDecoder(io.LimitReader(body, 64<<10)).Decode(&payload); err != nil {
+		return
+	}
+	if payload.Message != "Upgrade to GitHub Pro or make this repository public to enable this feature." {
+		return
+	}
+	path := strings.SplitN(apiErr.Path, "?", 2)[0]
+	switch {
+	case strings.HasPrefix(path, "/repos/") && strings.Contains(path, "/branches/") && strings.HasSuffix(path, "/protection"):
+		apiErr.branchRulesUnavailableByPlan = payload.DocumentationURL == "https://docs.github.com/rest/branches/branch-protection#get-branch-protection"
+	case strings.HasPrefix(path, "/repos/") && strings.Contains(path, "/rules/branches/"):
+		apiErr.branchRulesUnavailableByPlan = payload.DocumentationURL == "https://docs.github.com/rest/repos/rules#get-rules-for-a-branch"
+	}
 }
 
 func applyRateLimitMetadata(apiErr *APIError, header http.Header, now time.Time) {

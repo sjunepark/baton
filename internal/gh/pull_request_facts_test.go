@@ -2,12 +2,15 @@ package gh
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"testing"
 )
+
+const planUnavailableMessage = "Upgrade to GitHub Pro or make this repository public to enable this feature."
 
 func TestGetPullRequestIncludesRevisionAndMergeability(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -137,5 +140,83 @@ func TestGetClassicBranchRulesPreservesReviewAndStrictCheckPolicy(t *testing.T) 
 	}
 	if !rules.StrictRequiredChecks || !rules.DismissStaleReviews || !rules.RequireLastPushApproval || rules.RequiredApprovingReviewCount != 2 || len(rules.RequiredChecks) != 2 || rules.RequiredChecks[0].IntegrationID != 42 || rules.RequiredChecks[1].Context != "legacy" {
 		t.Fatalf("rules = %+v", rules)
+	}
+}
+
+func TestBranchRuleAPIsTreatPlanUnavailableAsEmptyRules(t *testing.T) {
+	tests := []struct {
+		name             string
+		path             string
+		documentationURL string
+		getRules         func(*Client) (BranchRules, error)
+	}{
+		{
+			name:             "classic protection",
+			path:             "/repos/example/repo/branches/main/protection",
+			documentationURL: "https://docs.github.com/rest/branches/branch-protection#get-branch-protection",
+			getRules:         func(client *Client) (BranchRules, error) { return client.GetClassicBranchRules("example/repo", "main") },
+		},
+		{
+			name:             "effective rules",
+			path:             "/repos/example/repo/rules/branches/main",
+			documentationURL: "https://docs.github.com/rest/repos/rules#get-rules-for-a-branch",
+			getRules: func(client *Client) (BranchRules, error) {
+				return client.GetEffectiveBranchRules("example/repo", "main")
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != tt.path {
+					t.Fatalf("path = %s, want %s", r.URL.Path, tt.path)
+				}
+				w.WriteHeader(http.StatusForbidden)
+				json.NewEncoder(w).Encode(map[string]string{"message": planUnavailableMessage, "documentation_url": tt.documentationURL})
+			}))
+			defer server.Close()
+
+			rules, err := tt.getRules(NewClient(server.URL, "token", server.Client()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if rules.Branch != "main" || len(rules.RequiredChecks) != 0 || rules.RequiredApprovingReviewCount != 0 {
+				t.Fatalf("rules = %+v, want empty rules for main", rules)
+			}
+		})
+	}
+}
+
+func TestBranchRuleAPIsPreserveUnrecognizedForbiddenErrors(t *testing.T) {
+	tests := []struct {
+		name             string
+		message          string
+		documentationURL string
+	}{
+		{
+			name:             "permission failure",
+			message:          "Resource not accessible by integration",
+			documentationURL: "https://docs.github.com/rest/branches/branch-protection#get-branch-protection",
+		},
+		{
+			name:             "unrecognized documentation",
+			message:          planUnavailableMessage,
+			documentationURL: "https://docs.github.com/rest/overview/resources-in-the-rest-api",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusForbidden)
+				json.NewEncoder(w).Encode(map[string]string{"message": tt.message, "documentation_url": tt.documentationURL})
+			}))
+			defer server.Close()
+
+			_, err := NewClient(server.URL, "token", server.Client()).GetClassicBranchRules("example/repo", "main")
+			var apiErr APIError
+			if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusForbidden {
+				t.Fatalf("error = %T %v, want forbidden APIError", err, err)
+			}
+		})
 	}
 }
