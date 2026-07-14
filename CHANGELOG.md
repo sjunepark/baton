@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.1](https://github.com/sjunepark/baton/compare/v0.5.0...v0.5.1) (2026-07-14)
+
+
+### Bug Fixes
+
+* accept existing staging branch history ([#20](https://github.com/sjunepark/baton/issues/20)) ([01ccc8a](https://github.com/sjunepark/baton/commit/01ccc8ad15ac91d129165d9fe2e42cda2d131693))
+* tolerate plan-gated branch rule APIs ([#19](https://github.com/sjunepark/baton/issues/19)) ([ab6008a](https://github.com/sjunepark/baton/commit/ab6008a65508b7495b1d2bd2355ec50a0f485ec8)), closes [#18](https://github.com/sjunepark/baton/issues/18)
+
 ## [0.5.0](https://github.com/sjunepark/baton/compare/v0.4.4...v0.5.0) (2026-07-12)
 
 
