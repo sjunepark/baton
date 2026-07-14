@@ -176,9 +176,11 @@ baton ensure-branch --apply
 
 Must preserve the original reference behavior:
 
-- create local/published `agent` only when it exactly matches configured base;
+- create the configured local/published staging branch only when it exactly
+  matches the configured base;
 - refuse force resets;
-- warn when remote staging branch differs from base;
+- preserve an existing remote staging branch without treating its expected
+  staged history as a readiness warning;
 - do not configure branch protection.
 
 ### `baton issue-policy`

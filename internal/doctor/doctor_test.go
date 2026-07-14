@@ -75,6 +75,26 @@ func TestDoctorWarnsWhenStagingBranchSetupIsNeeded(t *testing.T) {
 	}
 }
 
+func TestDoctorAcceptsStagingBranchWithUnpromotedWork(t *testing.T) {
+	work := setupDoctorGitRepo(t, true)
+	runDoctorTestGit(t, work, "switch", "-c", "agent")
+	if err := os.WriteFile(filepath.Join(work, "STAGED.md"), []byte("unpromoted work\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runDoctorTestGit(t, work, "add", "STAGED.md")
+	runDoctorTestGit(t, work, "commit", "-m", "docs: add staged work")
+	runDoctorTestGit(t, work, "push", "-u", "origin", "agent")
+
+	result := RunWithOptions(Options{WorkingDir: work, GitHubToken: "token"})
+	check := findCheck(t, result.Checks, "staging-branch")
+	if check.Status != "ok" {
+		t.Fatalf("staging-branch check = %#v, want ok", check)
+	}
+	if result.ReadyState != "ready" {
+		t.Fatalf("readyState = %q, want ready", result.ReadyState)
+	}
+}
+
 func TestDoctorFailsWhenBaseBranchIsMissing(t *testing.T) {
 	work := setupDoctorGitRepo(t, false)
 

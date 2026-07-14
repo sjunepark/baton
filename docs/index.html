@@ -533,9 +533,9 @@ baton labels --json</code></pre>
             <div class="cmd-body">
               <p>Plan or apply staging-branch setup. Preserves the original safe behavior:</p>
               <ul>
-                <li>create local/published <code>agent</code> only when it exactly matches the configured base;</li>
+                <li>create the configured local/published staging branch only when it exactly matches the configured base;</li>
                 <li>refuse force resets;</li>
-                <li>warn when the remote staging branch differs from base;</li>
+                <li>preserve existing remote staging history without treating it as a readiness warning;</li>
                 <li>never configure branch protection.</li>
               </ul>
 <pre><code>baton ensure-branch --json

@@ -38,10 +38,10 @@ func TestComputeAgentBranchPlan(t *testing.T) {
 			wantArgs:   [][]string{},
 		},
 		{
-			name:         "plans tracking branch when origin agent exists",
+			name:         "plans tracking branch when remote staging history exists",
 			input:        AgentBranchPlanInput{RemoteBaseSHA: mainSHA, RemoteTargetSHA: agentSHA},
 			wantErrors:   []string{},
-			wantWarnings: []string{"origin/agent differs from origin/main. This script will not force-sync it; use the PR workflow or an explicit human reset decision."},
+			wantWarnings: []string{},
 			wantArgs: [][]string{
 				{"fetch", "origin", "agent"},
 				{"branch", "--track", "agent", "origin/agent"},
@@ -93,6 +93,24 @@ func TestComputeAgentBranchPlan(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestComputeAgentBranchPlanReportsExistingStagingHistoryAsStatus(t *testing.T) {
+	plan := ComputeAgentBranchPlan(AgentBranchPlanInput{
+		Remote: "origin", BaseBranch: "main", TargetBranch: "dev",
+		RemoteBaseSHA: mainSHA, RemoteTargetSHA: agentSHA,
+		LocalTargetSHA: agentSHA, LocalTargetUpstream: "origin/dev",
+	})
+
+	if len(plan.Warnings) != 0 {
+		t.Fatalf("warnings = %#v, want none", plan.Warnings)
+	}
+	assertStrings(t, plan.Status, []string{
+		"origin/main: 111111111111",
+		"origin/dev: 222222222222",
+		"origin/dev has existing staging history; Baton will preserve it.",
+		"dev: 222222222222",
+	})
 }
 
 func assertStrings(t *testing.T, got, want []string) {

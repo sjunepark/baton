@@ -1072,7 +1072,7 @@ func runEnsureBranch(ctx context.Context, args []string, stdout, stderr io.Write
 		}
 	}
 	if !*jsonOut {
-		fmt.Fprintln(stdout, "Agent branch plan:")
+		fmt.Fprintln(stdout, "Staging branch plan:")
 		for _, line := range plan.Status {
 			fmt.Fprintf(stdout, "- %s\n", line)
 		}

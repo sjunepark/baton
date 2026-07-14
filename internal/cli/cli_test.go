@@ -407,6 +407,26 @@ func TestCommandHelpCatalogCoversSafetyRelevantFlags(t *testing.T) {
 	}
 }
 
+func TestEnsureBranchUsesStagingTerminologyForExistingHistory(t *testing.T) {
+	args := []string{
+		"ensure-branch", "--remote", "origin", "--base", "main", "--target", "dev",
+		"--remote-base", "1111111111111111111111111111111111111111",
+		"--remote-target", "2222222222222222222222222222222222222222",
+		"--local-target", "2222222222222222222222222222222222222222",
+		"--local-upstream", "origin/dev",
+	}
+	var stdout, stderr bytes.Buffer
+	if code := Run(args, &stdout, &stderr, "test"); code != exitOK {
+		t.Fatalf("exit = %d; stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Staging branch plan:") || strings.Contains(stdout.String(), "warning:") {
+		t.Fatalf("stdout = %q, want neutral staging-branch status", stdout.String())
+	}
+	if stderr.String() != "" {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+}
+
 func TestReviewThreadsRejectsNegativeBodyLimit(t *testing.T) {
 	configPath := writeDefaultConfig(t, t.TempDir())
 	var stdout, stderr bytes.Buffer
