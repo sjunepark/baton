@@ -79,3 +79,15 @@ func TestClientCancellationCancelsGraphQLRequest(t *testing.T) {
 		t.Fatalf("error=%T %v", err, err)
 	}
 }
+
+func TestGraphQLEndpointUsesGitHubEnterpriseAPIPath(t *testing.T) {
+	tests := map[string]string{
+		"https://api.github.com":        "https://api.github.com/graphql",
+		"https://github.example/api/v3": "https://github.example/api/graphql",
+	}
+	for apiURL, want := range tests {
+		if got := graphQLEndpoint(apiURL); got != want {
+			t.Fatalf("graphQLEndpoint(%q) = %q, want %q", apiURL, got, want)
+		}
+	}
+}

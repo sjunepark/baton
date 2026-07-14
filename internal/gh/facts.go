@@ -115,3 +115,27 @@ type CommitListing struct {
 	// page failures return an error and no partial listing.
 	GitHubCapReached bool
 }
+
+const (
+	// PromotionCommitCap bounds the number of commits whose pull-request
+	// associations Baton will verify for one promotion. Exceeding the cap is an
+	// incomplete result, never evidence that the promotion is manual-only.
+	PromotionCommitCap = 250
+	// PromotionAssociationCap applies the same fail-closed bound to the pull
+	// requests associated with any one compared commit.
+	PromotionAssociationCap      = 250
+	promotionCommitNodeBatchSize = 50
+)
+
+type PromotionWorkPullRequest struct {
+	Number int
+	Title  string
+	Body   string
+}
+
+type PromotionHistory struct {
+	WorkPullRequests []PromotionWorkPullRequest
+	// Complete means every compared commit and every commit-to-PR association
+	// was observed within the explicit caps.
+	Complete bool
+}

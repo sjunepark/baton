@@ -518,6 +518,73 @@ func TestPRPolicyJSONReturnsPolicyExitOnErrors(t *testing.T) {
 	}
 }
 
+func TestPRPolicyPromotionFixturesExposeEvidence(t *testing.T) {
+	dir := t.TempDir()
+	configPath := writeDefaultConfig(t, dir)
+	tests := []struct {
+		name     string
+		body     string
+		facts    string
+		wantCode int
+	}{
+		{name: "manual-only", body: "Manual promotion", facts: `{"expectedIssues":[],"complete":true}`, wantCode: exitOK},
+		{name: "issue-backed", body: "Closes #7", facts: `{"expectedIssues":[7],"complete":true}`, wantCode: exitOK},
+		{name: "unrelated", body: "Closes #8", facts: `{"expectedIssues":[7],"complete":true}`, wantCode: exitPolicy},
+		{name: "degraded", body: "Closes #7", facts: `{"expectedIssues":[7],"complete":false}`, wantCode: exitPolicy},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fixture := filepath.Join(dir, tt.name+".json")
+			content := fmt.Sprintf(`{
+  "pullRequest": {
+    "number": 10,
+    "title": "Promote agent to main",
+    "body": %q,
+    "baseRef": "main",
+    "headRef": "agent",
+    "baseRepositoryFullName": "example-org/example-repo",
+    "headRepositoryFullName": "example-org/example-repo"
+  },
+  "promotionFacts": %s,
+  "commitMessages": ["Promote reviewed changes"]
+}`, tt.body, tt.facts)
+			if err := os.WriteFile(fixture, []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var stdout, stderr bytes.Buffer
+			code := Run([]string{"pr-policy", "--fixture", fixture, "--config", configPath, "--json"}, &stdout, &stderr, "test")
+			if code != tt.wantCode {
+				t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, tt.wantCode, stdout.String(), stderr.String())
+			}
+			var decision policy.PRPolicyDecision
+			if err := json.Unmarshal(stdout.Bytes(), &decision); err != nil {
+				t.Fatal(err)
+			}
+			if decision.PromotionFacts == nil || !strings.Contains(stdout.String(), "expectedIssues") || !strings.Contains(stdout.String(), "complete") {
+				t.Fatalf("decision = %+v; stdout=%s", decision, stdout.String())
+			}
+		})
+	}
+}
+
+func TestPRPolicyHumanOutputExplainsPromotionEvidence(t *testing.T) {
+	dir := t.TempDir()
+	fixture := filepath.Join(dir, "promotion.json")
+	content := `{
+  "pullRequest": {"number":10,"title":"Promote","body":"","baseRef":"main","headRef":"agent"},
+  "promotionFacts": {"expectedIssues":[],"complete":true},
+  "commitMessages": ["Promote manual changes"]
+}`
+	if err := os.WriteFile(fixture, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"pr-policy", "--fixture", fixture, "--config", writeDefaultConfig(t, dir)}, &stdout, &stderr, "test")
+	if code != exitOK || !strings.Contains(stdout.String(), "Promotion evidence: complete=true expectedIssues=[]") {
+		t.Fatalf("Run exit = %d; stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestPolicyCommandFailsWhenRepoConfigMissing(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)

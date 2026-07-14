@@ -167,6 +167,19 @@ true, Baton skips those direct PRs and leaves review, CI, and branch protection
 to the repository. Promotion PRs from `repository.staging_branch` and mistaken
 direct work PRs from `repository.work_branch_prefix` are still enforced.
 
+Promotion enforcement uses the pull request event's base and head revisions to
+derive the merged Baton work PRs included in that promotion. A promotion with
+complete evidence and no included Baton work may contain only manual changes
+and needs no closing keyword. When Baton work is included, the promotion must
+close every issue referenced by those work PRs with a configured closing
+keyword. Unrelated closing references do not satisfy an omitted expected issue,
+and incomplete comparison, association, or work-reference evidence fails the
+policy check.
+Expected issues come from the current title and body of each merged work PR.
+Repositories must treat post-merge edits to that metadata as trusted policy
+changes. GitHub request failures remain operational errors rather than partial
+policy decisions.
+
 ## Legacy Mapping
 
 Creo `.github/agent-issue-policy.yml` maps as:

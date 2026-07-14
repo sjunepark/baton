@@ -701,14 +701,23 @@ func runPRPolicy(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		return exitOK
 	}
 	if len(decision.Errors) == 0 {
+		writePromotionPolicyFacts(stdout, decision)
 		fmt.Fprintln(stdout, "PR policy check passed.")
 		return exitOK
 	}
+	writePromotionPolicyFacts(stderr, decision)
 	fmt.Fprintln(stderr, "PR policy check failed:")
 	for _, msg := range decision.Errors {
 		fmt.Fprintf(stderr, "- %s\n", msg)
 	}
 	return exitPolicy
+}
+
+func writePromotionPolicyFacts(writer io.Writer, decision policy.PRPolicyDecision) {
+	if decision.PromotionFacts == nil {
+		return
+	}
+	fmt.Fprintf(writer, "Promotion evidence: complete=%t expectedIssues=%s\n", decision.PromotionFacts.Complete, intList(decision.PromotionFacts.ExpectedIssues))
 }
 
 func runPRTransition(ctx context.Context, args []string, stdout, stderr io.Writer) int {

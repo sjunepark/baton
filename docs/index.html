@@ -573,13 +573,18 @@ baton issue-policy --body-file issue.md --labels "bug,agent:ready-trivial" --jso
 <pre><code>{
   "schemaVersion": 1,
   "kind": "prPolicyDecision",
-  "flow": "work",
+  "flow": "promotion",
   "errors": [],
   "warnings": [],
-  "referencedIssues": [4],
-  "closingIssues": [],
-  "commitListingReachedCap": false
+  "referencedIssues": [],
+  "closingIssues": [4],
+  "commitListingReachedCap": false,
+  "promotionFacts": {
+    "expectedIssues": [4],
+    "complete": true
+  }
 }</code></pre>
+              <p>Promotion facts are present only for staging-to-base promotions. Manual-only promotions have a complete empty issue set; incomplete evidence fails closed.</p>
               <p><b>Flags:</b> <code>--event &lt;path&gt;</code>, <code>--json</code>.</p>
             </div>
           </details>
@@ -876,6 +881,7 @@ labels:
               <li><b>Linked-issue readiness</b> — referenced issues carry the right labels.</li>
               <li><b>Commit-subject quality</b> — rejects noisy subjects like <code>fix</code>, <code>wip</code>, <code>update</code>.</li>
               <li><b>Commit-listing cap</b> — fails closed when GitHub pagination prevents complete validation.</li>
+              <li><b>Promotion provenance</b> — derives included work from the promotion's base/head revisions and requires closure of every referenced work issue. Complete manual-only promotions need no synthetic issue.</li>
             </ul>
             <p><code>allow_direct_base_branch_prs</code> lets ordinary PRs go straight into the base branch (Baton skips them, leaving review/CI to the repo), while still enforcing promotion PRs from staging and mistaken direct work PRs.</p>
           </div>

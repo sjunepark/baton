@@ -254,6 +254,7 @@ func TestValidateRejectsInvalidCompiledIssuePolicy(t *testing.T) {
 		{name: "duplicate heading", edit: func(cfg *Config) { cfg.IssuePolicy.FormSections["notes"] = cfg.IssuePolicy.FormSections["summary"] }, want: "duplicates heading"},
 		{name: "invalid base branch", edit: func(cfg *Config) { cfg.Repository.BaseBranch = "release..next" }, want: "not a valid git branch"},
 		{name: "invalid staging branch", edit: func(cfg *Config) { cfg.Repository.StagingBranch = "feature:next" }, want: "invalid git ref character"},
+		{name: "same base and staging branch", edit: func(cfg *Config) { cfg.Repository.StagingBranch = cfg.Repository.BaseBranch }, want: "must differ"},
 		{name: "symbolic head branch", edit: func(cfg *Config) { cfg.Repository.StagingBranch = "HEAD" }, want: "not a valid git branch"},
 		{name: "option-like remote", edit: func(cfg *Config) { cfg.Repository.DefaultRemote = "--upload-pack" }, want: "non-option git remote"},
 	}

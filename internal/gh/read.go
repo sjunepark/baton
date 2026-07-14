@@ -466,7 +466,7 @@ func (c *Client) postGraphQLContext(ctx context.Context, payload graphQLPayload,
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/graphql", bytes.NewReader(content))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, graphQLEndpoint(c.baseURL), bytes.NewReader(content))
 	if err != nil {
 		return nil, err
 	}
@@ -492,6 +492,14 @@ func (c *Client) postGraphQLContext(ctx context.Context, payload graphQLPayload,
 		return resp.Header.Clone(), APIError{Method: http.MethodPost, Path: "/graphql", Status: resp.Status, StatusCode: resp.StatusCode, RequestID: resp.Header.Get("X-GitHub-Request-Id"), Cause: err}
 	}
 	return resp.Header.Clone(), nil
+}
+
+func graphQLEndpoint(apiBaseURL string) string {
+	apiBaseURL = strings.TrimRight(apiBaseURL, "/")
+	if strings.HasSuffix(apiBaseURL, "/api/v3") {
+		return strings.TrimSuffix(apiBaseURL, "/api/v3") + "/api/graphql"
+	}
+	return apiBaseURL + "/graphql"
 }
 
 type reviewThreadsGraphQLResponse struct {

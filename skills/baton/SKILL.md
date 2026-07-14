@@ -157,7 +157,9 @@ argument.
 - Create work from the configured staging branch in the isolated checkout.
 - Open the work PR to the staging branch with `Refs #<issue>`, not closing
   keywords.
-- Do not close issues from work PRs; closure belongs to promotion PRs.
+- Do not close issues from work PRs. Baton derives issue-backed work included
+  in each promotion and requires that promotion to close every derived issue;
+  manual-only promotions do not need a synthetic closing reference.
 
 ## References
 

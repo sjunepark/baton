@@ -103,22 +103,64 @@ func TestComputePullRequestPolicy(t *testing.T) {
 			wantErrorSubstr: "Baton work PRs from agent-work/* must target agent before promotion to main.",
 		},
 		{
-			name: "promotion PR from agent requires closing keywords",
+			name: "issue-backed promotion requires every expected issue",
 			input: PRPolicyInput{
-				PullRequest:    promotionPullRequest("Refs #123", "agent"),
+				PullRequest:    promotionPullRequest("Closes #124", "agent"),
+				PromotionFacts: completePromotionFacts(123, 124),
 				CommitMessages: []string{"Document issue policy"},
 			},
 			wantFlow:        PRFlowPromotion,
-			wantErrorSubstr: "Promotion PRs into main must close promoted issues with Closes #123.",
+			wantErrorSubstr: "Promotion PRs into main must close every included Baton issue with Closes; missing: #123.",
 		},
 		{
-			name: "promotion PR from agent with closing keywords passes",
+			name: "issue-backed promotion with every expected issue passes",
 			input: PRPolicyInput{
-				PullRequest:    promotionPullRequest("Closes #123", "agent"),
+				PullRequest:    promotionPullRequest("Closes #124, #123", "agent"),
+				PromotionFacts: completePromotionFacts(123, 124),
 				CommitMessages: []string{"Document issue policy"},
 			},
 			wantFlow:   PRFlowPromotion,
 			wantErrors: []string{},
+		},
+		{
+			name: "manual-only promotion needs no closing keyword",
+			input: PRPolicyInput{
+				PullRequest:    promotionPullRequest("Manual maintenance", "agent"),
+				PromotionFacts: completePromotionFacts(),
+				CommitMessages: []string{"Maintain deployment files"},
+			},
+			wantFlow:   PRFlowPromotion,
+			wantErrors: []string{},
+		},
+		{
+			name: "unrelated closing issue does not satisfy promotion",
+			input: PRPolicyInput{
+				PullRequest:    promotionPullRequest("Closes #999", "agent"),
+				PromotionFacts: completePromotionFacts(123),
+				CommitMessages: []string{"Promote agent work"},
+			},
+			wantFlow:        PRFlowPromotion,
+			wantErrorSubstr: "Promotion PRs into main must close every included Baton issue with Closes; missing: #123.",
+		},
+		{
+			name: "mixed promotion requires only Baton issues",
+			input: PRPolicyInput{
+				PullRequest:    promotionPullRequest("Includes manual changes. Closes #123", "agent"),
+				PromotionFacts: completePromotionFacts(123),
+				CommitMessages: []string{"Promote mixed changes"},
+			},
+			wantFlow:   PRFlowPromotion,
+			wantErrors: []string{},
+		},
+		{
+			name: "incomplete promotion evidence fails explicitly",
+			input: PRPolicyInput{
+				PullRequest:    promotionPullRequest("Closes #123", "agent"),
+				PromotionFacts: &PromotionFacts{ExpectedIssues: []int{123}},
+				CommitMessages: []string{"Promote agent work"},
+			},
+			wantFlow:        PRFlowPromotion,
+			wantErrorSubstr: "Promotion evidence is incomplete; Baton could not verify every included work PR and its issue references between the promotion base and head revisions.",
 		},
 		{
 			name: "commit subjects must be meaningful",
@@ -145,6 +187,7 @@ func TestComputePullRequestPolicy(t *testing.T) {
 			name: "promotion PR fails closed at commit cap",
 			input: PRPolicyInput{
 				PullRequest:             promotionPullRequest("Closes #123", "agent"),
+				PromotionFacts:          completePromotionFacts(123),
 				CommitMessages:          meaningfulCommits(250),
 				CommitListingReachedCap: true,
 			},
@@ -208,10 +251,11 @@ func TestComputePullRequestPolicyUsesConfiguredKeywords(t *testing.T) {
 
 	promotion := ComputePullRequestPolicy(PRPolicyInput{
 		PullRequest:    promotionPullRequest("Closes #123", "agent"),
+		PromotionFacts: completePromotionFacts(123),
 		CommitMessages: []string{"Document issue policy"},
 		Policy:         cfg,
 	})
-	if !containsString(promotion.Errors, "Promotion PRs into main must close promoted issues with Finishes #123.") {
+	if !containsString(promotion.Errors, "Promotion PRs into main must close every included Baton issue with Finishes; missing: #123.") {
 		t.Fatalf("errors = %#v, want configured closing keyword error", promotion.Errors)
 	}
 }
@@ -267,6 +311,10 @@ func promotionPullRequest(body, headRef string) PullRequest {
 
 func issue(number int, labels ...string) ReferencedIssue {
 	return ReferencedIssue{Number: number, Labels: labels}
+}
+
+func completePromotionFacts(issueNumbers ...int) *PromotionFacts {
+	return &PromotionFacts{ExpectedIssues: issueNumbers, Complete: true}
 }
 
 func meaningfulCommits(count int) []string {

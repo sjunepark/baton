@@ -297,7 +297,10 @@ Ready issues use the configured form headings and required sections. Incomplete
 ready issues receive %s and one updatable policy comment.
 
 Work PRs target %s from branches prefixed with %s and reference issues with
-%s #123. Promotion PRs target %s from %s and use configured closing keywords.
+%s #123. Promotion PRs target %s from %s. Baton derives the included work PRs
+from the promotion revisions and requires closing keywords for every referenced
+work issue. Manual-only promotions need no artificial issue reference; incomplete
+promotion evidence fails policy instead of guessing.
 `, markdownLabels(policy.IssuePolicy.ImplementationLabels), markdownLabels(policy.IssuePolicy.CommentOnlyLabels), markdownLabels(policy.IssuePolicy.SkipLabels), markdownLabels([]string{policy.IssuePolicy.AwaitingReviewLabel}), qualityGate, policy.Repository.StagingBranch, policy.Repository.WorkBranchPrefix, policy.PRPolicy.RequiredReferenceKeyword, policy.Repository.BaseBranch, policy.Repository.StagingBranch))
 }
 

@@ -226,14 +226,29 @@ JSON result:
 {
   "schemaVersion": 1,
   "kind": "prPolicyDecision",
-  "flow": "work",
+  "flow": "promotion",
   "errors": [],
   "warnings": [],
-  "referencedIssues": [4],
-  "closingIssues": [],
-  "commitListingReachedCap": false
+  "referencedIssues": [],
+  "closingIssues": [4],
+  "commitListingReachedCap": false,
+  "promotionFacts": {
+    "expectedIssues": [4],
+    "complete": true
+  }
 }
 ```
+
+`promotionFacts` is present only for staging-to-base promotions. `expectedIssues`
+is derived from merged Baton work PRs included between the event's base and head
+revisions. A complete empty set allows a manual-only promotion without a closing
+keyword. `complete: false` is a non-passing verification result. These additive
+fields retain `prPolicyDecision` schema version 1.
+
+`complete: false` means GitHub returned a bounded but insufficient comparison
+or association result, or an included Baton work PR lacks the configured issue
+reference. A failed GitHub request is not a policy decision; it returns the
+existing structured GitHub error with exit code 5.
 
 ### `baton pr-transition`
 

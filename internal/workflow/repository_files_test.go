@@ -25,6 +25,29 @@ func TestRepositoryFilesWorkflowMigrateConfigDryRunDoesNotWrite(t *testing.T) {
 	}
 }
 
+func TestRepositoryFilesWorkflowInitUsesRepositoryRootFromSubdirectory(t *testing.T) {
+	root := t.TempDir()
+	if output, err := exec.Command("git", "init", root).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, output)
+	}
+	nested := filepath.Join(root, "nested", "deeper")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(nested)
+	plan, err := (RepositoryFilesWorkflow{}).Init(InitInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Root != want {
+		t.Fatalf("plan root = %q, want %q", plan.Root, want)
+	}
+}
+
 func TestRepositoryFilesWorkflowLabelsUsesCompiledManifestPath(t *testing.T) {
 	root := t.TempDir()
 	if output, err := exec.Command("git", "init", root).CombinedOutput(); err != nil {

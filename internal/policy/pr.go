@@ -26,23 +26,30 @@ type ReferencedIssue struct {
 	Labels []string `json:"labels"`
 }
 
+type PromotionFacts struct {
+	ExpectedIssues []int `json:"expectedIssues"`
+	Complete       bool  `json:"complete"`
+}
+
 type PRPolicyInput struct {
 	PullRequest             PullRequest       `json:"pullRequest"`
 	ReferencedIssues        []ReferencedIssue `json:"referencedIssues"`
 	CommitMessages          []string          `json:"commitMessages"`
 	CommitListingReachedCap bool              `json:"commitListingReachedCap"`
+	PromotionFacts          *PromotionFacts   `json:"promotionFacts,omitempty"`
 	Policy                  config.Config     `json:"-"`
 }
 
 type PRPolicyDecision struct {
-	SchemaVersion           int      `json:"schemaVersion"`
-	Kind                    string   `json:"kind"`
-	Flow                    PRFlow   `json:"flow"`
-	Errors                  []string `json:"errors"`
-	Warnings                []string `json:"warnings"`
-	ReferencedIssues        []int    `json:"referencedIssues"`
-	ClosingIssues           []int    `json:"closingIssues"`
-	CommitListingReachedCap bool     `json:"commitListingReachedCap"`
+	SchemaVersion           int             `json:"schemaVersion"`
+	Kind                    string          `json:"kind"`
+	Flow                    PRFlow          `json:"flow"`
+	Errors                  []string        `json:"errors"`
+	Warnings                []string        `json:"warnings"`
+	ReferencedIssues        []int           `json:"referencedIssues"`
+	ClosingIssues           []int           `json:"closingIssues"`
+	CommitListingReachedCap bool            `json:"commitListingReachedCap"`
+	PromotionFacts          *PromotionFacts `json:"promotionFacts,omitempty"`
 }
 
 type PRFlow string
@@ -75,12 +82,15 @@ func ComputePullRequestPolicy(input PRPolicyInput) PRPolicyDecision {
 	targetBranch := cfg.Repository.StagingBranch
 	baseBranch := cfg.Repository.BaseBranch
 	flow := ClassifyPullRequestFlow(input.PullRequest, cfg)
+	var promotionFacts *PromotionFacts
 
 	switch flow {
 	case PRFlowWork:
 		validateWorkPullRequest(&errors, input, cfg, referenced, closing, targetBranch)
 	case PRFlowPromotion:
-		validatePromotionPullRequest(&errors, input, cfg, closing, targetBranch, baseBranch)
+		facts := normalizedPromotionFacts(input.PromotionFacts)
+		promotionFacts = &facts
+		validatePromotionPullRequest(&errors, input, cfg, closing, facts, targetBranch, baseBranch)
 	case PRFlowInvalidDirectWork:
 		errors = append(errors, fmt.Sprintf("Baton work PRs from %s* must target %s before promotion to %s.", cfg.Repository.WorkBranchPrefix, targetBranch, baseBranch))
 	case PRFlowDirectBase:
@@ -100,6 +110,7 @@ func ComputePullRequestPolicy(input PRPolicyInput) PRPolicyDecision {
 		ReferencedIssues:        referenced,
 		ClosingIssues:           closing,
 		CommitListingReachedCap: input.CommitListingReachedCap,
+		PromotionFacts:          promotionFacts,
 	}
 }
 
@@ -183,7 +194,7 @@ func validateWorkPullRequest(errors *[]string, input PRPolicyInput, cfg config.C
 	validateCommitMessages(errors, input, cfg)
 }
 
-func validatePromotionPullRequest(errors *[]string, input PRPolicyInput, cfg config.Config, closing []int, targetBranch, baseBranch string) {
+func validatePromotionPullRequest(errors *[]string, input PRPolicyInput, cfg config.Config, closing []int, facts PromotionFacts, targetBranch, baseBranch string) {
 	if input.PullRequest.HeadRef != targetBranch {
 		*errors = append(*errors, fmt.Sprintf("Promotion PRs into %s must come from %s.", baseBranch, targetBranch))
 	}
@@ -192,10 +203,42 @@ func validatePromotionPullRequest(errors *[]string, input PRPolicyInput, cfg con
 		input.PullRequest.HeadRepositoryFullName != input.PullRequest.BaseRepositoryFullName {
 		*errors = append(*errors, fmt.Sprintf("Promotion PRs into %s must come from the same repository.", baseBranch))
 	}
-	if len(closing) == 0 {
-		*errors = append(*errors, fmt.Sprintf("Promotion PRs into %s must close promoted issues with %s #123.", baseBranch, firstNonEmpty(firstString(cfg.PRPolicy.ForbiddenClosingKeywords), "a closing keyword")))
+	if !facts.Complete {
+		*errors = append(*errors, "Promotion evidence is incomplete; Baton could not verify every included work PR and its issue references between the promotion base and head revisions.")
+	} else if missing := missingInts(facts.ExpectedIssues, closing); len(missing) > 0 {
+		keyword := firstNonEmpty(firstString(cfg.PRPolicy.ForbiddenClosingKeywords), "a closing keyword")
+		*errors = append(*errors, fmt.Sprintf("Promotion PRs into %s must close every included Baton issue with %s; missing: %s.", baseBranch, keyword, formatIssueNumbers(missing)))
 	}
 	validateCommitMessages(errors, input, cfg)
+}
+
+func normalizedPromotionFacts(facts *PromotionFacts) PromotionFacts {
+	if facts == nil {
+		return PromotionFacts{ExpectedIssues: []int{}}
+	}
+	return PromotionFacts{ExpectedIssues: uniqueSortedInts(facts.ExpectedIssues), Complete: facts.Complete}
+}
+
+func missingInts(expected, actual []int) []int {
+	actualSet := map[int]struct{}{}
+	for _, number := range actual {
+		actualSet[number] = struct{}{}
+	}
+	missing := make([]int, 0)
+	for _, number := range uniqueSortedInts(expected) {
+		if _, exists := actualSet[number]; !exists {
+			missing = append(missing, number)
+		}
+	}
+	return missing
+}
+
+func formatIssueNumbers(numbers []int) string {
+	values := make([]string, len(numbers))
+	for index, number := range numbers {
+		values[index] = fmt.Sprintf("#%d", number)
+	}
+	return strings.Join(values, ", ")
 }
 
 func validateCommitMessages(errors *[]string, input PRPolicyInput, cfg config.Config) {

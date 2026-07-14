@@ -286,6 +286,9 @@ func (cfg Config) Validate() error {
 	if cfg.Repository.StagingBranch == "" {
 		return errors.New("repository.staging_branch is required")
 	}
+	if cfg.Repository.BaseBranch == cfg.Repository.StagingBranch {
+		return errors.New("repository.base_branch and repository.staging_branch must differ")
+	}
 	if cfg.Repository.WorkBranchPrefix == "" || cfg.Repository.WorkBranchPrefix[len(cfg.Repository.WorkBranchPrefix)-1] != '/' {
 		return errors.New("repository.work_branch_prefix must end with /")
 	}

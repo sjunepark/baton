@@ -25,6 +25,9 @@ func (RepositoryFilesWorkflow) Init(input InitInput) (install.Plan, error) {
 	root := input.Root
 	if root == "" {
 		root = "."
+		if resolved, err := gitadapter.RepositoryRoot(root); err == nil {
+			root = resolved
+		}
 	}
 	options := install.Options{GoInstall: input.GoInstall, InstallCommand: input.InstallCommand}
 	var (

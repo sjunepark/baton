@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/sjunepark/baton/internal/apperror"
@@ -30,6 +31,7 @@ type PullRequestPolicyInput struct {
 type PullRequestPolicyGitHub interface {
 	FetchIssueLabelsContext(context.Context, string, []int) ([]gh.ReferencedIssue, error)
 	FetchCommitListingContext(context.Context, string, int) (gh.CommitListing, error)
+	FetchPromotionHistoryContext(context.Context, string, string, string, string, string) (gh.PromotionHistory, error)
 }
 
 type PullRequestPolicyWorkflow struct {
@@ -89,19 +91,39 @@ func (workflow PullRequestPolicyWorkflow) RunContext(ctx context.Context, input 
 	if err != nil {
 		return policy.PRPolicyDecision{}, err
 	}
+	flow := policy.ClassifyPullRequestFlow(policyInput.PullRequest, cfg)
+	if flow != policy.PRFlowWork && flow != policy.PRFlowPromotion {
+		return policy.ComputePullRequestPolicy(policyInput), nil
+	}
 	client, err := workflow.newClient(ctx, input)
 	if err != nil {
 		return policy.PRPolicyDecision{}, err
 	}
-	issueNumbers := pullRequestIssueNumbers(event, cfg.PRPolicy.RequiredReferenceKeyword)
-	if len(issueNumbers) > 0 {
-		issues, err := client.FetchIssueLabelsContext(ctx, repo, issueNumbers)
+	if flow == policy.PRFlowWork {
+		issueNumbers := pullRequestIssueNumbers(event, cfg.PRPolicy.RequiredReferenceKeyword)
+		if len(issueNumbers) > 0 {
+			issues, err := client.FetchIssueLabelsContext(ctx, repo, issueNumbers)
+			if err != nil {
+				return policy.PRPolicyDecision{}, classifyGitHubError(err)
+			}
+			policyInput.ReferencedIssues = make([]policy.ReferencedIssue, 0, len(issues))
+			for _, issue := range issues {
+				policyInput.ReferencedIssues = append(policyInput.ReferencedIssues, policy.ReferencedIssue{Number: issue.Number, Labels: issue.Labels})
+			}
+		}
+	}
+	if flow == policy.PRFlowPromotion {
+		history, err := client.FetchPromotionHistoryContext(
+			ctx, repo, event.BaseSHA, event.HeadSHA,
+			cfg.Repository.StagingBranch, cfg.Repository.WorkBranchPrefix,
+		)
 		if err != nil {
 			return policy.PRPolicyDecision{}, classifyGitHubError(err)
 		}
-		policyInput.ReferencedIssues = make([]policy.ReferencedIssue, 0, len(issues))
-		for _, issue := range issues {
-			policyInput.ReferencedIssues = append(policyInput.ReferencedIssues, policy.ReferencedIssue{Number: issue.Number, Labels: issue.Labels})
+		expectedIssues, referencesComplete := promotionExpectedIssueNumbers(history.WorkPullRequests, cfg.PRPolicy.RequiredReferenceKeyword)
+		policyInput.PromotionFacts = &policy.PromotionFacts{
+			ExpectedIssues: expectedIssues,
+			Complete:       history.Complete && referencesComplete,
 		}
 	}
 	listing, err := client.FetchCommitListingContext(ctx, repo, event.Number)
@@ -161,6 +183,30 @@ func pullRequestIssueNumbers(event gh.PullRequestEvent, referenceKeyword string)
 		result = append(result, number)
 	}
 	return result
+}
+
+func promotionExpectedIssueNumbers(workPullRequests []gh.PromotionWorkPullRequest, referenceKeyword string) ([]int, bool) {
+	seen := map[int]struct{}{}
+	result := []int{}
+	complete := true
+	for _, pullRequest := range workPullRequests {
+		numbers := append(
+			policy.ExtractReferenceIssueNumbersForPolicy(pullRequest.Title, referenceKeyword),
+			policy.ExtractReferenceIssueNumbersForPolicy(pullRequest.Body, referenceKeyword)...,
+		)
+		if len(numbers) == 0 {
+			complete = false
+		}
+		for _, number := range numbers {
+			if _, exists := seen[number]; exists {
+				continue
+			}
+			seen[number] = struct{}{}
+			result = append(result, number)
+		}
+	}
+	sort.Ints(result)
+	return result, complete
 }
 
 func firstNonBlank(values ...string) string {
