@@ -77,7 +77,11 @@ func ComputeAgentBranchPlan(input AgentBranchPlanInput) AgentBranchPlan {
 
 	plan.Status = append(plan.Status, remoteTarget+": "+shortSHA(input.RemoteTargetSHA))
 	if input.RemoteTargetSHA != input.RemoteBaseSHA {
-		plan.Warnings = append(plan.Warnings, remoteTarget+" differs from "+remoteBase+". This script will not force-sync it; use the PR workflow or an explicit human reset decision.")
+		// Different tips are expected once work lands on the staging branch. SHA
+		// inequality alone does not establish whether the refs are ahead, behind,
+		// or diverged, so preserve the remote branch without presenting normal
+		// staged work as a readiness warning.
+		plan.Status = append(plan.Status, remoteTarget+" has existing staging history; Baton will preserve it.")
 	}
 
 	if input.LocalTargetSHA == "" {

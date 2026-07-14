@@ -65,8 +65,8 @@ uncertain.
 - Expected output: setup gaps, auth/config status, and exact safe commands to
   fix missing pieces.
 - Safety boundaries: read-only or dry-run; no setup is applied.
-- Common stop conditions: missing auth, missing local config, or branch
-  divergence that needs a human decision.
+- Common stop conditions: missing auth, missing local config, or a local
+  staging branch that differs from its configured remote.
 
 ## Inspect Queue And Next Action
 
@@ -182,7 +182,7 @@ Use when preparing a repository for Baton-managed issue and PR automation.
 - Safety boundaries: dry-run/read-only by default; do not apply setup or resolve
   branch divergence without explicit approval.
 - Common stop conditions: unreviewed install diff, legacy config ambiguity,
-  label policy mismatch, or branch state that needs a human decision.
+  label policy mismatch, or unsafe local staging-branch state.
 
 ## Set Up Scheduled Automation
 
