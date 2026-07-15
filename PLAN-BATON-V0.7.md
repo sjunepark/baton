@@ -42,6 +42,10 @@ used as v0.7 requirements.
 - The production Task store now uses typed GitHub issue/label endpoints with
   server-side enrollment filtering, complete pagination, narrow label reads,
   safe error translation, and no orchestration-fact acquisition.
+- The public CLI is now the setup-free Task surface only. Explicit and ambient
+  repository identities stop local discovery; optional local inference reads
+  only `origin`. Legacy runtime packages still compile but are unreachable and
+  remain for the final M3 deletion slice.
 
 ## Confirmed product decisions
 
@@ -228,3 +232,9 @@ Task module may change without adding public concepts.
   idempotent label deletion, close support, safe Task error codes, and request-
   boundary tests. `go vet ./...`, `go test ./...`, and focused race tests pass.
   Next: cut over setup-free repository resolution and the standalone CLI.
+- **2026-07-16 — Standalone CLI cutover:** Replaced the orchestration-facing
+  CLI with list/show/next and explicit Task lifecycle verbs, canonical JSON/
+  text rendering, three exits, and pre-network validation. Repository targeting
+  now proves explicit, ambient, and config-free local precedence. Repository-
+  wide vet/tests, pinned staticcheck, binary help, and focused race tests pass.
+  Next: delete the now-unreachable legacy runtime and fixtures.

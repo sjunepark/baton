@@ -12,8 +12,8 @@ compatibility.
 - The contract is represented in the new `internal/task` model and service.
 - Lifecycle precedence, missing/contradictory classification, blockers with
   activity, closed Tasks, and unenrolled issues have direct external-package
-  tests. CLI JSON/text goldens and the complete ordering/idempotence matrix
-  remain for the CLI cutover slice.
+  tests. CLI JSON/error goldens, empty states, and idempotent lifecycle outcomes
+  are covered; the exhaustive label/next-ordering matrix remains.
 
 ## Domain model
 
@@ -231,13 +231,13 @@ There is no installed intake profile in v0.7:
 - [ ] Table-test every label combination and derived lifecycle outcome.
 - [x] Cover contradictory modes, missing mode, multiple priorities, blockers
   with activity, closed tasks, and unenrolled issues.
-- [ ] Golden-test the small JSON list/show/next/mutation and error shapes
+- [x] Golden-test the small JSON list/show/next/mutation and error shapes
   without downstream-tool-specific fixtures.
-- [ ] Test definitive empty lists and no-next-task results.
+- [x] Test definitive empty lists and no-next-task results.
 - [ ] Test singular next ordering across priority, unspecified priority, issue
   number, and every mode; mode must not affect ordering.
-- [ ] Test idempotent enroll, unenroll, start, stop, and close outcomes.
-- [ ] Test explicit repository precedence, including a broken lower-precedence
+- [x] Test idempotent enroll, unenroll, start, stop, and close outcomes.
+- [x] Test explicit repository precedence, including a broken lower-precedence
   local remote, and prove that no config discovery occurs.
 - [x] Test that list/next never read comments or request PR, branch, check,
   review-thread, commit, settings, or delivery facts.
@@ -262,3 +262,7 @@ There is no installed intake profile in v0.7:
   proving list/next use only the server-filtered GitHub issues endpoint and do
   not acquire comments or orchestration facts. Transport failures become small
   Task codes without leaking response bodies or credentials.
+- **2026-07-16 — Public contract cutover:** Replaced the v0.6 CLI projections
+  with canonical list/show/next/mutation/error goldens, definitive empty states,
+  exact fixed flags, and the three-exit contract. CLI and resolver tests prove
+  explicit, ambient, and local repository precedence without config discovery.

@@ -20,8 +20,10 @@ behind compatibility wrappers.
 - The production GitHub Task store now performs server-filtered issue reads,
   exact label lookups/creation, label mutations, and close operations through
   the typed client with complete pagination and safe typed errors.
-- Setup-free repository resolution, CLI cutover, trimming obsolete GitHub
-  methods, and old-runtime deletion remain.
+- Setup-free repository resolution and the standalone Task CLI are active; old
+  commands return the ordinary unknown-command usage error.
+- Trimming obsolete GitHub methods and deleting the unreachable legacy runtime,
+  packages, tests, and fixtures remain.
 
 ## Architecture audit findings
 
@@ -114,9 +116,9 @@ one real adapter and no testing value.
 
 ### 3. Make repository context setup-free
 
-- [ ] Resolve explicit `--repo` first, then `GITHUB_REPOSITORY`, then optional
+- [x] Resolve explicit `--repo` first, then `GITHUB_REPOSITORY`, then optional
   local inference.
-- [ ] Stop resolving after the first authoritative source. Do not inspect,
+- [x] Stop resolving after the first authoritative source. Do not inspect,
   compare, or reject a broken checkout remote when `--repo` or the environment
   already supplied the repository.
 - [ ] Delete active config loading, `--config`, `.github/baton.yml` discovery,
@@ -125,32 +127,32 @@ one real adapter and no testing value.
   the Task module. Do not add a configurable label-role abstraction.
 - [ ] Remove `gopkg.in/yaml.v3` and run `go mod tidy` after its config,
   manifest, and installer consumers are gone.
-- [ ] Preserve existing token discovery where useful. Calling `gh auth token`
+- [x] Preserve existing token discovery where useful. Calling `gh auth token`
   as a credential provider remains allowed; do not scrape human-oriented `gh`
   command output for Task facts.
 
 ### 4. Cut over the CLI
 
-- [ ] Implement exactly the top-level list, show, next, enroll, update,
+- [x] Implement exactly the top-level list, show, next, enroll, update,
   unenroll, start, stop, close, and `--version` surface from the public
   contract. Do not expose a `task` namespace or a second version spelling.
-- [ ] Implement the exact fixed mode, priority, and repeatable blocker flags
+- [x] Implement the exact fixed mode, priority, and repeatable blocker flags
   from the public contract. Reject an empty `update`, conflicting blocker
   flags, and invalid enum values as usage errors before auth or network work.
 - [ ] Make no-argument Baton print concise help without resolving auth,
   repository, config, git, or network state. Delete `home` and `doctor`.
-- [ ] Make `next` return one ready Task using priority then issue number across
+- [x] Make `next` return one ready Task using priority then issue number across
   all modes, or a definitive null. Delete action tiers, candidate/deferred
   collections, human-choice states, and `--action`.
-- [ ] Use a fixed compact text list and a bounded detail body. Delete
+- [x] Use a fixed compact text list and a bounded detail body. Delete
   `--fields` and field registries.
-- [ ] Return definitive empty states and idempotent success/no-op results.
-- [ ] Reject unknown input before auth or network calls and include the valid
+- [x] Return definitive empty states and idempotent success/no-op results.
+- [x] Reject unknown input before auth or network calls and include the valid
   correction in structured output.
-- [ ] Render human text or `--json` from the same Task values. Delete
+- [x] Render human text or `--json` from the same Task values. Delete
   `--format`, TOON renderers/fixtures, per-result schema/kind fields, result
   help/instructions, and compatibility projections.
-- [ ] Reduce public exits to success `0`, operational failure `1`, and usage
+- [x] Reduce public exits to success `0`, operational failure `1`, and usage
   error `2`. Keep typed internal errors, but emit the small JSON error envelope
   from the public contract, including Task-specific partial-mutation fields
   only when an operation actually failed after applying a change.
@@ -249,7 +251,7 @@ Keep and simplify modules that continue to earn their interface:
   label mutation, and close behavior.
 - [x] Assert list/next make no comment, PR, branch, check, review-thread,
   settings, commit, or delivery request.
-- [ ] Test all commands without config using explicit repo, ambient repo, and
+- [x] Test all commands without config using explicit repo, ambient repo, and
   optional local inference; include an explicit repo beside a broken checkout.
 - [ ] Test every mutation in dry-run/no-op/apply/partial-failure/final-reread
   states without asserting atomic claims or stale-plan identities.
@@ -301,3 +303,10 @@ Keep and simplify modules that continue to earn their interface:
   404s are confirmed safely; errors retain redacted causes behind small Task
   codes. Repository-wide vet/tests and focused race tests pass. Next: setup-
   free repository resolution and CLI cutover.
+- **2026-07-16 — Repository and CLI cutover:** Added stop-at-authority
+  repository resolution with optional read-only origin inference, then replaced
+  the public parser/renderers with only the Task commands and fixed flags.
+  Canonical success/error goldens, partial-error text, empty/no-op states, all
+  help paths, and pre-network rejections are covered. `go vet ./...`,
+  `go test ./...`, pinned staticcheck, and focused race tests pass. Next: M3
+  deletion of the unreachable v0.6 runtime and contracts.
