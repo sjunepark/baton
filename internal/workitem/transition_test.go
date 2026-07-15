@@ -173,6 +173,19 @@ func TestPlanPromotionTransitionCommittedDuplicateHasNoIssueOperations(t *testin
 	}
 }
 
+func TestPlanPromotionTransitionRejectsIncompleteCommittedFacts(t *testing.T) {
+	cfg := config.DefaultConfig()
+	plan := PlanPullRequestTransition(PullRequestEvent{
+		Repository: "example/repo", Action: "closed", Number: 50, Merged: true,
+		BaseRef: cfg.Repository.BaseBranch, HeadRef: cfg.Repository.StagingBranch,
+		BaseRepositoryFullName: "example/repo", HeadRepositoryFullName: "example/repo",
+		Promotion: &PromotionTransition{Committed: true},
+	}, cfg)
+	if len(plan.Operations) != 0 || len(plan.Warnings) != 1 || !strings.Contains(plan.Warnings[0], "incomplete") {
+		t.Fatalf("plan = %+v", plan)
+	}
+}
+
 func TestPromotionTransitionPublicJSONFixture(t *testing.T) {
 	cfg := config.DefaultConfig()
 	got := PlanPullRequestTransition(PullRequestEvent{

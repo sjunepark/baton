@@ -908,7 +908,10 @@ func applyDeliveryBootstrap(ctx context.Context, client DeliveryBootstrapGitHub,
 		if err != nil {
 			return fail(commentIndex, "bootstrap ownership backfill failed", err)
 		}
-		if err := validateTrustedDeliveryWrite(comment, repo, ownership.Issue.Number); err != nil {
+		if err := validateTrustedDeliveryWrite(comment, repo, ownership.Issue.Number); err != nil || comment.Body != ownership.Body {
+			if err == nil {
+				err = fmt.Errorf("bootstrap ownership backfill returned stale content")
+			}
 			return fail(commentIndex, "bootstrap ownership backfill was not trusted", err)
 		}
 		results[commentIndex].Status = operation.StatusApplied
@@ -1074,15 +1077,6 @@ func reconcileBootstrapPromotionRechecks(ctx context.Context, client DeliveryBoo
 func pullRequestMatchesStagedWorkRecord(pr gh.PullRequest, record delivery.StagedWorkRecord, cfg config.Config) bool {
 	if !pr.Merged || pr.Number != record.PullRequest.Number || pr.NodeID != record.PullRequest.NodeID || pr.BaseSHA != record.BaseSHA || pr.HeadSHA != record.HeadSHA || pr.MergeRevision != record.MergeRevision || pr.MergedAt.UTC().Format("2006-01-02T15:04:05Z") != record.MergedAt || !isManagedWorkPullRequest(pr, cfg) {
 		return false
-	}
-	references := uniqueSortedNumbers(append(policy.ExtractReferenceIssueNumbersForPolicy(pr.Title, cfg.PRPolicy.RequiredReferenceKeyword), policy.ExtractReferenceIssueNumbersForPolicy(pr.Body, cfg.PRPolicy.RequiredReferenceKeyword)...))
-	if len(references) != len(record.Issues) {
-		return false
-	}
-	for index, reference := range references {
-		if record.Issues[index].Number != reference {
-			return false
-		}
 	}
 	return true
 }

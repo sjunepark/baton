@@ -55,7 +55,7 @@ func NewGenesisCheckpoint(input GenesisCheckpointInput) (DeliveryCheckpoint, err
 	})
 	return finalizeCheckpoint(DeliveryCheckpoint{
 		LedgerID: input.LedgerID, Repository: input.Repository, Issue: input.Issue,
-		Generation: 1, GenesisBaseSHA: strings.TrimSpace(input.BaseSHA), WindowDigest: genesis, HeadDigest: genesis,
+		Generation: 1, GenesisBaseSHA: strings.TrimSpace(input.BaseSHA), GenesisStagingSHA: strings.TrimSpace(input.StagingSHA), WindowDigest: genesis, HeadDigest: genesis,
 		Cursor: cursor, Coverage: coverage, ActiveRecords: []RecordReference{},
 	}), nil
 }
@@ -845,23 +845,7 @@ func PlanPromotionConsumption(snapshot Snapshot, input PromotionConsumptionInput
 	if resolved.Plan.CursorDigest != checkpoint.Cursor.Digest {
 		return PromotionConsumptionPlan{}, errors.New("promotion consumption cursor is stale")
 	}
-	throughSequence, throughDigest := checkpoint.Cursor.ThroughSequence, checkpoint.Cursor.ThroughDigest
-	var boundary *RecordReference
-	if checkpoint.CursorBoundary != nil {
-		value := *checkpoint.CursorBoundary
-		boundary = &value
-	}
-	for _, work := range resolved.Work {
-		if work.Record.Sequence > throughSequence {
-			throughSequence, throughDigest = work.Record.Sequence, work.Record.Digest
-			value := work.Record
-			boundary = &value
-		}
-	}
-	cursor := finalizeCursor(PromotionCursor{
-		Position: checkpoint.Cursor.Position + 1, ThroughSequence: throughSequence,
-		ThroughDigest: throughDigest, ConsumedPlanDigest: resolved.Plan.Digest,
-	})
+	cursor, boundary := promotionConsumptionCursor(checkpoint, resolved.Plan.Digest)
 	record := finalizeBaseIntegration(BaseIntegrationRecord{
 		RecordHeader: RecordHeader{
 			LedgerID: checkpoint.LedgerID, Repository: checkpoint.Repository,
@@ -929,6 +913,27 @@ func promotionConsumptionCheckpointTemplate(checkpoint DeliveryCheckpoint, recor
 	return next
 }
 
+func promotionConsumptionCursor(checkpoint DeliveryCheckpoint, planDigest string) (PromotionCursor, *RecordReference) {
+	throughSequence, throughDigest := checkpoint.Cursor.ThroughSequence, checkpoint.Cursor.ThroughDigest
+	var boundary *RecordReference
+	if checkpoint.CursorBoundary != nil {
+		value := *checkpoint.CursorBoundary
+		boundary = &value
+	}
+	for _, reference := range checkpoint.ActiveRecords {
+		if reference.Kind == RecordStagedWork && reference.Sequence > throughSequence {
+			throughSequence, throughDigest = reference.Sequence, reference.Digest
+			value := reference
+			boundary = &value
+		}
+	}
+	cursor := finalizeCursor(PromotionCursor{
+		Position: checkpoint.Cursor.Position + 1, ThroughSequence: throughSequence,
+		ThroughDigest: throughDigest, ConsumedPlanDigest: planDigest,
+	})
+	return cursor, boundary
+}
+
 func FinalizePromotionConsumption(plan PromotionConsumptionPlan, current DeliveryCheckpoint, comment CommentIdentity) (PromotionConsumptionCommit, error) {
 	if !plan.Applicable || plan.Record == nil || plan.Checkpoint == nil {
 		return PromotionConsumptionCommit{}, errors.New("promotion consumption plan has no pending append")
@@ -954,11 +959,15 @@ func FinalizePromotionConsumption(plan PromotionConsumptionPlan, current Deliver
 	if record.LedgerID != current.LedgerID || record.Repository != current.Repository || record.Sequence != current.HeadSequence+1 || record.PreviousDigest != current.HeadDigest || record.PriorCursorDigest != current.Cursor.Digest {
 		return PromotionConsumptionCommit{}, errors.New("base-integration record is not bound to the current checkpoint")
 	}
+	cursor, boundary := promotionConsumptionCursor(current, record.PlanDigest)
+	if record.CommittedCursorDigest != cursor.Digest {
+		return PromotionConsumptionCommit{}, errors.New("base-integration record does not commit the canonical promotion cursor")
+	}
 	pending := plan.Checkpoint.PendingRecord
 	if pending != (PendingRecordReference{Kind: record.Kind, Sequence: record.Sequence, Digest: record.Digest, RetryID: record.RetryID}) {
 		return PromotionConsumptionCommit{}, errors.New("promotion consumption template does not match its record")
 	}
-	expected := promotionConsumptionCheckpointTemplate(current, record, plan.Checkpoint.Checkpoint.Cursor, plan.Checkpoint.Checkpoint.CursorBoundary)
+	expected := promotionConsumptionCheckpointTemplate(current, record, cursor, boundary)
 	if canonicalDigest(plan.Checkpoint.Checkpoint) != canonicalDigest(expected) {
 		return PromotionConsumptionCommit{}, errors.New("promotion consumption checkpoint template is not bound to the current checkpoint")
 	}
@@ -1028,11 +1037,11 @@ func AdoptBaseIntegrationRetry(plan PromotionConsumptionPlan, current DeliveryCh
 	if err := validateBaseIntegration(record); err != nil {
 		return PromotionConsumptionPlan{}, err
 	}
-	cursor := plan.Checkpoint.Checkpoint.Cursor
+	cursor, boundary := promotionConsumptionCursor(current, record.PlanDigest)
 	if record.CommittedCursorDigest != cursor.Digest {
 		return PromotionConsumptionPlan{}, errors.New("base-integration retry commits a different cursor")
 	}
-	next := promotionConsumptionCheckpointTemplate(current, record, cursor, plan.Checkpoint.Checkpoint.CursorBoundary)
+	next := promotionConsumptionCheckpointTemplate(current, record, cursor, boundary)
 	plan.Record = &record
 	plan.Checkpoint = &CheckpointAppendTemplate{
 		Checkpoint:    next,

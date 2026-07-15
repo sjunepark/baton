@@ -102,6 +102,30 @@ func TestPullRequestTransitionIsNoOpDuringShadowMigration(t *testing.T) {
 	}
 }
 
+func TestMergedWorkTransitionIsNoOpBeforeDeliveryBootstrap(t *testing.T) {
+	input, _, _ := transitionFixture(t, "Refs #7")
+	cfg, err := config.Load(input.ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Delivery = nil
+	content, err := config.MarshalYAML(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(input.ConfigPath, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	workflow := PullRequestTransitionWorkflow{newClient: func(context.Context, PullRequestTransitionInput) (PullRequestTransitionGitHub, error) {
+		t.Fatal("disabled work transition must not construct a GitHub client")
+		return nil, nil
+	}}
+	result, err := workflow.RunContext(context.Background(), input)
+	if err != nil || result.Report == nil || result.Report.Status != operation.ReportCompleted || len(result.Operations) != 0 || len(result.Warnings) != 1 {
+		t.Fatalf("result=%+v error=%v", result, err)
+	}
+}
+
 func TestPullRequestTransitionRefusesMissingDurableOwnershipBeforeWriting(t *testing.T) {
 	input, latest, transport := transitionFixture(t, "Refs #7")
 	stub := &transitionGitHub{
@@ -200,6 +224,19 @@ func TestPullRequestTransitionReportsPartialApply(t *testing.T) {
 func TestPullRequestTransitionRefusesStaleEvent(t *testing.T) {
 	input, latest, transport := transitionFixture(t, "Refs #7")
 	latest.HeadSHA = "new-head"
+	stub := &transitionGitHub{deliveryRecordGitHubStub: transport, pr: latest, issues: map[int]gh.Issue{}}
+	workflow := PullRequestTransitionWorkflow{newClient: func(context.Context, PullRequestTransitionInput) (PullRequestTransitionGitHub, error) {
+		return stub, nil
+	}}
+	result, err := workflow.RunContext(context.Background(), input)
+	if err == nil || result.Report == nil || result.Report.Status != operation.ReportRefused || len(stub.added) != 0 {
+		t.Fatalf("err=%v added=%v report=%+v", err, stub.added, result.Report)
+	}
+}
+
+func TestPullRequestTransitionRefusesMismatchedMergedTimestamp(t *testing.T) {
+	input, latest, transport := transitionFixture(t, "Refs #7")
+	latest.MergedAt = latest.MergedAt.Add(time.Second)
 	stub := &transitionGitHub{deliveryRecordGitHubStub: transport, pr: latest, issues: map[int]gh.Issue{}}
 	workflow := PullRequestTransitionWorkflow{newClient: func(context.Context, PullRequestTransitionInput) (PullRequestTransitionGitHub, error) {
 		return stub, nil
@@ -425,7 +462,7 @@ func promotionTransitionFixture(t *testing.T) (PullRequestTransitionInput, gh.Pu
 	latest := gh.PullRequest{
 		Number: 50, NodeID: "PR_50", Title: "Promote", BaseRef: cfg.Repository.BaseBranch, HeadRef: cfg.Repository.StagingBranch,
 		BaseRepositoryFullName: "example/repo", HeadRepositoryFullName: "example/repo", BaseSHA: revision.BaseSHA, HeadSHA: revision.HeadSHA,
-		MergeRevision: strings.Repeat("5", 40), State: "closed", Merged: true,
+		MergeRevision: strings.Repeat("5", 40), State: "closed", Merged: true, MergedAt: time.Date(2026, 7, 14, 3, 0, 0, 0, time.UTC),
 	}
 	transport := &deliveryRecordGitHubStub{
 		repository: gh.RepositoryIdentity{Host: "github.com", FullName: "example/repo", NodeID: "R_1"},
@@ -483,7 +520,7 @@ func transitionFixture(t *testing.T, body string) (PullRequestTransitionInput, g
 		t.Fatal(err)
 	}
 	input := PullRequestTransitionInput{EventPath: eventPath, ConfigPath: configPath, Apply: true, WorkflowName: "Delivery Recorder", RunID: 99}
-	latest := gh.PullRequest{Number: 42, NodeID: "PR_42", Title: "work", Body: body, BaseRef: "agent", BaseSHA: strings.Repeat("1", 40), HeadRef: "agent-work/42", BaseRepositoryFullName: "example/repo", HeadRepositoryFullName: "example/repo", HeadSHA: strings.Repeat("2", 40), MergeRevision: strings.Repeat("3", 40), State: "closed", Merged: true}
+	latest := gh.PullRequest{Number: 42, NodeID: "PR_42", Title: "work", Body: body, BaseRef: "agent", BaseSHA: strings.Repeat("1", 40), HeadRef: "agent-work/42", BaseRepositoryFullName: "example/repo", HeadRepositoryFullName: "example/repo", HeadSHA: strings.Repeat("2", 40), MergeRevision: strings.Repeat("3", 40), State: "closed", Merged: true, MergedAt: time.Date(2026, 7, 14, 1, 0, 0, 0, time.UTC)}
 	transport := &deliveryRecordGitHubStub{
 		repository: gh.RepositoryIdentity{Host: "github.com", FullName: "example/repo", NodeID: "R_1"},
 		issues:     map[int]gh.Issue{locator.Issue.Number: {Number: locator.Issue.Number, NodeID: locator.Issue.NodeID, Locked: true}},

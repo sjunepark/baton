@@ -27,6 +27,20 @@ func TestBaseIntegrationClassificationDoesNotUseRawBaseToStagingAncestry(t *test
 	}
 }
 
+func TestGenesisClassificationDoesNotTreatAdvancedCoverageAsGenesis(t *testing.T) {
+	checkpoint, locator := plannerGenesis(t)
+	checkpoint.Coverage.StagingSHA = strings.Repeat("c", 40)
+	checkpoint.Coverage = finalizeCoverage(checkpoint.Coverage)
+	checkpoint = finalizeCheckpoint(checkpoint)
+	facts, err := ClassifyBaseIntegration(Snapshot{Locator: locator, Checkpoint: checkpoint}, BaseIntegrationObservation{
+		BaseSHA: checkpoint.GenesisBaseSHA, StagingSHA: checkpoint.Coverage.StagingSHA,
+		BaseRelation: RevisionIdentical, StagingRelation: RevisionDiverged,
+	})
+	if err != nil || facts.State != BaseIntegrationDiverged {
+		t.Fatalf("facts = %+v, err = %v", facts, err)
+	}
+}
+
 func TestRecordedPromotionResultIsIntegratedForEveryMergeMethod(t *testing.T) {
 	for index, method := range []PromotionMethod{PromotionMerge, PromotionSquash, PromotionRebase} {
 		base := strings.Repeat(string(rune('a'+index)), 40)

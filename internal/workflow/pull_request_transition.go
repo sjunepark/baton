@@ -98,7 +98,15 @@ func (workflow PullRequestTransitionWorkflow) RunContext(ctx context.Context, in
 		return result, nil
 	}
 	if cfg.Delivery == nil {
-		return result, apperror.New(apperror.Config, "merged transition requires a reviewed delivery-ledger locator", "Run delivery bootstrap and pin its exact locator before retrying the transition.")
+		if result.Flow == policy.PRFlowWork {
+			result.Warnings = []string{"delivery recording is disabled until repository policy pins a reviewed ledger locator; work transitions are disabled"}
+			if input.Apply {
+				report := operation.NewReport(nil)
+				result.Report = &report
+			}
+			return result, nil
+		}
+		return result, apperror.New(apperror.Config, "merged promotion transition requires a reviewed delivery-ledger locator", "Run delivery bootstrap and pin its exact locator before retrying the transition.")
 	}
 	if cfg.Delivery.Authority != config.DeliveryAuthoritySealed {
 		result.Warnings = []string{"delivery ledger is in shadow mode; transitions are disabled until reviewed sealed cutover"}
@@ -354,9 +362,11 @@ func runPromotionTransition(
 		return fail(transitionRecordOperationIndex(result.Operations), "promotion delivery checkpoint became stale", err)
 	}
 	if !replanned.Applicable {
+		plannerEvent.Promotion = promotionTransitionFacts(replanned)
+		result.TransitionPlan = workitem.PlanPullRequestTransition(plannerEvent, cfg)
+		result.Repository = repo
 		report := operation.NewReport(nil)
 		result.Report = &report
-		result.Operations = []workitem.TransitionOperation{}
 		return result, nil
 	}
 	if replanned.Record == nil || consumption.Record == nil || replanned.Record.Digest != consumption.Record.Digest || replanned.Precondition != consumption.Precondition {
@@ -577,7 +587,7 @@ func transitionPreflightFailure(results []operation.Result, repo string, number 
 func pullRequestEventStillCurrent(event gh.PullRequestEvent, latest gh.PullRequest) bool {
 	return latest.Number == event.Number && latest.NodeID == event.NodeID && latest.BaseRef == event.BaseRef && latest.HeadRef == event.HeadRef && latest.BaseSHA == event.BaseSHA &&
 		latest.BaseRepositoryFullName == event.BaseRepositoryFullName && latest.HeadRepositoryFullName == event.HeadRepositoryFullName &&
-		latest.HeadSHA == event.HeadSHA && latest.MergeRevision == event.MergeRevision && strings.EqualFold(latest.State, event.State) && latest.Merged == event.Merged
+		latest.HeadSHA == event.HeadSHA && latest.MergeRevision == event.MergeRevision && latest.MergedAt.Equal(event.MergedAt) && strings.EqualFold(latest.State, event.State) && latest.Merged == event.Merged
 }
 
 func containsLabel(labels []string, wanted string) bool {

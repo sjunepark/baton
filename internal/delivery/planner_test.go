@@ -482,6 +482,43 @@ func TestPromotionConsumptionPlansIssueDeliveryAndCursorCommit(t *testing.T) {
 	}
 }
 
+func TestPromotionConsumptionFinalizationRejectsTamperedCursor(t *testing.T) {
+	snapshot, input := promotionConsumptionFixture(t)
+	plan, err := PlanPromotionConsumption(snapshot, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered := plan
+	tamperedCursor := plan.Checkpoint.Checkpoint.Cursor
+	tamperedCursor.Position++
+	tamperedCursor = finalizeCursor(tamperedCursor)
+	record := *plan.Record
+	record.CommittedCursorDigest = tamperedCursor.Digest
+	record = finalizeBaseIntegration(record)
+	tampered.Record = &record
+	template := CheckpointAppendTemplate{
+		Checkpoint:    promotionConsumptionCheckpointTemplate(snapshot.Checkpoint, record, tamperedCursor, plan.Checkpoint.Checkpoint.CursorBoundary),
+		PendingRecord: PendingRecordReference{Kind: record.Kind, Sequence: record.Sequence, Digest: record.Digest, RetryID: record.RetryID},
+	}
+	tampered.Checkpoint = &template
+	if _, err := FinalizePromotionConsumption(tampered, snapshot.Checkpoint, CommentIdentity{DatabaseID: 104, NodeID: "IC_104"}); err == nil || !strings.Contains(err.Error(), "canonical promotion cursor") {
+		t.Fatalf("tampered finalization error = %v", err)
+	}
+}
+
+func promotionConsumptionFixture(t *testing.T) (Snapshot, PromotionConsumptionInput) {
+	t.Helper()
+	store, revision := fixtureStore(t, adapterFixtureScenario{Name: "sealed", Lifecycle: "sealed"})
+	snapshot, err := ParseStoreSnapshot(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return snapshot, PromotionConsumptionInput{
+		Revision: revision, MergeRevision: strings.Repeat("a", 40), Method: PromotionUnknown,
+		Writer: WriterProvenance{Workflow: "Work Item Transition", RunID: 99}, RecordedAt: "2026-07-14T03:00:00Z",
+	}
+}
+
 func TestPromotionConsumptionCommittedDuplicateIsTotalNoOp(t *testing.T) {
 	store, revision := fixtureStore(t, adapterFixtureScenario{
 		Name: "consumed", Lifecycle: "consumed", Method: PromotionMerge, BaseResultSHA: strings.Repeat("a", 40),

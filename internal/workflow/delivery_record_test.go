@@ -40,6 +40,8 @@ type deliveryRecordGitHubStub struct {
 	comparisons      map[string]gh.CommitComparison
 	checkRollups     map[int]gh.CheckRollup
 	checkErrors      map[int]error
+	addedLabels      []int
+	addLabelsErr     error
 }
 
 func (stub *deliveryRecordGitHubStub) GetRepositoryIdentityContext(context.Context, string) (gh.RepositoryIdentity, error) {
@@ -84,7 +86,14 @@ func (stub *deliveryRecordGitHubStub) ListOpenPullRequestsBoundedContext(context
 func (stub *deliveryRecordGitHubStub) ListIssueCommentsContext(_ context.Context, _ string, number int) ([]gh.IssueComment, error) {
 	return stub.comments[number], nil
 }
-func (stub *deliveryRecordGitHubStub) AddIssueLabelsContext(context.Context, string, int, []string) error {
+func (stub *deliveryRecordGitHubStub) AddIssueLabelsContext(_ context.Context, _ string, number int, _ []string) error {
+	if stub.addLabelsErr != nil {
+		return stub.addLabelsErr
+	}
+	stub.addedLabels = append(stub.addedLabels, number)
+	issue := stub.issues[number]
+	issue.Labels = append(issue.Labels, config.DefaultConfig().IssuePolicy.AwaitingReviewLabel)
+	stub.issues[number] = issue
 	return nil
 }
 func (stub *deliveryRecordGitHubStub) CreateIssueCommentReturningContext(_ context.Context, _ string, number int, body string) (gh.IssueComment, error) {
@@ -101,10 +110,10 @@ func (stub *deliveryRecordGitHubStub) CreateIssueCommentReturningContext(_ conte
 	return comment, nil
 }
 func (stub *deliveryRecordGitHubStub) UpdateIssueCommentReturningContext(_ context.Context, _ string, id int64, body string) (gh.IssueComment, error) {
-	stub.updated = append(stub.updated, body)
 	for number, comments := range stub.comments {
 		for index := range comments {
 			if comments[index].ID == id {
+				stub.updated = append(stub.updated, body)
 				comments[index].Body = body
 				stub.comments[number] = comments
 				stub.records[id] = comments[index]
@@ -112,6 +121,10 @@ func (stub *deliveryRecordGitHubStub) UpdateIssueCommentReturningContext(_ conte
 			}
 		}
 	}
+	if stub.checkpoint.ID != id {
+		return gh.IssueComment{}, fmt.Errorf("issue comment %d was not found", id)
+	}
+	stub.updated = append(stub.updated, body)
 	stub.checkpoint.Body = body
 	if stub.ambiguousUpdate {
 		return gh.IssueComment{}, fmt.Errorf("ambiguous update response")
@@ -139,6 +152,26 @@ func (stub *deliveryRecordGitHubStub) ListIssueCommentsAfterContext(context.Cont
 
 func (stub *deliveryRecordGitHubStub) ListNewestPullRequestCommentsContext(_ context.Context, _ string, number int) (gh.IssueCommentListing, error) {
 	return gh.IssueCommentListing{Comments: append([]gh.IssueComment(nil), stub.comments[number]...), Complete: !stub.newestIncomplete}, nil
+}
+
+func TestReconcileStagedWorkTransitionsRejectsConflictingIssueIdentityBeforeMutation(t *testing.T) {
+	first := delivery.RecordReference{Kind: delivery.RecordStagedWork, Sequence: 1, Digest: "first"}
+	second := delivery.RecordReference{Kind: delivery.RecordStagedWork, Sequence: 2, Digest: "second"}
+	snapshot := delivery.Snapshot{
+		Checkpoint: delivery.DeliveryCheckpoint{ActiveRecords: []delivery.RecordReference{first, second}},
+		StagedWork: []delivery.StagedWorkRecord{
+			{RecordHeader: delivery.RecordHeader{Digest: first.Digest}, Issues: []delivery.ManagedIssueReference{{Number: 7, NodeID: "I_7", OwnershipDigest: "first"}}},
+			{RecordHeader: delivery.RecordHeader{Digest: second.Digest}, Issues: []delivery.ManagedIssueReference{{Number: 7, NodeID: "I_other", OwnershipDigest: "second"}}},
+		},
+	}
+	stub := &deliveryRecordGitHubStub{}
+	result, err := reconcileStagedWorkTransitions(context.Background(), stub, "example/repo", config.DefaultConfig(), snapshot, true)
+	if err == nil || !strings.Contains(err.Error(), "conflicting managed-issue identities") || result.Complete || result.Applicable {
+		t.Fatalf("result = %+v, error = %v", result, err)
+	}
+	if len(stub.addedLabels) != 0 {
+		t.Fatalf("labels added = %v", stub.addedLabels)
+	}
 }
 
 func TestFindTrustedStagedWorkRetryRejectsIncompleteNewestWindow(t *testing.T) {
@@ -377,6 +410,34 @@ func (stub *deliveryRecordGitHubStub) ListOpenIssuesContext(context.Context, str
 	return stub.openIssues, nil
 }
 
+func TestPromotionRecheckPlanRequiresOneCompletedPolicyCheck(t *testing.T) {
+	cfg := config.DefaultConfig()
+	mergeRevision := strings.Repeat("3", 40)
+	promotion := gh.PullRequest{
+		Number: 50, NodeID: "PR_50", BaseRef: cfg.Repository.BaseBranch, HeadRef: cfg.Repository.StagingBranch,
+		BaseRepositoryFullName: "example/repo", HeadRepositoryFullName: "example/repo", HeadSHA: strings.Repeat("4", 40), State: "open",
+	}
+	for _, test := range []struct {
+		name   string
+		checks []gh.CheckState
+	}{
+		{name: "missing"},
+		{name: "pending", checks: []gh.CheckState{{ID: 700, Name: deliveryPolicyCheckName, Status: "in_progress"}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			stub := &deliveryRecordGitHubStub{
+				open:         gh.PullRequestListing{PullRequests: []gh.PullRequest{promotion}, Complete: true},
+				comparisons:  map[string]gh.CommitComparison{mergeRevision + "..." + promotion.HeadSHA: {Status: "ahead"}},
+				checkRollups: map[int]gh.CheckRollup{promotion.Number: {Complete: true, PRNumber: promotion.Number, HeadSHA: promotion.HeadSHA, Checks: test.checks}},
+			}
+			rechecks, complete, warnings, err := planPromotionRechecks(context.Background(), stub, "example/repo", cfg, mergeRevision)
+			if err != nil || complete || len(rechecks) != 0 || len(warnings) != 1 {
+				t.Fatalf("rechecks=%+v complete=%v warnings=%v err=%v", rechecks, complete, warnings, err)
+			}
+		})
+	}
+}
+
 func TestDeliveryRecordPlansAndAppliesStagedWorkBeforeRecheckingPromotion(t *testing.T) {
 	cfg, locator, checkpoint := deliveryWorkflowFixture(t)
 	configPath := filepath.Join(t.TempDir(), "baton.yml")
@@ -414,7 +475,7 @@ func TestDeliveryRecordPlansAndAppliesStagedWorkBeforeRecheckingPromotion(t *tes
 		checkpoint: gh.IssueComment{ID: locator.Checkpoint.DatabaseID, NodeID: locator.Checkpoint.NodeID, IssueURL: "https://api.github.com/repos/example/repo/issues/900", Body: checkpoint, Author: gh.Actor{Login: delivery.TrustedAuthorLogin, Type: delivery.TrustedAuthorType}},
 		pull:       map[int]gh.PullRequest{20: work, 21: work2, 50: promotion}, open: gh.PullRequestListing{PullRequests: []gh.PullRequest{promotion}, Complete: true},
 		closed: gh.PullRequestListing{PullRequests: []gh.PullRequest{work2, work}, Complete: true}, branch: gh.Branch{Ref: cfg.Repository.StagingBranch, SHA: work2.MergeRevision}, records: map[int64]gh.IssueComment{},
-		transitionChecks: true,
+		transitionChecks: false,
 	}
 	eventPath := filepath.Join(t.TempDir(), "event.json")
 	event := fmt.Sprintf(`{"action":"closed","pull_request":{"number":21,"node_id":"PR_21","title":"feat: work","body":"Refs #7","state":"closed","merged":true,"merged_at":"%s","merge_commit_sha":"%s","base":{"ref":"agent","sha":"%s","repo":{"full_name":"example/repo"}},"head":{"ref":"agent-work/8","sha":"%s","repo":{"full_name":"example/repo"}}},"repository":{"full_name":"example/repo"}}`, work2.MergedAt.Format(time.RFC3339), work2.MergeRevision, work2.BaseSHA, work2.HeadSHA)
@@ -435,6 +496,9 @@ func TestDeliveryRecordPlansAndAppliesStagedWorkBeforeRecheckingPromotion(t *tes
 	}
 	if len(stub.rerequest) != 1 || stub.rerequest[0] != 700 {
 		t.Fatalf("rerequested checks = %v", stub.rerequest)
+	}
+	if len(stub.addedLabels) != 1 || stub.addedLabels[0] != 7 {
+		t.Fatalf("staged-work transitions = %v", stub.addedLabels)
 	}
 	operationIDs := map[string]struct{}{}
 	if len(result.Report.Operations) != len(result.Operations) {

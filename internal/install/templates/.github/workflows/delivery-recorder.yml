@@ -83,12 +83,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
-      - name: Transition recorded work items
-        if: ${{ github.event_name == 'pull_request_target' }}
-        run: baton pr-transition --event "$GITHUB_EVENT_PATH" --apply --json
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-
   plan-bootstrap:
     name: Plan delivery bootstrap
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode != 'record' }}

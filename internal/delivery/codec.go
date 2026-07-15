@@ -347,10 +347,10 @@ func ResolveSealedPromotion(snapshot Snapshot, revision PromotionRevision) (Reso
 	if len(accounted) != len(staged) {
 		return ResolvedPromotion{}, fmt.Errorf("sealed promotion accounts for %d of %d staged-work records", len(accounted), len(staged))
 	}
-	return resolvedPromotion(snapshot, plan), nil
+	return resolvedPromotion(snapshot, plan)
 }
 
-func resolvedPromotion(snapshot Snapshot, plan PromotionPlanRecord) ResolvedPromotion {
+func resolvedPromotion(snapshot Snapshot, plan PromotionPlanRecord) (ResolvedPromotion, error) {
 	stagedByDigest := make(map[string]StagedWorkRecord, len(snapshot.StagedWork))
 	for _, record := range snapshot.StagedWork {
 		stagedByDigest[record.Digest] = record
@@ -374,6 +374,9 @@ func resolvedPromotion(snapshot Snapshot, plan PromotionPlanRecord) ResolvedProm
 			continue
 		}
 		for _, issue := range record.Issues {
+			if existing, duplicate := issuesByNumber[issue.Number]; duplicate && existing != issue {
+				return ResolvedPromotion{}, fmt.Errorf("sealed promotion issue #%d has conflicting managed identities", issue.Number)
+			}
 			issuesByNumber[issue.Number] = issue
 		}
 	}
@@ -382,7 +385,7 @@ func resolvedPromotion(snapshot Snapshot, plan PromotionPlanRecord) ResolvedProm
 		issues = append(issues, issue)
 	}
 	sort.Slice(issues, func(i, j int) bool { return issues[i].Number < issues[j].Number })
-	return ResolvedPromotion{Plan: plan, PlanReference: *snapshot.Checkpoint.ActivePlan, Work: work, ExpectedIssues: issues}
+	return ResolvedPromotion{Plan: plan, PlanReference: *snapshot.Checkpoint.ActivePlan, Work: work, ExpectedIssues: issues}, nil
 }
 
 type parsedRecord struct {
@@ -530,6 +533,9 @@ func validateCheckpoint(checkpoint DeliveryCheckpoint, locator DeliveryStoreLoca
 	}
 	if checkpoint.GenesisBaseSHA != "" && !validSHA(checkpoint.GenesisBaseSHA) {
 		return errors.New("delivery checkpoint genesis base revision is invalid")
+	}
+	if checkpoint.GenesisStagingSHA != "" && !validSHA(checkpoint.GenesisStagingSHA) {
+		return errors.New("delivery checkpoint genesis staging revision is invalid")
 	}
 	if len(checkpoint.ActiveRecords) > MaxActiveRecords {
 		return fmt.Errorf("delivery checkpoint active-record cap exceeded: %d > %d", len(checkpoint.ActiveRecords), MaxActiveRecords)

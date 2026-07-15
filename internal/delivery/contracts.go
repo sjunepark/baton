@@ -213,6 +213,7 @@ type DeliveryCheckpoint struct {
 	Issue                ResourceIdentity          `json:"issue"`
 	Generation           uint64                    `json:"generation"`
 	GenesisBaseSHA       string                    `json:"genesisBaseSha,omitempty"`
+	GenesisStagingSHA    string                    `json:"genesisStagingSha,omitempty"`
 	WindowSequence       uint64                    `json:"windowSequence"`
 	WindowDigest         string                    `json:"windowDigest"`
 	HeadSequence         uint64                    `json:"headSequence"`

@@ -70,6 +70,7 @@ type DeliveryRecordResult struct {
 type DeliveryRecordGitHub interface {
 	deliveryStoreReader
 	GetPullRequestContext(context.Context, string, int) (gh.PullRequest, error)
+	GetIssueContext(context.Context, string, int) (gh.Issue, error)
 	GetBranchContext(context.Context, string, string) (gh.Branch, error)
 	ListClosedPullRequestsBoundedContext(context.Context, string, string) (gh.PullRequestListing, error)
 	ListClosedPullRequestsUpdatedSinceContext(context.Context, string, string, time.Time) (gh.PullRequestListing, error)
@@ -158,6 +159,22 @@ func (workflow DeliveryRecordWorkflow) RunContext(ctx context.Context, input Del
 		}
 		next, nextErr := workflow.RunContext(ctx, input)
 		combined := mergeDeliveryRecordResults(applied, next)
+		if nextErr != nil && combined.Report != nil {
+			return combined, apperror.WithReport(nextErr, *combined.Report)
+		}
+		return combined, nextErr
+	}
+	pendingTransitions, err := reconcileStagedWorkTransitions(ctx, client, repo, cfg, store.Snapshot, input.Apply)
+	if err != nil {
+		return pendingTransitions, err
+	}
+	if len(pendingTransitions.Operations) > 0 {
+		if !input.Apply {
+			pendingTransitions.Warnings = append(pendingTransitions.Warnings, "committed staged-work transitions must be drained before other delivery work")
+			return pendingTransitions, nil
+		}
+		next, nextErr := workflow.RunContext(ctx, input)
+		combined := mergeDeliveryRecordResults(pendingTransitions, next)
 		if nextErr != nil && combined.Report != nil {
 			return combined, apperror.WithReport(nextErr, *combined.Report)
 		}
@@ -260,6 +277,14 @@ func (workflow DeliveryRecordWorkflow) RunContext(ctx context.Context, input Del
 			return finalizeDeliveryAfterCommittedError(ctx, client, repo, cfg, candidates[0].MergeRevision, combined, apperror.New(apperror.Policy, "delivery reconciliation became incomplete", "Resolve the reported acquisition cap, then retry."))
 		}
 		if len(remaining) == 0 {
+			transitions, transitionErr := reconcileStagedWorkTransitions(ctx, client, repo, cfg, store.Snapshot, true)
+			combined = mergeDeliveryRecordResults(combined, transitions)
+			if transitionErr != nil {
+				if combined.Report != nil {
+					return combined, apperror.WithReport(transitionErr, *combined.Report)
+				}
+				return combined, transitionErr
+			}
 			covered, coverageErr := advanceDeliveryCoverage(ctx, client, repo, cfg, locator, remainingStagingSHA, combined, input)
 			if coverageErr != nil {
 				return finalizeDeliveryAfterCommittedError(ctx, client, repo, cfg, candidates[0].MergeRevision, covered, coverageErr)
@@ -288,6 +313,83 @@ func (workflow DeliveryRecordWorkflow) RunContext(ctx context.Context, input Del
 			return combined, apperror.WithReport(err, *combined.Report)
 		}
 	}
+}
+
+func reconcileStagedWorkTransitions(ctx context.Context, client DeliveryRecordGitHub, repo string, cfg config.Config, snapshot delivery.Snapshot, apply bool) (DeliveryRecordResult, error) {
+	result := DeliveryRecordResult{
+		SchemaVersion: 3, Kind: "deliveryRecordPlan", Repository: repo, Complete: true, Applicable: true,
+		Candidates: []delivery.ResourceIdentity{}, Ownership: []DeliveryOwnershipBackfill{}, Rechecks: []DeliveryPromotionRecheck{},
+		Operations: []DeliveryRecordOperation{}, Warnings: []string{},
+	}
+	references := map[int]delivery.ManagedIssueReference{}
+	for _, record := range snapshot.StagedWork {
+		if _, active := deliveryActiveRecordReference(snapshot.Checkpoint, record.Digest); !active {
+			continue
+		}
+		for _, reference := range record.Issues {
+			if existing, duplicate := references[reference.Number]; duplicate && existing != reference {
+				result.Complete, result.Applicable = false, false
+				result.Warnings = append(result.Warnings, fmt.Sprintf("active staged work has conflicting managed identity for issue #%d", reference.Number))
+				return result, apperror.New(apperror.Policy, "active staged work has conflicting managed-issue identities", "Repair or explicitly rebootstrap the conflicting delivery records before retrying.")
+			}
+			references[reference.Number] = reference
+		}
+	}
+	numbers := make([]int, 0, len(references))
+	for number := range references {
+		numbers = append(numbers, number)
+	}
+	sort.Ints(numbers)
+	pending := []delivery.ManagedIssueReference{}
+	for _, number := range numbers {
+		reference := references[number]
+		issue, err := client.GetIssueContext(ctx, repo, number)
+		if err != nil {
+			return result, classifyGitHubError(err)
+		}
+		if issue.PullRequest || issue.NodeID != reference.NodeID {
+			return result, apperror.New(apperror.Policy, fmt.Sprintf("staged-work issue #%d identity is stale", number), "Repair or rebootstrap the exact managed-issue ownership record.")
+		}
+		comments, err := client.ListIssueCommentsContext(ctx, repo, number)
+		if err != nil {
+			return result, classifyGitHubError(err)
+		}
+		ownership := policy.ClassifyIssueOwnership(policy.IssueOwnershipInput{
+			IssueNodeID: issue.NodeID, IssueNumber: issue.Number, Body: issue.Body, Labels: issue.Labels,
+			Comments: issueOwnershipComments(comments), Policy: cfg.IssuePolicy,
+		})
+		if !ownership.Managed || ownership.Source != policy.IssueOwnershipRecord || ownership.Record == nil || ownership.Record.Digest != reference.OwnershipDigest {
+			return result, apperror.New(apperror.Policy, fmt.Sprintf("staged-work issue #%d is not durably managed", number), "Repair or rebootstrap the exact managed-issue ownership record.")
+		}
+		if strings.EqualFold(issue.State, "closed") || containsLabel(issue.Labels, cfg.IssuePolicy.AwaitingReviewLabel) {
+			continue
+		}
+		pending = append(pending, reference)
+		result.Operations = append(result.Operations, DeliveryRecordOperation{
+			ID: fmt.Sprintf("issue-%d-awaiting-review", number), Resource: fmt.Sprintf("%s#%d:%s", repo, number, cfg.IssuePolicy.AwaitingReviewLabel), Action: "add_labels",
+		})
+	}
+	if !apply || len(pending) == 0 {
+		return result, nil
+	}
+	results := make([]operation.Result, len(result.Operations))
+	for index, planned := range result.Operations {
+		results[index] = operation.Result{ID: planned.ID, Resource: planned.Resource, Action: planned.Action, Status: operation.StatusNotAttempted}
+	}
+	for index, transition := range pending {
+		if err := client.AddIssueLabelsContext(ctx, repo, transition.Number, []string{cfg.IssuePolicy.AwaitingReviewLabel}); err != nil {
+			classified := classifyGitHubError(err)
+			results[index].Status = operation.StatusFailed
+			results[index].Error = operationFailure("github", "staged-work transition failed", classified)
+			report := operation.NewReport(results)
+			result.Report = &report
+			return result, apperror.WithReport(classified, report)
+		}
+		results[index].Status = operation.StatusApplied
+	}
+	report := operation.NewReport(results)
+	result.Report = &report
+	return result, nil
 }
 
 func withoutDeliveryRechecks(result DeliveryRecordResult) DeliveryRecordResult {
@@ -1178,13 +1280,14 @@ func planPromotionRechecks(ctx context.Context, client DeliveryRecordGitHub, rep
 				matches = append(matches, check)
 			}
 		}
-		if len(matches) > 1 {
-			return nil, false, []string{fmt.Sprintf("promotion PR #%d has ambiguous policy check identities", pr.Number)}, nil
+		if len(matches) != 1 {
+			return nil, false, []string{fmt.Sprintf("promotion PR #%d policy check identity is ambiguous or missing", pr.Number)}, nil
+		}
+		if matches[0].Status != "completed" {
+			return nil, false, []string{fmt.Sprintf("promotion PR #%d policy check is still %s", pr.Number, firstNonBlank(matches[0].Status, "pending"))}, nil
 		}
 		recheck := DeliveryPromotionRecheck{PullRequest: delivery.ResourceIdentity{Number: pr.Number, NodeID: pr.NodeID}, HeadSHA: pr.HeadSHA}
-		if len(matches) == 1 {
-			recheck.CheckRunID, recheck.ObservedStatus, recheck.ObservedConclusion = matches[0].ID, matches[0].Status, matches[0].Conclusion
-		}
+		recheck.CheckRunID, recheck.ObservedStatus, recheck.ObservedConclusion = matches[0].ID, matches[0].Status, matches[0].Conclusion
 		result = append(result, recheck)
 	}
 	return result, true, nil, nil
@@ -1208,7 +1311,10 @@ func applyDeliveryRecord(ctx context.Context, client DeliveryRecordGitHub, repo 
 		if err != nil {
 			return fail(index, "managed-issue ownership backfill failed", err)
 		}
-		if err := validateTrustedDeliveryWrite(comment, repo, backfill.Issue.Number); err != nil {
+		if err := validateTrustedDeliveryWrite(comment, repo, backfill.Issue.Number); err != nil || comment.Body != backfill.Body {
+			if err == nil {
+				err = fmt.Errorf("managed-issue ownership backfill returned stale content")
+			}
 			return fail(index, "managed-issue ownership backfill was not trusted", err)
 		}
 		results[index].Status = operation.StatusApplied
@@ -1286,19 +1392,18 @@ func applyDeliveryRecord(ctx context.Context, client DeliveryRecordGitHub, repo 
 	updated, err := client.UpdateIssueCommentReturningContext(ctx, repo, store.CheckpointComment.ID, commit.CheckpointBody)
 	if err != nil {
 		readback, readErr := client.GetIssueCommentContext(ctx, repo, store.CheckpointComment.ID)
-		if readErr == nil && readback.Body == commit.CheckpointBody {
-			results[index].Status = operation.StatusApplied
-		} else {
+		if readErr != nil {
 			return fail(index, "delivery checkpoint update failed", err)
 		}
-	} else if err := validateTrustedDeliveryWrite(updated, repo, store.LedgerIssue.Number); err != nil || updated.Body != commit.CheckpointBody || updated.ID != store.CheckpointComment.ID || updated.NodeID != store.CheckpointComment.NodeID {
-		if err == nil {
-			err = fmt.Errorf("delivery checkpoint update returned stale content or identity")
-		}
-		return fail(index, "delivery checkpoint update was not trusted", err)
-	} else {
-		results[index].Status = operation.StatusApplied
+		updated = readback
 	}
+	if trustErr := validateTrustedDeliveryWrite(updated, repo, store.LedgerIssue.Number); trustErr != nil || updated.Body != commit.CheckpointBody || updated.ID != store.CheckpointComment.ID || updated.NodeID != store.CheckpointComment.NodeID {
+		if trustErr == nil {
+			trustErr = fmt.Errorf("delivery checkpoint update returned stale content or identity")
+		}
+		return fail(index, "delivery checkpoint update was not trusted", trustErr)
+	}
+	results[index].Status = operation.StatusApplied
 	index++
 	for _, recheck := range result.Rechecks {
 		status, err := reconcilePromotionRecheck(ctx, client, repo, recheck)

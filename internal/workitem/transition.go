@@ -154,11 +154,11 @@ func planPromotionTransition(plan TransitionPlan, event PullRequestEvent, cfg co
 	plan.PromotionPlanDigest = facts.PlanDigest
 	plan.PromotionCursorDigest = facts.CursorDigest
 	plan.BaseIntegrationDigest = facts.BaseIntegrationDigest
-	if facts.Committed {
-		return plan
-	}
 	if facts.PlanDigest == "" || facts.CursorDigest == "" || facts.BaseIntegrationDigest == "" {
 		plan.Warnings = append(plan.Warnings, "merged promotion delivery commitment is incomplete")
+		return plan
+	}
+	if facts.Committed {
 		return plan
 	}
 	references := append([]DeliveryIssueReference(nil), facts.IssueReferences...)

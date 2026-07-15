@@ -72,11 +72,15 @@ func ClassifyBaseIntegration(snapshot Snapshot, observation BaseIntegrationObser
 	}
 	if snapshot.Checkpoint.BaseIntegration == nil {
 		if validSHA(snapshot.Checkpoint.GenesisBaseSHA) {
+			if !validSHA(snapshot.Checkpoint.GenesisStagingSHA) {
+				facts.Reason = "delivery checkpoint has no valid reviewed genesis staging boundary"
+				return facts, nil
+			}
 			facts.IntegrationRecordDigest = snapshot.Checkpoint.WindowDigest
 			facts.IntegratedBaseSHA = snapshot.Checkpoint.GenesisBaseSHA
-			facts.IntegratedStagingSHA = snapshot.Checkpoint.Coverage.StagingSHA
+			facts.IntegratedStagingSHA = snapshot.Checkpoint.GenesisStagingSHA
 			stagingRelation := observation.StagingRelation
-			if facts.ObservedStagingSHA == snapshot.Checkpoint.Coverage.StagingSHA {
+			if facts.ObservedStagingSHA == snapshot.Checkpoint.GenesisStagingSHA {
 				stagingRelation = RevisionIdentical
 			}
 			switch stagingRelation {

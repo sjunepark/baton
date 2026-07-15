@@ -86,6 +86,22 @@ func TestRawPromotionMergeStoreFixture(t *testing.T) {
 	}
 }
 
+func TestResolvedPromotionRejectsConflictingIssueIdentity(t *testing.T) {
+	first := RecordReference{Kind: RecordStagedWork, Sequence: 1, Digest: fixtureDigest("work-1")}
+	second := RecordReference{Kind: RecordStagedWork, Sequence: 2, Digest: fixtureDigest("work-2")}
+	plan := RecordReference{Kind: RecordPromotionPlan, Sequence: 3, Digest: fixtureDigest("plan")}
+	snapshot := Snapshot{
+		Checkpoint: DeliveryCheckpoint{ActiveRecords: []RecordReference{first, second, plan}, ActivePlan: &plan},
+		StagedWork: []StagedWorkRecord{
+			{RecordHeader: RecordHeader{Digest: first.Digest}, PullRequest: ResourceIdentity{Number: 20}, Issues: []ManagedIssueReference{{Number: 7, NodeID: "I_7", OwnershipDigest: fixtureDigest("ownership-7")}}},
+			{RecordHeader: RecordHeader{Digest: second.Digest}, PullRequest: ResourceIdentity{Number: 21}, Issues: []ManagedIssueReference{{Number: 7, NodeID: "I_other", OwnershipDigest: fixtureDigest("ownership-other")}}},
+		},
+	}
+	if _, err := resolvedPromotion(snapshot, PromotionPlanRecord{}); err == nil || !strings.Contains(err.Error(), "conflicting managed identities") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestParseStoreSnapshotFailsClosedOnTransportAndMarkerProblems(t *testing.T) {
 	valid, _ := fixtureStore(t, adapterFixtureScenario{Name: "valid", Lifecycle: "sealed"})
 	tests := []struct {
