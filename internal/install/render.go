@@ -144,7 +144,7 @@ func replaceDeliveryRecorderPrefilter(path, rendered string, policy config.Repos
 	synchronization := "(github.event.pull_request.head.ref == " + quote(policy.Repository.BaseBranch) + " && github.event.pull_request.base.ref == " + quote(policy.Repository.StagingBranch) + ")"
 	prefilter := "${{ (github.event_name == 'workflow_dispatch' && inputs.mode == 'record') || github.event_name == 'push' || (" + sameRepository + " && (" + work + " || " + synchronization + ")) }}"
 	rendered = strings.Replace(rendered, deliveryRecorderPrefilterPlaceholder, prefilter, 1)
-	return strings.Replace(rendered, deliveryRecorderBaseBranchPlaceholder, policy.Repository.BaseBranch, 1), nil
+	return strings.Replace(rendered, deliveryRecorderBaseBranchPlaceholder, quote(policy.Repository.BaseBranch), 1), nil
 }
 
 type issueFormDocument struct {

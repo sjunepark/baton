@@ -275,7 +275,7 @@ func TestRenderedDeliveryRecorderRoutesSynchronizationAndBasePushWithoutOwningPo
 	}
 	text := string(content)
 	for _, fragment := range []string{
-		"push:", "- " + cfg.Repository.BaseBranch,
+		"push:", "- '" + cfg.Repository.BaseBranch + "'",
 		"github.event.pull_request.head.ref == '" + cfg.Repository.BaseBranch + "'",
 		"github.event.pull_request.base.ref == '" + cfg.Repository.StagingBranch + "'",
 		"github.event_name == 'push'", `github.event_name }}" == "pull_request_target"`,
@@ -558,25 +558,41 @@ func TestRepositoryReconciliationDetectsOwnershipPrefilterDriftInBothPRWorkflows
 
 func TestRenderManagedFilesQuotesYAMLSensitiveBranchNames(t *testing.T) {
 	policy := config.DefaultConfig()
+	policy.Repository.BaseBranch = "#base-release"
 	policy.Repository.StagingBranch = "#release"
 	files, err := RenderManagedFiles(policy, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	found := map[string]bool{
+		".github/workflows/pr-policy.yml":         false,
+		".github/workflows/delivery-recorder.yml": false,
+	}
 	for _, file := range files {
-		if file.Path != ".github/workflows/pr-policy.yml" {
+		if _, wanted := found[file.Path]; !wanted {
 			continue
 		}
-		if !strings.Contains(string(file.Content), `head.ref == '#release'`) {
-			t.Fatalf("workflow expression value was not quoted:\n%s", file.Content)
+		found[file.Path] = true
+		switch file.Path {
+		case ".github/workflows/pr-policy.yml":
+			if !strings.Contains(string(file.Content), `head.ref == '#release'`) {
+				t.Fatalf("workflow expression value was not quoted:\n%s", file.Content)
+			}
+		case ".github/workflows/delivery-recorder.yml":
+			if !strings.Contains(string(file.Content), `- '#base-release'`) {
+				t.Fatalf("workflow branch filter was not quoted:\n%s", file.Content)
+			}
 		}
 		var document any
 		if err := yaml.Unmarshal(file.Content, &document); err != nil {
 			t.Fatalf("rendered workflow is invalid YAML: %v", err)
 		}
-		return
 	}
-	t.Fatal("PR policy workflow not rendered")
+	for path, rendered := range found {
+		if !rendered {
+			t.Fatalf("%s not rendered", path)
+		}
+	}
 }
 
 func TestReplaceWorkflowOwnershipPrefilterRequiresPinnedPlaceholder(t *testing.T) {

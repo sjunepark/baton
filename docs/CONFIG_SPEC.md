@@ -217,6 +217,9 @@ Creo `.github/agent-issue-policy.yml` maps as:
   normalized, non-option remote name. Rendered workflows quote branch scalars.
 - Unknown fields and unsupported config versions fail closed.
 - `work_branch_prefix` must end with `/`.
+- Neither `base_branch` nor `staging_branch` may start with
+  `work_branch_prefix`; matching is case-sensitive and follows the configured
+  base-then-staging validation order.
 - Controlled label groups must contain non-empty, case-insensitively unique
   labels. Work-kind and agent-mode mappings must exactly match their groups.
 - Every implementation and comment-only label must appear in an agent-mode

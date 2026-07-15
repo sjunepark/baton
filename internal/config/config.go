@@ -327,13 +327,22 @@ func (cfg Config) Validate() error {
 	if err := validateRemoteName(cfg.Repository.DefaultRemote); err != nil {
 		return fmt.Errorf("repository.default_remote: %w", err)
 	}
-	for field, branch := range map[string]string{"base_branch": cfg.Repository.BaseBranch, "staging_branch": cfg.Repository.StagingBranch} {
-		if err := validateBranchName(branch); err != nil {
-			return fmt.Errorf("repository.%s: %w", field, err)
+	branches := []struct {
+		field  string
+		branch string
+	}{{"base_branch", cfg.Repository.BaseBranch}, {"staging_branch", cfg.Repository.StagingBranch}}
+	for _, candidate := range branches {
+		if err := validateBranchName(candidate.branch); err != nil {
+			return fmt.Errorf("repository.%s: %w", candidate.field, err)
 		}
 	}
 	if err := validateBranchName(cfg.Repository.WorkBranchPrefix + "work"); err != nil {
 		return fmt.Errorf("repository.work_branch_prefix: %w", err)
+	}
+	for _, candidate := range branches {
+		if strings.HasPrefix(candidate.branch, cfg.Repository.WorkBranchPrefix) {
+			return fmt.Errorf("repository.%s must not fall under repository.work_branch_prefix %q", candidate.field, cfg.Repository.WorkBranchPrefix)
+		}
 	}
 	if !policyMarkerPattern.MatchString(cfg.IssuePolicy.PolicyCommentMarker) {
 		return errors.New("issue_policy.policy_comment_marker must be a stable versioned HTML comment such as <!-- baton-issue-policy:v1 -->")

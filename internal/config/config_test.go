@@ -114,6 +114,51 @@ func TestValidateRejectsUnknownRequiredSection(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsManagedBranchesInsideWorkNamespace(t *testing.T) {
+	tests := []struct {
+		name  string
+		field string
+		edit  func(*Config)
+	}{
+		{name: "base branch", field: "base_branch", edit: func(cfg *Config) { cfg.Repository.BaseBranch = "agent-work/main" }},
+		{name: "staging branch", field: "staging_branch", edit: func(cfg *Config) { cfg.Repository.StagingBranch = "agent-work/staging" }},
+		{name: "base reported first when both overlap", field: "base_branch", edit: func(cfg *Config) {
+			cfg.Repository.BaseBranch = "agent-work/main"
+			cfg.Repository.StagingBranch = "agent-work/staging"
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			test.edit(&cfg)
+			err := cfg.Validate()
+			if err == nil || !strings.Contains(err.Error(), test.field+" must not fall under repository.work_branch_prefix") {
+				t.Fatalf("Validate() error = %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateAcceptsBranchesOutsideCaseSensitiveWorkNamespace(t *testing.T) {
+	tests := []struct {
+		name   string
+		branch string
+	}{
+		{name: "prefix without separator", branch: "agent-work"},
+		{name: "similar prefix", branch: "agent-worker/staging"},
+		{name: "different case", branch: "Agent-Work/staging"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			cfg.Repository.BaseBranch = test.branch
+			if err := cfg.Validate(); err != nil {
+				t.Fatalf("Validate() error = %v", err)
+			}
+		})
+	}
+}
+
 func TestValidateRejectsInvalidPriorityMappings(t *testing.T) {
 	tests := []struct {
 		name string
@@ -318,6 +363,10 @@ func TestValidateRejectsInvalidCompiledIssuePolicy(t *testing.T) {
 		{name: "duplicate heading", edit: func(cfg *Config) { cfg.IssuePolicy.FormSections["notes"] = cfg.IssuePolicy.FormSections["summary"] }, want: "duplicates heading"},
 		{name: "invalid base branch", edit: func(cfg *Config) { cfg.Repository.BaseBranch = "release..next" }, want: "not a valid git branch"},
 		{name: "invalid staging branch", edit: func(cfg *Config) { cfg.Repository.StagingBranch = "feature:next" }, want: "invalid git ref character"},
+		{name: "invalid base reported first", edit: func(cfg *Config) {
+			cfg.Repository.BaseBranch = "release..next"
+			cfg.Repository.StagingBranch = "feature:next"
+		}, want: "repository.base_branch"},
 		{name: "same base and staging branch", edit: func(cfg *Config) { cfg.Repository.StagingBranch = cfg.Repository.BaseBranch }, want: "must differ"},
 		{name: "symbolic head branch", edit: func(cfg *Config) { cfg.Repository.StagingBranch = "HEAD" }, want: "not a valid git branch"},
 		{name: "option-like remote", edit: func(cfg *Config) { cfg.Repository.DefaultRemote = "--upload-pack" }, want: "non-option git remote"},
