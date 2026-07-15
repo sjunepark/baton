@@ -6,11 +6,13 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/sjunepark/baton/internal/apperror"
 	"github.com/sjunepark/baton/internal/config"
 	"github.com/sjunepark/baton/internal/gh"
+	"github.com/sjunepark/baton/internal/operation"
 	"github.com/sjunepark/baton/internal/policy"
 )
 
@@ -46,11 +48,11 @@ func (f *issuePolicyGitHub) RemoveIssueLabelContext(_ context.Context, _ string,
 func TestApplyIssueDecisionPreservesPartialOperationReport(t *testing.T) {
 	client := &issuePolicyGitHub{removeErr: errors.New("remove failed")}
 	decision := policy.IssuePolicyDecision{IsFormIssue: true, LabelsToAdd: []string{"bug"}, LabelsToRemove: []string{"needs-info"}}
-	report, err := ApplyIssueDecisionWithReportContext(context.Background(), client, "example/repo", 12, decision, "<!-- baton-policy -->", "needs-info")
+	report, _, err := applyIssueDecisionWithOwnershipContext(context.Background(), client, "example/repo", gh.Issue{Number: 12, NodeID: "I_12"}, decision, "<!-- baton-policy -->", "needs-info", ownershipRepair{})
 	if err == nil {
 		t.Fatal("expected removal failure")
 	}
-	if report.Status != "partial" || len(report.Operations) != 2 || report.Operations[0].Status != "applied" || report.Operations[1].Status != "failed" {
+	if report.Status != "partial" || len(report.Operations) != 3 || report.Operations[0].ID != "issue-ownership-record" || report.Operations[2].Status != "failed" {
 		t.Fatalf("report = %+v", report)
 	}
 }
@@ -63,7 +65,7 @@ func TestApplyIssueDecisionReadsBeforeWriting(t *testing.T) {
 	decision := policy.IssuePolicyDecision{
 		IsFormIssue: true, LabelsToAdd: []string{"bug"}, LabelsToRemove: []string{"needs-info"},
 	}
-	report, err := ApplyIssueDecisionWithReportContext(context.Background(), client, "example/repo", 12, decision, "<!-- baton-policy -->", "needs-info")
+	report, _, err := applyIssueDecisionWithOwnershipContext(context.Background(), client, "example/repo", gh.Issue{Number: 12, NodeID: "I_12"}, decision, "<!-- baton-policy -->", "needs-info", ownershipRepair{})
 	if err == nil {
 		t.Fatal("expected comment read failure")
 	}
@@ -105,14 +107,95 @@ func TestApplyIssueDecisionOwnsMutationSequence(t *testing.T) {
 	decision := policy.IssuePolicyDecision{
 		IsFormIssue: true, LabelsToAdd: []string{"bug"}, LabelsToRemove: []string{"needs-info"},
 	}
-	if err := ApplyIssueDecision(client, "example/repo", 12, decision, "<!-- baton-policy -->", "needs-info"); err != nil {
+	if _, _, err := applyIssueDecisionWithOwnershipContext(context.Background(), client, "example/repo", gh.Issue{Number: 12, NodeID: "I_12"}, decision, "<!-- baton-policy -->", "needs-info", ownershipRepair{}); err != nil {
 		t.Fatal(err)
 	}
 	if len(client.added) != 1 || client.added[0] != "bug" || len(client.removed) != 1 || client.removed[0] != "needs-info" {
 		t.Fatalf("labels added=%v removed=%v", client.added, client.removed)
 	}
-	if client.updatedID != 99 || client.updated == "" || client.created != "" {
+	if client.updatedID != 99 || client.updated == "" || client.created == "" || !strings.Contains(client.created, "baton-managed-issue:v1") {
 		t.Fatalf("comment update id=%d body=%q created=%q", client.updatedID, client.updated, client.created)
+	}
+}
+
+func TestIssuePolicyRepairsEditedTrustedOwnershipRecordAfterBodyEdit(t *testing.T) {
+	client := &issuePolicyGitHub{comments: []gh.IssueComment{{
+		ID: 88, Body: "<!-- baton-managed-issue:v1 malformed -->", Author: gh.Actor{Login: policy.ManagedIssueTrustedLogin, Type: "Bot"},
+	}}}
+	issue := gh.Issue{Number: 12, NodeID: "I_12", Body: "body no longer matches the issue form"}
+	report, ownership, err := applyIssueDecisionWithOwnershipContext(
+		context.Background(), client, "example/repo", issue, policy.IssuePolicyDecision{}, "<!-- baton-policy -->", "needs-info",
+		ownershipRepair{Requested: true, CommentID: 88, Action: "edited", ExpectedBody: "<!-- baton-managed-issue:v1 malformed -->"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ownership.Managed || ownership.Source != policy.IssueOwnershipRecord || report.Status != "completed" || client.updatedID != 88 || !strings.Contains(client.updated, "baton-managed-issue:v1") || !containsLabel(client.added, policy.ManagedIssueIndexLabel) {
+		t.Fatalf("ownership=%+v report=%+v updated=%q added=%v", ownership, report, client.updated, client.added)
+	}
+}
+
+func TestOwnershipRepairFromEvent(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		event     gh.IssueEvent
+		requested bool
+	}{
+		{name: "marker removed", requested: true, event: gh.IssueEvent{
+			Action: "edited", CommentID: 88, CommentBody: "marker removed", CommentPreviousBody: "<!-- baton-managed-issue:v1 original -->", Labels: []string{policy.ManagedIssueIndexLabel},
+			CommentAuthor: gh.Actor{Login: policy.ManagedIssueTrustedLogin, Type: "Bot"},
+		}},
+		{name: "unrelated bot comment", event: gh.IssueEvent{
+			Action: "edited", CommentID: 88, CommentBody: "routine automation note", Labels: []string{policy.ManagedIssueIndexLabel},
+			CommentAuthor: gh.Actor{Login: policy.ManagedIssueTrustedLogin, Type: "Bot"},
+		}},
+		{name: "untrusted marker", event: gh.IssueEvent{
+			Action: "edited", CommentID: 88, CommentBody: "<!-- baton-managed-issue:v1 malformed -->",
+			CommentAuthor: gh.Actor{Login: "contributor", Type: "User"},
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repair := ownershipRepairFromEvent(test.event)
+			if repair.Requested != test.requested || (test.requested && (repair.CommentID != 88 || repair.ExpectedBody != test.event.CommentBody || repair.Action != test.event.Action)) {
+				t.Fatalf("repair = %+v", repair)
+			}
+		})
+	}
+}
+
+func TestIssuePolicyRefusesStaleOwnershipRepairBody(t *testing.T) {
+	client := &issuePolicyGitHub{comments: []gh.IssueComment{{
+		ID: 88, Body: "newer comment revision", Author: gh.Actor{Login: policy.ManagedIssueTrustedLogin, Type: "Bot"},
+	}}}
+	report, _, err := applyIssueDecisionWithOwnershipContext(
+		context.Background(), client, "example/repo", gh.Issue{Number: 12, NodeID: "I_12", Labels: []string{policy.ManagedIssueIndexLabel}},
+		policy.IssuePolicyDecision{}, "<!-- baton-policy -->", "needs-info",
+		ownershipRepair{Requested: true, CommentID: 88, Action: "edited", ExpectedBody: "marker removed"},
+	)
+	if err == nil || report.Status != operation.ReportRefused || client.updated != "" || client.created != "" || len(client.added) != 0 {
+		t.Fatalf("report=%+v err=%v updated=%q created=%q added=%v", report, err, client.updated, client.created, client.added)
+	}
+}
+
+func TestIssuePolicyBodyEditDoesNotRevokeDurableOwnership(t *testing.T) {
+	dir := t.TempDir()
+	eventPath := filepath.Join(dir, "event.json")
+	event := `{"action":"edited","repository":{"full_name":"example/repo"},"issue":{"number":12,"node_id":"I_12","body":"body no longer matches the form","labels":[{"name":"baton:managed"}]}}`
+	if err := os.WriteFile(eventPath, []byte(event), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	record := policy.NewManagedIssueRecord("I_12", 12)
+	client := &issuePolicyGitHub{
+		issue:    gh.Issue{Number: 12, NodeID: "I_12", Body: "body no longer matches the form", Labels: []string{"baton:managed"}},
+		comments: []gh.IssueComment{{ID: 88, Body: policy.RenderManagedIssueRecord(record), Author: gh.Actor{Login: policy.ManagedIssueTrustedLogin, Type: "Bot"}}},
+	}
+	workflow := IssuePolicyWorkflow{newClient: func(context.Context, IssuePolicyInput) (IssuePolicyGitHub, error) { return client, nil }}
+	result, err := workflow.Run(IssuePolicyInput{EventPath: eventPath, ConfigPath: writeWorkflowConfig(t, dir), Apply: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Decision.IsFormIssue || !result.Ownership.Managed || result.Ownership.Source != policy.IssueOwnershipRecord || len(result.Report.Operations) != 0 || client.created != "" || client.updated != "" || len(client.added) != 0 {
+		t.Fatalf("result=%+v created=%q updated=%q added=%v", result, client.created, client.updated, client.added)
 	}
 }
 

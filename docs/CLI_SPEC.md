@@ -63,7 +63,8 @@ confirmation.
 - `3`: config error.
 - `4`: auth error.
 - `5`: GitHub API error.
-- `6`: local git error.
+- `6`: local git error, or a completed doctor evaluation with blocked adoption
+  compatibility.
 
 ## Core Commands
 
@@ -105,9 +106,10 @@ baton init --install-command '<trusted install command>'
 ```
 <!-- x-release-please-end -->
 
-The generated work-item transition workflow is a trusted mutation boundary.
-It always installs `--go-install` at an exact `@vX.Y.Z` and ignores the
-arbitrary `--install-command` escape hatch used by non-mutating policy checks.
+The generated work-item transition and delivery-recorder workflows are trusted
+mutation boundaries. They always install `--go-install` at an exact `@vX.Y.Z`
+and ignore the arbitrary `--install-command` escape hatch used by non-mutating
+policy checks.
 
 Must create or update, with explicit user confirmation:
 
@@ -118,6 +120,7 @@ Must create or update, with explicit user confirmation:
 - `.github/workflows/issue-policy.yml`
 - `.github/workflows/pr-policy.yml`
 - `.github/workflows/work-item-transition.yml`
+- `.github/workflows/delivery-recorder.yml`
 
 ### `baton doctor`
 
@@ -127,6 +130,8 @@ Examples:
 
 ```sh
 baton doctor --format toon
+baton doctor --repo owner/name --format toon
+baton doctor --repo owner/name --go-install example.com/baton/cmd/baton@v0.5.1 --json
 baton doctor --json
 ```
 
@@ -135,10 +140,31 @@ Checks:
 - config can be loaded;
 - `git` is available;
 - repo root can be resolved;
-- GitHub auth works;
+- discovered credentials can read the selected live GitHub repository;
 - remote repository can be resolved;
-- staging branch state is known;
-- labels are present or diffable.
+- default/base/staging branch state and delivery relationship are known;
+- labels and durable issue-ownership evidence are ready;
+- installed files match the trusted templates at the exact default-branch SHA;
+- required workflows are active and preserve trusted triggers, permissions,
+  checkout ref, credential handling, and pinned Baton version;
+- repository and organization Actions policy permits the generated actions;
+- organization standard-hosted-runner policy is compatible, or its unavailable
+  state is reported as degraded for explicit operator confirmation;
+- the exact `Check PR policy` context from the host's GitHub Actions app is
+  required on base and staging;
+- repository merge commits are enabled and staging does not require linear
+  history; squash/rebase-only rulesets are blocked;
+- active merge queues on base or staging are blocked because Baton does not
+  support `merge_group` events.
+
+The `doctor` JSON contract is schema v2. Each non-OK check may include a
+`remediation` string. `readyState` is `ready`, `degraded`, or `blocked`; the
+command exits nonzero for blocked results.
+
+Pass the same reviewed `--go-install` or `--install-command` value used by
+`baton init` when the adopter intentionally customized its workflow install
+target. Doctor then reconciles against that explicit trusted input; the two
+flags are mutually exclusive.
 
 ### `baton migrate-config`
 
@@ -205,7 +231,15 @@ JSON result:
   "labelsToAdd": ["agent:ready-trivial"],
   "labelsToRemove": ["needs-info"],
   "missingRequiredSections": [],
-  "policyCommentBody": null
+  "policyCommentBody": null,
+  "ownership": {
+    "schemaVersion": 1,
+    "kind": "managedIssueOwnership",
+    "managed": true,
+    "source": "recordV1",
+    "diagnostics": [],
+    "errors": []
+  }
 }
 ```
 
@@ -224,21 +258,77 @@ JSON result:
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 4,
   "kind": "prPolicyDecision",
-  "flow": "work",
+  "flow": "promotion",
   "errors": [],
   "warnings": [],
-  "referencedIssues": [4],
-  "closingIssues": [],
-  "commitListingReachedCap": false
+  "referencedIssues": [],
+  "closingIssues": [4],
+  "commitListingReachedCap": false,
+  "promotionFacts": {
+    "expectedIssues": [4],
+    "includedWorkPullRequests": [27],
+    "excludedWorkPullRequests": [],
+    "complete": true,
+    "source": "sealedDeliveryPlan",
+    "planDigest": "sha256:...",
+    "cursorDigest": "sha256:...",
+    "coverageDigest": "sha256:...",
+    "baseIntegration": {
+      "state": "integrated",
+      "observedBaseSha": "base-sha",
+      "observedStagingSha": "staging-sha",
+      "reason": "recorded"
+    }
+  }
 }
 ```
 
+`flow` is `work`, `promotion`, `misroutedWork`, `indeterminate`, or
+`unmanaged`. Ordinary and known-fork PRs return the unmanaged no-op decision;
+reserved-prefix PRs on another target fail as misrouted, while candidate-shaped
+events missing repository identity fail as indeterminate.
+
+For a managed work PR, every configured `Refs` target must resolve to a managed
+issue through its trusted ownership record or the explicitly temporary legacy
+form-fingerprint reader. Current implementation, skip, and trivial labels are
+not merge-policy inputs; they remain issue intake and recommendation facts.
+Closing-keyword targets are rejected from PR-local text and are not fetched as
+referenced resources.
+After commit acquisition, Baton re-reads the pull request and requires its head
+SHA to match the event revision. A concurrent push returns a structured GitHub
+error and leaves the newest event to evaluate the new revision.
+
+`promotionFacts` is present only for staging-to-base promotions. PR Policy
+first appends and activates an immutable plan bound to the exact PR node ID,
+base/head SHA, cursor, coverage watermark, included staged records, and reviewed
+exclusions. `expectedIssues` comes only from those durable records. A complete
+empty set allows a manual-only promotion without a closing keyword. The digest
+fields let callers bind diagnostics to the exact seal. These fields are part of
+`prPolicyDecision` schema version 4. `promotionFacts.baseIntegration` binds the
+decision to observed base/staging revisions and the selected evidence; only
+`integrated` may pass.
+
+Promotion closing references are optional presentation, not completion
+authority. If any configured closing references are present, their issue set
+must exactly equal `promotionFacts.expectedIssues`. The post-merge transition
+performs and durably commits delivery even when no closing keyword is rendered.
+
+Missing ownership, record, cursor, coverage, seal, or bounded acquisition state
+fails before policy evaluation; Baton does not fall back to ancestry or mutable
+merged-PR bodies. A failed GitHub request remains a structured GitHub error with
+exit code 5. Exactly one managed promotion may be open. If another opens, PR
+Policy re-requests the prior successful policy check so both revisions fail
+closed until the overlap is resolved.
+
 ### `baton pr-transition`
 
-Plan or apply the one persisted work-item transition: a merged work PR adds
-the configured `awaiting_review_label` to every referenced open issue.
+Plan or apply delivery-ledger work-item transitions. After the recorder commits
+a merged work PR, Baton adds the configured `awaiting_review_label` to every
+open issue in that staged-work record. After a managed promotion merges, Baton
+closes the still-open issues in its exact sealed plan, removes that index,
+appends the base-integration record, and commits the promotion cursor last.
 
 ```sh
 baton pr-transition --event "$GITHUB_EVENT_PATH" --dry-run --json
@@ -246,13 +336,79 @@ baton pr-transition --event "$GITHUB_EVENT_PATH" --apply --json
 ```
 
 Exactly one of `--dry-run` and `--apply` is required. Apply rechecks the PR
-revision and every issue before the first write, skips closed or already-labeled
-issues, and reports unavoidable partial GitHub effects. Promotion and manual
-issue closure remain GitHub-native; Baton does not merge or close them.
+revision, plan/record digest, cursor, bounded store, issue state, and durable
+ownership before the first write. Already-satisfied effects are unchanged and
+partial GitHub effects remain in `operationReport`. A committed promotion
+cursor makes duplicate event delivery a total no-op, so a later human reopen
+is preserved. Work or promotion PR prose cannot change the delivered issue set,
+and Baton never merges the PR.
+
+### `baton delivery-record`
+
+Record merged staging work in either shadow migration or sealed authority:
+
+```sh
+baton delivery-record --event "$GITHUB_EVENT_PATH" --dry-run --json
+baton delivery-record --event "$GITHUB_EVENT_PATH" --apply --json
+baton delivery-record --apply --json # reconcile missed/coalesced events
+```
+
+Apply re-reads the PR and checkpoint, backfills legacy ownership first,
+appends an immutable record derived from the latest trusted pre-merge PR-policy
+evidence, and commits the checkpoint last. A complete scan with no missing
+managed record advances coverage to its exact observed staging head. Closed-PR
+repair scans newest updates backward to the committed coverage timestamp;
+retry recovery scans ledger comments backward to the last checkpoint update,
+with a 1,000-comment safety ceiling. An unconfigured repository is a
+successful no-op. A new or repaired record re-requests successful PR-policy
+checks on open promotion heads that contain the work revision. Shadow mode
+permits recording/bootstrap but keeps policy, transition, and recommendation
+readers disabled; changing config to `delivery.authority: sealed` is the
+reviewed cutover.
+For synchronization, exact promotion recheck targets are committed in the same
+checkpoint update as the integration record. A failed or ambiguous re-request
+leaves that batch pending; the next recorder dispatch drains it before any new
+delivery work and clears it in a separate checkpoint update.
+
+For an exact merged base-to-staging PR, the command records synchronization
+only when both pre-merge histories are ancestors of the result. It preserves
+active work and the promotion cursor and rejects squash/rebase topology. The
+generated workflow also runs on base pushes to recheck open promotions.
+
+### `baton delivery-bootstrap`
+
+Bootstrap is reviewed in two stages through the generated `Delivery Recorder`
+workflow. The underlying initialization invocation is:
+
+```sh
+baton delivery-bootstrap --initialize --ledger-issue 900 --ledger-id delivery-v1 \
+  --genesis-staging-sha "$STAGING_SHA" --observed-at "$OBSERVED_AT" --dry-run --repo owner/repo --json
+baton delivery-bootstrap --initialize --ledger-issue 900 --ledger-id delivery-v1 \
+  --genesis-staging-sha "$STAGING_SHA" --observed-at "$OBSERVED_AT" --apply --plan-id "$PLAN_ID" --repo owner/repo --json
+```
+
+When config already pins a delivery locator, the same `--initialize` shape is
+a reviewed rollover into a different locked issue. The ledger ID and committed
+staging coverage must match, the predecessor active window and pending recheck
+batch must be empty, and apply creates or adopts the successor checkpoint before
+freezing the predecessor. Repin the returned successor locator through normal
+review before routine recording resumes.
+
+After the locator is reviewed, preview historical migration with either
+`--genesis-promotion` or `--genesis-staging-sha`. Output shows every source
+fact, inferred issue/PR relationship, ambiguity, exact ownership/staged record,
+and stable `planId`. Apply requires that exact ID and refuses changed facts or
+unresolved ambiguity. If the reviewed promotion corrects the initialized base
+boundary, apply commits that exact genesis checkpoint before ownership and
+staged-record writes. Direct local invocation is rejected because persisted
+comments must have trusted GitHub Actions authorship and share recorder
+concurrency. Configure required reviewers on the workflow's
+`baton-delivery-bootstrap` environment. See
+[Delivery bootstrap](DELIVERY_BOOTSTRAP.md).
 
 ### `baton snapshot`
 
-Acquire repository facts once and return `repositorySnapshot` schema v1 with
+Acquire repository facts once and return `repositorySnapshot` schema v2 with
 the acquisition window, completeness and warnings, queue facts, revision-bound
 branch and pull-request facts, and one typed Recommendation.
 
@@ -266,6 +422,11 @@ only `actionable` identifies one immediately useful agent mutation.
 `human_choice_required`, `waiting`, `blocked`, `idle`, and `degraded` do not
 authorize work. Action is advice and never represents a running or completed
 operation.
+
+`baseIntegration.state` is `integrated`, `direct-base-work-pending`,
+`diverged`, or `unknown`. Pending direct-base work selects `sync_staging`
+before PR or issue work and instructs a maintainer to open and merge a normal
+reviewed base-to-staging PR with a merge commit. Baton never performs it.
 
 ### `baton queue`
 
@@ -296,13 +457,15 @@ baton prs --json
 
 ### `baton pr <number>`
 
-Return a precomputed dashboard for one PR.
+Return a precomputed `pullRequest` v2 dashboard for one PR.
 
 Includes:
 
 - branch/base/head;
-- referenced issue numbers;
-- issue label readiness when Baton config and open issue data are available;
+- referenced issue numbers from current PR-local text for open work, or the
+  covered staged-work record for merged managed work;
+- issue label readiness when Baton config, durable ownership, and open issue
+  data are available;
 - check state, count, and summary counts;
 - review-thread count and unresolved human/bot/unknown-author summary counts;
 - likely next command;
@@ -372,7 +535,7 @@ baton next --action issue-investigation --format toon
 baton next --json
 ```
 
-`nextCandidates` v2 is a lossy compatibility projection from the unified
+`nextCandidates` v3 is a lossy compatibility projection from the unified
 snapshot implementation. It cannot express the new Outcome distinction and
 must not be interpreted as execution state. New integrations should consume
 `baton snapshot --json`.
@@ -381,7 +544,7 @@ JSON result:
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "kind": "nextCandidates",
   "selectedAction": "pr-followup",
   "repo": "example-org/example-repo",

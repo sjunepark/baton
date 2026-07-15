@@ -3,6 +3,7 @@ package gh
 import (
 	"os"
 	"testing"
+	"time"
 )
 
 func TestParseIssueEvent(t *testing.T) {
@@ -25,15 +26,33 @@ func TestParseIssueEvent(t *testing.T) {
 	}
 }
 
+func TestParseEditedIssueCommentPreviousBody(t *testing.T) {
+	event, err := ParseIssueEvent([]byte(`{
+  "action": "edited",
+  "issue": {"number": 12, "node_id": "I_12", "body": "body", "labels": [{"name": "baton:managed"}]},
+  "comment": {"id": 88, "body": "marker removed", "user": {"login": "github-actions[bot]", "type": "Bot"}},
+  "changes": {"body": {"from": "<!-- baton-managed-issue:v1 original -->"}}
+}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if event.CommentID != 88 || event.CommentPreviousBody != "<!-- baton-managed-issue:v1 original -->" {
+		t.Fatalf("event = %#v", event)
+	}
+}
+
 func TestParsePullRequestEvent(t *testing.T) {
 	pr, err := ParsePullRequestEvent([]byte(`{
   "action": "closed",
   "pull_request": {
     "number": 8,
+    "node_id": "PR_8",
     "title": "Update policy",
     "body": "Refs #12",
     "state": "closed",
     "merged": true,
+    "merged_at": "2026-07-15T01:02:03Z",
+    "merge_commit_sha": "merge-sha",
     "base": {"ref": "agent", "sha": "base-sha", "repo": {"full_name": "example-org/example-repo"}},
     "head": {"ref": "agent-work/policy", "sha": "head-sha", "repo": {"full_name": "example-org/example-repo"}}
   }
@@ -41,7 +60,7 @@ func TestParsePullRequestEvent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pr.Action != "closed" || !pr.Merged || pr.State != "closed" || pr.Number != 8 || pr.BaseRef != "agent" || pr.HeadRef != "agent-work/policy" || pr.BaseSHA != "base-sha" || pr.HeadSHA != "head-sha" || pr.Body != "Refs #12" {
+	if pr.Action != "closed" || !pr.Merged || pr.State != "closed" || pr.Number != 8 || pr.NodeID != "PR_8" || pr.BaseRef != "agent" || pr.HeadRef != "agent-work/policy" || pr.BaseSHA != "base-sha" || pr.HeadSHA != "head-sha" || pr.Body != "Refs #12" || pr.MergeRevision != "merge-sha" || pr.MergedAt.Format(time.RFC3339) != "2026-07-15T01:02:03Z" {
 		t.Fatalf("pr = %#v", pr)
 	}
 }

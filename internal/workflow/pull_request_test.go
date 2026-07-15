@@ -2,11 +2,17 @@ package workflow
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/sjunepark/baton/internal/config"
+	"github.com/sjunepark/baton/internal/delivery"
 	"github.com/sjunepark/baton/internal/gh"
+	"github.com/sjunepark/baton/internal/policy"
 	"github.com/sjunepark/baton/internal/queue"
 	"github.com/sjunepark/baton/internal/repository"
 	"github.com/sjunepark/baton/internal/workitem"
@@ -30,6 +36,9 @@ func (f pullRequestGitHub) GetReviewThreadsContext(context.Context, string, int)
 }
 func (f pullRequestGitHub) ListOpenIssuesContext(context.Context, string) ([]gh.Issue, error) {
 	return f.issues, nil
+}
+func (f pullRequestGitHub) ListIssueCommentsContext(context.Context, string, int) ([]gh.IssueComment, error) {
+	return nil, nil
 }
 
 func TestPullRequestWorkflowComposesDashboard(t *testing.T) {
@@ -141,6 +150,14 @@ func TestBuildIssueReadinessUsesLabels(t *testing.T) {
 	}
 }
 
+func TestBuildIssueReadinessDoesNotReportOpenUnmanagedIssueAsClosed(t *testing.T) {
+	cfg := config.DefaultConfig()
+	readiness := buildIssueReadinessWithOpenIssues([]int{7}, nil, map[int]struct{}{7: {}}, cfg, 0, 0)
+	if len(readiness) != 1 || !readiness[0].Found || readiness[0].State != workitem.StateBlocked || readiness[0].Ready || !strings.Contains(strings.Join(readiness[0].Reasons, " "), "not Baton-managed") {
+		t.Fatalf("readiness = %+v", readiness)
+	}
+}
+
 func TestBuildIssueReadinessUsesSharedActiveWorkPRState(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.IssuePolicy.ImplementationLabels = []string{"agent:ready-trivial"}
@@ -157,6 +174,99 @@ func TestBuildIssueReadinessDistinguishesMergedAndClosedUnmergedPRs(t *testing.T
 	closed := buildIssueReadiness([]int{7}, issue, cfg, 0, 0)
 	if merged[0].State != workitem.StateAwaitingReview || closed[0].State != workitem.StateReady || !closed[0].Ready {
 		t.Fatalf("merged=%+v closed=%+v", merged, closed)
+	}
+}
+
+func TestMergedWorkIssueReferencesUseCoveredDeliveryRecord(t *testing.T) {
+	store := delivery.Snapshot{
+		Checkpoint: delivery.DeliveryCheckpoint{
+			Coverage:      delivery.StagingCoverage{RecordSequence: 1},
+			ActiveRecords: []delivery.RecordReference{{Kind: delivery.RecordStagedWork, Sequence: 1, Digest: "sha256:record"}},
+		},
+		StagedWork: []delivery.StagedWorkRecord{{
+			RecordHeader: delivery.RecordHeader{Sequence: 1, Digest: "sha256:record"},
+			PullRequest:  delivery.ResourceIdentity{Number: 42},
+			Issues:       []delivery.ManagedIssueReference{{Number: 7}, {Number: 8}},
+		}},
+	}
+	references, err := mergedWorkIssueReferencesFromStore(store, 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(references) != 2 || references[0] != 7 || references[1] != 8 {
+		t.Fatalf("references = %v", references)
+	}
+	if _, err := mergedWorkIssueReferencesFromStore(store, 99); err == nil {
+		t.Fatal("missing staged-work record should fail instead of using mutable PR references")
+	}
+}
+
+func TestMergedWorkDashboardRejectsMutableReferencesWithoutSealedRecord(t *testing.T) {
+	cfg := config.DefaultConfig()
+	result := PullRequestDashboard{
+		Repo: "example/repo", PullRequest: queue.PullRequest{Number: 42, Merged: true, Ownership: policy.PRFlowWork},
+		ReferencedIssues: []int{99},
+	}
+	PullRequestWorkflow{}.addIssueReadiness(context.Background(), &result, pullRequestSession{repo: result.Repo, client: pullRequestGitHub{}, config: &cfg})
+	if result.ReferencedIssues != nil || len(result.IssueReadiness) != 0 || !strings.Contains(strings.Join(result.Warnings, " "), "sealed delivery authority is required") {
+		t.Fatalf("dashboard = %+v", result)
+	}
+}
+
+func TestMergedWorkDashboardRejectsMutableReferencesWithoutConfig(t *testing.T) {
+	result := PullRequestDashboard{
+		Repo: "example/repo", PullRequest: queue.PullRequest{Number: 42, Merged: true, Ownership: policy.PRFlowWork},
+		ReferencedIssues: []int{99},
+	}
+	PullRequestWorkflow{}.addIssueReadiness(context.Background(), &result, pullRequestSession{repo: result.Repo, client: pullRequestGitHub{}})
+	if result.ReferencedIssues != nil || len(result.IssueReadiness) != 0 || !strings.Contains(strings.Join(result.Warnings, " "), "sealed delivery evidence cannot be verified") {
+		t.Fatalf("dashboard = %+v", result)
+	}
+}
+
+func TestPullRequestDashboardV2GoldenContract(t *testing.T) {
+	cfg := config.DefaultConfig()
+	pullRequest := queue.PullRequest{
+		Number: 42, Title: "Edited references", URL: "https://github.com/example/repo/pull/42",
+		Body: "Refs #99", BaseRef: "agent", HeadRef: "agent-work/42", HeadSHA: "head-42", CheckState: "success",
+		State: "closed", Merged: true, Ownership: policy.PRFlowWork,
+	}
+	result := buildPullRequestDashboard("example/repo", pullRequest, cfg)
+	store := delivery.Snapshot{
+		Checkpoint: delivery.DeliveryCheckpoint{
+			Coverage:      delivery.StagingCoverage{RecordSequence: 1},
+			ActiveRecords: []delivery.RecordReference{{Kind: delivery.RecordStagedWork, Sequence: 1, Digest: "sha256:record"}},
+		},
+		StagedWork: []delivery.StagedWorkRecord{{
+			RecordHeader: delivery.RecordHeader{Sequence: 1, Digest: "sha256:record"},
+			PullRequest:  delivery.ResourceIdentity{Number: 42},
+			Issues:       []delivery.ManagedIssueReference{{Number: 7}},
+		}},
+	}
+	var err error
+	result.ReferencedIssues, err = mergedWorkIssueReferencesFromStore(store, pullRequest.Number)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result.IssueReadiness = buildIssueReadiness(result.ReferencedIssues, []queue.Issue{{Number: 7, Labels: []string{"agent:ready-bounded"}}}, cfg, 0, pullRequest.Number)
+
+	actual, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected, err := os.ReadFile(filepath.Join("..", "..", "testdata", "contracts", "pull-request-v2-merged-work.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var actualValue, expectedValue any
+	if err := json.Unmarshal(actual, &actualValue); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(expected, &expectedValue); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(actualValue, expectedValue) {
+		t.Fatalf("pull request dashboard contract\nactual: %s\nexpected: %s", actual, expected)
 	}
 }
 

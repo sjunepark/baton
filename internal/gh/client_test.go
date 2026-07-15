@@ -75,6 +75,26 @@ func TestCreateIssueComment(t *testing.T) {
 	}
 }
 
+func TestCloseIssue(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch || r.URL.Path != "/repos/example/repo/issues/7" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+		}
+		var body map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body["state"] != "closed" {
+			t.Fatalf("body = %#v", body)
+		}
+		w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+	if err := NewClient(server.URL, "token", server.Client()).CloseIssue("example/repo", 7); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestAPIErrorPreservesSafeRetryMetadata(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("X-GitHub-Request-Id", "request-123")
@@ -171,7 +191,7 @@ func TestGetBranchHealth(t *testing.T) {
 		case "/repos/example-org/example-repo/git/ref/heads/agent":
 			w.Write([]byte(`{"object":{"sha":"abc123"}}`))
 		case "/repos/example-org/example-repo/commits/abc123/check-runs":
-			w.Write([]byte(`{"check_runs":[{"name":"test","status":"completed","conclusion":"failure","html_url":"https://example/check"}]}`))
+			w.Write([]byte(`{"check_runs":[{"id":123,"name":"test","status":"completed","conclusion":"failure","html_url":"https://example/check"}]}`))
 		case "/repos/example-org/example-repo/commits/abc123/statuses":
 			w.Write([]byte(`[]`))
 		default:

@@ -1,0 +1,68 @@
+{
+  "scenarios": [
+    {
+      "name": "promotion-merge",
+      "lifecycle": "consumed",
+      "method": "merge",
+      "baseResultSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "name": "promotion-squash",
+      "lifecycle": "consumed",
+      "method": "squash",
+      "baseResultSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    {
+      "name": "promotion-rebase",
+      "lifecycle": "consumed",
+      "method": "rebase",
+      "baseResultSha": "cccccccccccccccccccccccccccccccccccccccc"
+    },
+    {
+      "name": "promotion-manual-only",
+      "lifecycle": "sealed",
+      "manualOnly": true
+    },
+    {
+      "name": "promotion-exclusion",
+      "lifecycle": "sealed",
+      "exclusion": true
+    },
+    {
+      "name": "duplicate-record",
+      "lifecycle": "sealed",
+      "mutation": "duplicate",
+      "wantError": "duplicate delivery record sequence"
+    },
+    {
+      "name": "edited-record",
+      "lifecycle": "sealed",
+      "mutation": "edit",
+      "wantError": "digest or retry identity is invalid"
+    },
+    {
+      "name": "deleted-record",
+      "lifecycle": "sealed",
+      "mutation": "delete",
+      "wantError": "records for"
+    },
+    {
+      "name": "stale-sealed-plan",
+      "lifecycle": "sealed",
+      "mutation": "staleHead",
+      "wantError": "base or head revision is stale"
+    },
+    {
+      "name": "missed-staged-work-event",
+      "lifecycle": "sealed",
+      "coverageGap": true,
+      "wantError": "does not cover the exact staging revision"
+    },
+    {
+      "name": "exclusion-after-seal",
+      "lifecycle": "sealed",
+      "mutation": "postSealExclusion",
+      "wantError": "active-chain head"
+    }
+  ]
+}

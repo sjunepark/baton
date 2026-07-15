@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -74,7 +75,8 @@ type errorResult struct {
 
 type issuePolicyOutput struct {
 	policy.IssuePolicyDecision
-	Report *operation.Report `json:"report,omitempty"`
+	Ownership policy.IssueOwnershipDecision `json:"ownership"`
+	Report    *operation.Report             `json:"report,omitempty"`
 }
 
 func newRenderer(stdout, stderr io.Writer, structured bool) renderer {
@@ -280,6 +282,10 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer, ve
 		return runPRPolicy(ctx, args[1:], stdout, stderr)
 	case "pr-transition":
 		return runPRTransition(ctx, args[1:], stdout, stderr)
+	case "delivery-record":
+		return runDeliveryRecord(ctx, args[1:], stdout, stderr)
+	case "delivery-bootstrap":
+		return runDeliveryBootstrap(ctx, args[1:], stdout, stderr)
 	case "sync-labels":
 		return runSyncLabels(ctx, args[1:], stdout, stderr)
 	case "snapshot":
@@ -326,7 +332,7 @@ type commandHelp struct {
 
 var commandOrder = []string{
 	"version", "home", "init", "migrate-config", "doctor", "issue-policy",
-	"pr-policy", "pr-transition", "sync-labels", "snapshot", "queue", "prs",
+	"pr-policy", "pr-transition", "delivery-record", "delivery-bootstrap", "sync-labels", "snapshot", "queue", "prs",
 	"pr", "checks", "review-threads", "next", "ensure-branch", "labels",
 }
 
@@ -358,10 +364,10 @@ var commandHelps = map[string]commandHelp{
 		Related:  []string{"baton doctor --config .github/baton.yml --json"},
 	},
 	"doctor": {
-		Purpose:  "Check local Baton prerequisites and repository readiness.",
-		Usage:    "baton doctor [--config <path>] [--format text|json|toon] [--json]",
-		Flags:    []string{"--config: policy config path", "--format: output format text, json, or toon", "--json: emit structured JSON"},
-		Examples: []string{"baton doctor --format toon", "baton doctor --config .github/baton.yml --json"},
+		Purpose:  "Prove local and live GitHub adoption compatibility.",
+		Usage:    "baton doctor [--repo owner/name] [--config <path>] [--go-install module@version|--install-command <cmd>] [--format text|json|toon] [--json]",
+		Flags:    []string{"--repo: GitHub repository owner/name", "--config: policy config path", "--go-install: reviewed Go install target used by init", "--install-command: reviewed policy-workflow install command used by init", "--format: output format text, json, or toon", "--json: emit structured JSON"},
+		Examples: []string{"baton doctor --repo owner/name --format toon", "baton doctor --config .github/baton.yml --json"},
 		Related:  []string{"baton init --dry-run --json", "baton queue --json"},
 	},
 	"issue-policy": {
@@ -381,9 +387,23 @@ var commandHelps = map[string]commandHelp{
 	"pr-transition": {
 		Purpose:  "Plan or apply GitHub-authoritative work-item transitions from a pull request event.",
 		Usage:    "baton pr-transition --event <path> --dry-run|--apply [--repo owner/name] [--config <path>] [--json]",
-		Flags:    []string{"--event: GitHub pull_request event payload", "--dry-run: preview transition operations", "--apply: apply idempotent issue label transitions", "--repo: GitHub repository owner/name", "--config: policy config path", "--json: emit structured JSON"},
+		Flags:    []string{"--event: GitHub pull_request event payload", "--dry-run: preview transition operations", "--apply: apply idempotent work labels or promotion completion", "--repo: GitHub repository owner/name", "--config: policy config path", "--json: emit structured JSON"},
 		Examples: []string{"baton pr-transition --event event.json --dry-run --json", "baton pr-transition --event event.json --apply --repo owner/name --json"},
 		Related:  []string{"baton pr-policy --event <path> --json", "baton queue --json"},
+	},
+	"delivery-record": {
+		Purpose:  "Plan or apply a delivery-ledger record for merged staging work.",
+		Usage:    "baton delivery-record [--event <path>] --dry-run|--apply [--repo owner/name] [--config <path>] [--json]",
+		Flags:    []string{"--event: optional merged pull_request event; omit to reconcile staging", "--dry-run: preview ledger operations", "--apply: append records and commit the checkpoint", "--repo: GitHub repository owner/name", "--config: repository policy path with a pinned delivery locator", "--json: emit structured JSON"},
+		Examples: []string{"baton delivery-record --event event.json --dry-run --json", "baton delivery-record --apply --repo owner/name --json"},
+		Related:  []string{"baton delivery-bootstrap --dry-run --json", "baton pr-policy --event <path> --json"},
+	},
+	"delivery-bootstrap": {
+		Purpose:  "Plan or apply reviewed delivery-ledger initialization, migration, or drained rollover.",
+		Usage:    "baton delivery-bootstrap --dry-run|--apply [--plan-id <sha256>] [--initialize --ledger-issue <number> --ledger-id <id> --genesis-staging-sha <sha> --observed-at <rfc3339>|--genesis-promotion <number>] [--repo owner/name] [--config <path>] [--json]",
+		Flags:    []string{"--dry-run: emit the complete reviewed bootstrap plan", "--apply: apply an unchanged reviewed plan", "--plan-id: exact reviewed plan identity required by apply", "--initialize: create the first checkpoint, or roll a drained configured ledger into a different locked issue", "--ledger-issue: existing locked ledger issue number", "--ledger-id: stable delivery ledger identity", "--observed-at: fixed RFC3339 genesis observation time", "--genesis-promotion: last acknowledged promotion pull request", "--genesis-staging-sha: explicit acknowledged staging boundary", "--repo: GitHub repository owner/name", "--config: repository policy path; migration and rollover use the pinned delivery locator", "--json: emit structured JSON"},
+		Examples: []string{"gh workflow run delivery-recorder.yml -f mode=bootstrap-migrate -f genesis_promotion=42", "gh workflow run delivery-recorder.yml -f mode=bootstrap-initialize -f ledger_issue=900 -f ledger_id=delivery-v1 -f genesis_staging_sha=<sha> -f observed_at=<rfc3339>"},
+		Related:  []string{"baton delivery-record --dry-run --json", "baton doctor --json"},
 	},
 	"sync-labels": {
 		Purpose:  "Compare or apply GitHub repository labels from a labels manifest.",
@@ -588,8 +608,15 @@ func runDoctor(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	configPath := fs.String("config", "", "policy config path")
+	repo := fs.String("repo", "", "GitHub repository owner/name")
+	goInstall := fs.String("go-install", "", "reviewed Go install target used by init")
+	installCommand := fs.String("install-command", "", "reviewed policy-workflow install command used by init")
 	formats := addFormatFlags(fs)
 	if err := fs.Parse(args); err != nil {
+		return exitUsage
+	}
+	if *goInstall != "" && *installCommand != "" {
+		fmt.Fprintln(stderr, "doctor accepts only one of --go-install or --install-command")
 		return exitUsage
 	}
 	out, format, code := rendererFromFormatFlags(stdout, stderr, formats)
@@ -597,7 +624,8 @@ func runDoctor(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		return code
 	}
 	result := doctor.RunWithOptionsContext(ctx, doctor.Options{
-		ConfigPath: *configPath, GitHubToken: os.Getenv("GITHUB_TOKEN"), GHToken: os.Getenv("GH_TOKEN"),
+		ConfigPath: *configPath, Repository: *repo, EnvironmentRepo: os.Getenv("GITHUB_REPOSITORY"), GitHubAPIURL: os.Getenv("GITHUB_API_URL"),
+		GitHubToken: os.Getenv("GITHUB_TOKEN"), GHToken: os.Getenv("GH_TOKEN"), GoInstall: *goInstall, InstallCommand: *installCommand,
 	})
 	if format == formatJSON {
 		if code := out.JSON(result); code != exitOK {
@@ -608,11 +636,15 @@ func runDoctor(ctx context.Context, args []string, stdout, stderr io.Writer) int
 			return code
 		}
 	} else {
+		fmt.Fprintf(stdout, "doctor: %s (ok=%d warn=%d fail=%d)\n", result.ReadyState, result.Counts.OK, result.Counts.Warn, result.Counts.Fail)
 		for _, check := range result.Checks {
 			if check.Message == "" {
 				fmt.Fprintf(stdout, "%s: %s\n", check.Name, check.Status)
 			} else {
 				fmt.Fprintf(stdout, "%s: %s (%s)\n", check.Name, check.Status, check.Message)
+			}
+			if check.Remediation != "" {
+				fmt.Fprintf(stdout, "  remediation: %s\n", check.Remediation)
 			}
 		}
 	}
@@ -663,7 +695,7 @@ func runIssuePolicy(ctx context.Context, args []string, stdout, stderr io.Writer
 		return renderWorkflowError(out, workflowErr)
 	}
 	if *jsonOut {
-		return out.JSON(issuePolicyOutput{IssuePolicyDecision: decision, Report: result.Report})
+		return out.JSON(issuePolicyOutput{IssuePolicyDecision: decision, Ownership: result.Ownership, Report: result.Report})
 	}
 	return exitOK
 }
@@ -687,6 +719,7 @@ func runPRPolicy(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		FixturePath: *fixturePath, EventPath: *eventPath, ConfigPath: *configPath,
 		Repository: *repoFlag, EnvironmentRepo: os.Getenv("GITHUB_REPOSITORY"), GitHubAPIURL: os.Getenv("GITHUB_API_URL"),
 		GitHubToken: os.Getenv("GITHUB_TOKEN"), GHToken: os.Getenv("GH_TOKEN"),
+		WorkflowName: os.Getenv("GITHUB_WORKFLOW"), RunID: githubRunID(),
 	})
 	if err != nil {
 		return renderWorkflowError(out, err)
@@ -701,14 +734,23 @@ func runPRPolicy(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		return exitOK
 	}
 	if len(decision.Errors) == 0 {
+		writePromotionPolicyFacts(stdout, decision)
 		fmt.Fprintln(stdout, "PR policy check passed.")
 		return exitOK
 	}
+	writePromotionPolicyFacts(stderr, decision)
 	fmt.Fprintln(stderr, "PR policy check failed:")
 	for _, msg := range decision.Errors {
 		fmt.Fprintf(stderr, "- %s\n", msg)
 	}
 	return exitPolicy
+}
+
+func writePromotionPolicyFacts(writer io.Writer, decision policy.PRPolicyDecision) {
+	if decision.PromotionFacts == nil {
+		return
+	}
+	fmt.Fprintf(writer, "Promotion evidence: complete=%t expectedIssues=%s\n", decision.PromotionFacts.Complete, intList(decision.PromotionFacts.ExpectedIssues))
 }
 
 func runPRTransition(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -733,6 +775,7 @@ func runPRTransition(ctx context.Context, args []string, stdout, stderr io.Write
 	result, err := workflow.NewPullRequestTransitionWorkflow().RunContext(ctx, workflow.PullRequestTransitionInput{
 		EventPath: *eventPath, ConfigPath: *configPath, Repository: *repoFlag, EnvironmentRepo: os.Getenv("GITHUB_REPOSITORY"), Apply: *apply,
 		GitHubAPIURL: os.Getenv("GITHUB_API_URL"), GitHubToken: os.Getenv("GITHUB_TOKEN"), GHToken: os.Getenv("GH_TOKEN"),
+		WorkflowName: os.Getenv("GITHUB_WORKFLOW"), RunID: githubRunID(),
 	})
 	if err != nil {
 		return renderWorkflowError(out, err)
@@ -749,6 +792,107 @@ func runPRTransition(ctx context.Context, args []string, stdout, stderr io.Write
 		fmt.Fprintf(stdout, "Warning: %s\n", warning)
 	}
 	return exitOK
+}
+
+func runDeliveryRecord(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("delivery-record", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	eventPath := fs.String("event", "", "optional merged pull_request event payload")
+	repoFlag := fs.String("repo", "", "GitHub repository owner/name")
+	configPath := fs.String("config", "", "policy config path")
+	dryRun := fs.Bool("dry-run", false, "preview delivery ledger operations")
+	apply := fs.Bool("apply", false, "apply delivery ledger operations")
+	jsonOut := fs.Bool("json", false, "emit JSON")
+	if err := fs.Parse(args); err != nil {
+		return exitUsage
+	}
+	out := newRenderer(stdout, stderr, *jsonOut)
+	if *dryRun == *apply {
+		return out.ErrorMessage(exitUsage, "delivery-record requires exactly one of --dry-run or --apply", "Preview with --dry-run before applying.")
+	}
+	result, err := workflow.NewDeliveryRecordWorkflow().RunContext(ctx, workflow.DeliveryRecordInput{
+		EventPath: *eventPath, ConfigPath: *configPath, Repository: *repoFlag, EnvironmentRepo: os.Getenv("GITHUB_REPOSITORY"), Apply: *apply,
+		GitHubAPIURL: os.Getenv("GITHUB_API_URL"), GitHubToken: os.Getenv("GITHUB_TOKEN"), GHToken: os.Getenv("GH_TOKEN"),
+		WorkflowName: os.Getenv("GITHUB_WORKFLOW"), RunID: githubRunID(),
+	})
+	if err != nil {
+		return renderWorkflowError(out, err)
+	}
+	if *jsonOut {
+		return out.JSON(result)
+	}
+	mode := "Planned"
+	if *apply {
+		mode = "Applied"
+	}
+	fmt.Fprintf(stdout, "%s %d delivery record operation(s).\n", mode, len(result.Operations))
+	for _, warning := range result.Warnings {
+		fmt.Fprintf(stdout, "Warning: %s\n", warning)
+	}
+	return exitOK
+}
+
+func runDeliveryBootstrap(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("delivery-bootstrap", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	repoFlag := fs.String("repo", "", "GitHub repository owner/name")
+	configPath := fs.String("config", "", "policy config path")
+	genesisPromotion := fs.Int("genesis-promotion", 0, "last acknowledged promotion pull request")
+	genesisStagingSHA := fs.String("genesis-staging-sha", "", "explicit acknowledged staging boundary")
+	initialize := fs.Bool("initialize", false, "create the first checkpoint or roll a drained configured ledger into another locked issue")
+	ledgerIssue := fs.Int("ledger-issue", 0, "existing locked ledger issue number")
+	ledgerID := fs.String("ledger-id", "", "stable delivery ledger identity")
+	observedAt := fs.String("observed-at", "", "fixed RFC3339 genesis observation time")
+	planID := fs.String("plan-id", "", "exact reviewed bootstrap plan identity")
+	dryRun := fs.Bool("dry-run", false, "preview bootstrap operations")
+	apply := fs.Bool("apply", false, "apply reviewed bootstrap operations")
+	jsonOut := fs.Bool("json", false, "emit JSON")
+	if err := fs.Parse(args); err != nil {
+		return exitUsage
+	}
+	out := newRenderer(stdout, stderr, *jsonOut)
+	if *dryRun == *apply {
+		return out.ErrorMessage(exitUsage, "delivery-bootstrap requires exactly one of --dry-run or --apply", "Review a --dry-run plan before applying.")
+	}
+	if *initialize && *genesisPromotion > 0 {
+		return out.ErrorMessage(exitUsage, "delivery-bootstrap initialization cannot use --genesis-promotion", "Pass the exact reviewed staging SHA.")
+	}
+	if *genesisPromotion > 0 && strings.TrimSpace(*genesisStagingSHA) != "" {
+		return out.ErrorMessage(exitUsage, "delivery-bootstrap accepts only one genesis selector", "Choose --genesis-promotion or --genesis-staging-sha.")
+	}
+	if *initialize && (*ledgerIssue <= 0 || strings.TrimSpace(*ledgerID) == "" || strings.TrimSpace(*genesisStagingSHA) == "" || strings.TrimSpace(*observedAt) == "") {
+		return out.ErrorMessage(exitUsage, "delivery-bootstrap --initialize requires --ledger-issue, --ledger-id, --genesis-staging-sha, and --observed-at", "Create and lock the reserved ledger issue before initialization.")
+	}
+	if *apply && strings.TrimSpace(*planID) == "" {
+		return out.ErrorMessage(exitUsage, "delivery-bootstrap --apply requires --plan-id", "Pass the exact planId from the reviewed dry-run output.")
+	}
+	result, err := workflow.NewDeliveryBootstrapWorkflow().RunContext(ctx, workflow.DeliveryBootstrapInput{
+		ConfigPath: *configPath, Repository: *repoFlag, EnvironmentRepo: os.Getenv("GITHUB_REPOSITORY"), Apply: *apply,
+		ReviewedPlanID: strings.TrimSpace(*planID), GenesisPromotion: *genesisPromotion, GenesisStagingSHA: strings.TrimSpace(*genesisStagingSHA),
+		Initialize: *initialize, LedgerIssue: *ledgerIssue, LedgerID: strings.TrimSpace(*ledgerID), ObservedAt: strings.TrimSpace(*observedAt),
+		GitHubAPIURL: os.Getenv("GITHUB_API_URL"), GitHubToken: os.Getenv("GITHUB_TOKEN"), GHToken: os.Getenv("GH_TOKEN"),
+		WorkflowName: os.Getenv("GITHUB_WORKFLOW"), RunID: githubRunID(),
+	})
+	if err != nil {
+		return renderWorkflowError(out, err)
+	}
+	if *jsonOut {
+		return out.JSON(result)
+	}
+	mode := "Planned"
+	if *apply {
+		mode = "Applied"
+	}
+	fmt.Fprintf(stdout, "%s delivery bootstrap %s with %d operation(s).\n", mode, result.PlanID, len(result.Operations))
+	for _, ambiguity := range result.Ambiguities {
+		fmt.Fprintf(stdout, "Ambiguity: %s\n", ambiguity.Message)
+	}
+	return exitOK
+}
+
+func githubRunID() int64 {
+	value, _ := strconv.ParseInt(strings.TrimSpace(os.Getenv("GITHUB_RUN_ID")), 10, 64)
+	return value
 }
 
 func runSyncLabels(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -1286,6 +1430,9 @@ func writeDoctorTOON(w io.Writer, result doctor.Result) int {
 		line := fmt.Sprintf("  - name=%s status=%s", check.Name, check.Status)
 		if check.Message != "" {
 			line += " message=" + oneLine(check.Message)
+		}
+		if check.Remediation != "" {
+			line += " remediation=" + oneLine(check.Remediation)
 		}
 		fmt.Fprintln(w, line)
 	}

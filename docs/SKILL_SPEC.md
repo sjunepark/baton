@@ -31,10 +31,11 @@ The skill must instruct Codex to:
   permission to start mutating work.
 - Treat everything after a recognized skill command as the command argument so
   users do not need to paste boilerplate workflow prompts.
-- Run `baton home --format toon` or `baton doctor --format toon` when
+- Run `baton home --format toon` or `baton doctor --repo owner/name --format toon` when
   repository readiness is uncertain.
 - Run `baton snapshot --format toon` before selecting unattended work. Proceed
-  only when `outcome` is `actionable`; every other outcome is report-and-stop.
+  only when `recommendation.outcome` is `actionable`; every other outcome is
+  report-and-stop.
 - Prefer Baton compact output or JSON over manual GitHub browsing for queue
   state.
 - Create todos as structured GitHub issues with the Agent-readable work item
@@ -72,7 +73,7 @@ The bundled skill must expose these concise commands:
 | `$baton implement <issue>` | In a caller-provided isolated checkout, implement one ready issue, validate, and open/update a staging PR. |
 | `$baton follow-up <pr>` | In a caller-provided isolated checkout, fix checks or review follow-up on the existing PR branch. |
 | `$baton run [repo]` | Let Baton return candidates, choose exactly one safe unit, then stop. |
-| `$baton adopt [repo]` | Check target-repo Baton setup with dry-run/read-only commands. |
+| `$baton adopt [repo]` | Check target-repo setup read-only; never report adoption complete while doctor is blocked. |
 | `$baton update [repo]` | Check and update an existing Baton adoption through a normal reviewed PR. Do not merge. |
 | `$baton automate [repo]` | Explain or prepare scheduled one-unit automation. |
 
@@ -93,7 +94,8 @@ Routing rules:
 ### General Automation
 
 1. Run `baton snapshot --format toon`.
-2. Unless `outcome` is `actionable`, report the outcome/reasons and stop.
+2. Unless `recommendation.outcome` is `actionable`, report the outcome/reasons
+   and stop.
 3. Choose exactly one returned candidate and follow the typed `action`.
 4. Verify the current working directory is a caller-provided isolated checkout.
 5. Check out the PR `headRef` for follow-up or create an issue-work branch from
@@ -119,7 +121,8 @@ Routing rules:
 
 ### Issue Intake
 
-1. Confirm issue has implementation label and no skip labels.
+1. Confirm `snapshot` selected the issue as durably managed and eligible for
+   implementation; implementation and skip labels remain intake facts only.
 2. Branch from configured staging branch.
 3. Implement the smallest change satisfying acceptance criteria.
 4. Validate.
@@ -168,6 +171,8 @@ Stop and report instead of editing when:
 The skill may include:
 
 - `references/commands.md`: compact command reference.
+- `references/delivery-bootstrap.md`: reviewed delivery-ledger initialization,
+  migration, and cutover procedure.
 - `references/json-contracts.md`: key fields Codex should inspect.
 - `references/todo-creation.md`: guidance and prompts for creating
   Baton-ready GitHub issue todos.

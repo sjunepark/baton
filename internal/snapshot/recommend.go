@@ -4,20 +4,25 @@ import (
 	"math"
 	"sort"
 	"strings"
+
+	"github.com/sjunepark/baton/internal/delivery"
 )
 
 func recommend(repository RepositorySnapshot, requestedAction string) Recommendation {
 	if repository.Completeness != Complete {
 		return Recommendation{Outcome: OutcomeDegraded, Reasons: []string{"incomplete_facts"}, Candidates: []Candidate{}, DeferredCandidates: []Candidate{}, Instructions: []string{"Retry after the reported facts are complete and stable."}}
 	}
+	if branch := stagingBranchRecommendation(repository); branch != nil {
+		return *branch
+	}
+	if integration := synchronizationRecommendation(repository); integration != nil {
+		return *integration
+	}
 	if requestedAction == "issue-investigation" {
 		if issues := recommendIssues(repository, ActionIssueInvestigation); issues != nil {
 			return *issues
 		}
 		return idleRecommendation("no eligible candidates for requested action")
-	}
-	if branch := stagingBranchRecommendation(repository); branch != nil {
-		return *branch
 	}
 	if pullRequests := pullRequestRecommendation(repository, false); pullRequests != nil {
 		return *pullRequests
@@ -32,6 +37,23 @@ func recommend(repository RepositorySnapshot, requestedAction string) Recommenda
 		return *pullRequests
 	}
 	return idleRecommendation("no eligible issue or PR follow-up")
+}
+
+func synchronizationRecommendation(repository RepositorySnapshot) *Recommendation {
+	if repository.BaseIntegration == nil || repository.BaseIntegration.State != delivery.BaseDirectWorkPending {
+		return nil
+	}
+	action := ActionSyncStaging
+	candidate := Candidate{Identity: CandidateIdentity{
+		Repository: repository.Repository, Kind: CandidateRepository,
+		BaseRef: repository.Queue.StagingBranch, HeadRef: repository.Queue.BaseBranch, BaseSHA: repository.BaseIntegration.ObservedStagingSHA,
+		HeadSHA: repository.BaseIntegration.ObservedBaseSHA,
+	}, State: "direct_base_work_pending", Reasons: []string{"direct_base_work_pending"}}
+	return &Recommendation{
+		Outcome: OutcomeActionable, Action: &action, Reasons: []string{"direct_base_work_pending"}, Candidates: []Candidate{candidate},
+		DeferredCandidates: deferredCandidates(repository, candidate.Identity),
+		Instructions:       []string{"Open a normal human-reviewed pull request from the configured base branch into staging.", "Merge it with a merge commit so both histories remain ancestors of the result.", "Do not push, merge, rebase, squash, or rewrite staging automatically."},
+	}
 }
 
 func stagingBranchRecommendation(repository RepositorySnapshot) *Recommendation {

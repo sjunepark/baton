@@ -3,36 +3,61 @@ package workflow
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"sync"
 	"testing"
 
 	"github.com/sjunepark/baton/internal/apperror"
 	"github.com/sjunepark/baton/internal/config"
 	"github.com/sjunepark/baton/internal/gh"
+	"github.com/sjunepark/baton/internal/policy"
 	"github.com/sjunepark/baton/internal/repository"
 )
 
 type observationGitHubStub struct {
-	issues             []gh.Issue
-	pullRequests       []gh.PullRequest
-	closedPullRequests []gh.PullRequest
-	closedErr          error
-	branch             *gh.BranchHealth
-	checkState         string
-	err                error
-	checkCalls         int
-}
-
-func (stub *observationGitHubStub) ListClosedPullRequestsContext(context.Context, string, string) ([]gh.PullRequest, error) {
-	return stub.closedPullRequests, stub.closedErr
+	*deliveryRecordGitHubStub
+	mu           sync.Mutex
+	issues       []gh.Issue
+	pullRequests []gh.PullRequest
+	branch       *gh.BranchHealth
+	checkState   string
+	err          error
+	checkCalls   int
+	openPRBases  []string
 }
 
 func (stub *observationGitHubStub) ListOpenIssuesContext(context.Context, string) ([]gh.Issue, error) {
-	return stub.issues, stub.err
+	issues := append([]gh.Issue(nil), stub.issues...)
+	for index := range issues {
+		if issues[index].NodeID == "" {
+			issues[index].NodeID = fmt.Sprintf("I_%d", issues[index].Number)
+		}
+	}
+	return issues, stub.err
 }
 
-func (stub *observationGitHubStub) ListOpenPullRequestsContext(context.Context, string, string) ([]gh.PullRequest, error) {
-	return stub.pullRequests, stub.err
+func (stub *observationGitHubStub) ListIssueCommentsContext(_ context.Context, _ string, number int) ([]gh.IssueComment, error) {
+	record := policy.NewManagedIssueRecord(fmt.Sprintf("I_%d", number), number)
+	return []gh.IssueComment{{ID: int64(number), Body: policy.RenderManagedIssueRecord(record), Author: gh.Actor{Login: policy.ManagedIssueTrustedLogin, Type: "Bot"}}}, stub.err
+}
+
+func (stub *observationGitHubStub) ListOpenPullRequestsContext(_ context.Context, _ string, base string) ([]gh.PullRequest, error) {
+	stub.openPRBases = append(stub.openPRBases, base)
+	return normalizedTestPullRequests(stub.pullRequests), stub.err
+}
+
+func normalizedTestPullRequests(pullRequests []gh.PullRequest) []gh.PullRequest {
+	result := append([]gh.PullRequest(nil), pullRequests...)
+	for index := range result {
+		if result[index].BaseRepositoryFullName == "" {
+			result[index].BaseRepositoryFullName = "example/repo"
+		}
+		if result[index].HeadRepositoryFullName == "" {
+			result[index].HeadRepositoryFullName = result[index].BaseRepositoryFullName
+		}
+	}
+	return result
 }
 
 func (stub *observationGitHubStub) GetCheckRollupContext(_ context.Context, _ string, number int, _ string) (gh.CheckRollup, error) {
@@ -43,12 +68,14 @@ func (stub *observationGitHubStub) GetCheckRollupContext(_ context.Context, _ st
 		}
 		return gh.CheckRollup{State: state, Complete: true}, stub.err
 	}
+	stub.mu.Lock()
 	stub.checkCalls++
+	stub.mu.Unlock()
 	return gh.CheckRollup{State: stub.checkState, Complete: true}, stub.err
 }
 
 func (stub *observationGitHubStub) GetPullRequestContext(_ context.Context, _ string, number int) (gh.PullRequest, error) {
-	for _, pullRequest := range stub.pullRequests {
+	for _, pullRequest := range normalizedTestPullRequests(stub.pullRequests) {
 		if pullRequest.Number == number {
 			if pullRequest.BaseSHA == "" {
 				pullRequest.BaseSHA = "base"
@@ -132,6 +159,35 @@ func TestObservationWorkflowNextEnrichesChecksBeforeRecommendation(t *testing.T)
 	}
 }
 
+func TestObservationWorkflowFiltersUnmanagedPullRequestsBeforeEnrichment(t *testing.T) {
+	client := &observationGitHubStub{
+		pullRequests: []gh.PullRequest{{Number: 13, Title: "Ordinary PR", BaseRef: "agent", HeadRef: "feature/13", HeadSHA: "abc"}},
+		branch:       &gh.BranchHealth{Ref: "agent", SHA: "def", CheckState: "success"},
+	}
+	next, err := observationWorkflowForTest(client).Next(RepositoryInput{}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(next.Candidates) != 0 || client.checkCalls != 0 {
+		t.Fatalf("next=%+v checkCalls=%d, want unmanaged no-op before enrichment", next, client.checkCalls)
+	}
+}
+
+func TestObservationWorkflowSurfacesMisroutedManagedPullRequest(t *testing.T) {
+	client := &observationGitHubStub{
+		pullRequests: []gh.PullRequest{{Number: 13, Title: "Misrouted", BaseRef: "release", HeadRef: "agent-work/13", HeadSHA: "abc"}},
+		branch:       &gh.BranchHealth{Ref: "agent", SHA: "def", CheckState: "success"},
+	}
+	_, err := observationWorkflowForTest(client).Queue(RepositoryInput{})
+	applicationError := apperror.As(err)
+	if applicationError == nil || applicationError.Details["warningCodes"] != "invalid" || !strings.Contains(applicationError.Details["warningScopes"], "pullRequest:13:ownership") {
+		t.Fatalf("error = %v", err)
+	}
+	if len(client.openPRBases) != 1 || client.openPRBases[0] != "" {
+		t.Fatalf("open PR base filters = %v", client.openPRBases)
+	}
+}
+
 func TestObservationWorkflowReturnsTypedAuthError(t *testing.T) {
 	workflow := observationWorkflowForTest(&observationGitHubStub{})
 	workflow.newClient = func(context.Context, RepositoryInput) (ObservationGitHub, error) {
@@ -179,6 +235,32 @@ type concurrentObservationGitHub struct {
 	mu       sync.Mutex
 	inFlight int
 	max      int
+}
+
+type unmanagedIssueObservationGitHub struct{ observationGitHubStub }
+
+func (*unmanagedIssueObservationGitHub) ListIssueCommentsContext(context.Context, string, int) ([]gh.IssueComment, error) {
+	return nil, nil
+}
+
+func TestObservationWorkflowDoesNotEnrollIssueFromLabelsAlone(t *testing.T) {
+	client := &unmanagedIssueObservationGitHub{observationGitHubStub: observationGitHubStub{
+		issues: []gh.Issue{{Number: 7, NodeID: "I_7", Title: "Coincidental labels", Labels: []string{"agent:ready-bounded", "baton:managed"}}},
+		branch: &gh.BranchHealth{Ref: "agent", SHA: "abc", CheckState: "success"},
+	}}
+	snapshot, err := observationWorkflowForTest(client).Queue(RepositoryInput{})
+	if err == nil {
+		t.Fatalf("snapshot = %+v, want invalid index-without-record failure", snapshot)
+	}
+
+	client.issues[0].Labels = []string{"agent:ready-bounded"}
+	snapshot, err = observationWorkflowForTest(client).Queue(RepositoryInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Issues) != 0 {
+		t.Fatalf("labels alone enrolled issue: %+v", snapshot.Issues)
+	}
 }
 
 func (client *concurrentObservationGitHub) GetCheckRollupContext(ctx context.Context, _ string, number int, _ string) (gh.CheckRollup, error) {

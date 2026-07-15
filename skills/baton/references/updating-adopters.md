@@ -23,12 +23,15 @@ needed.
 
 Run dry-run or read-only checks before recommending changes:
 
+Run checkout-scoped commands such as `init`, `migrate-config`, and
+`ensure-branch` from the target repository's checkout.
+
 ```sh
 baton init --dry-run --json
 baton migrate-config --dry-run
 baton sync-labels --dry-run --repo owner/name --json
 baton ensure-branch --json
-baton doctor --format toon
+baton doctor --repo owner/name --format toon
 ```
 
 Open or recommend a normal reviewed PR for any updates. Do not apply workflow,
@@ -36,3 +39,6 @@ config, label, or branch changes without explicit approval.
 
 When the repository setup has been reviewed or updated for a Baton release,
 update `setup.baseline_baton_version` to that release in the same PR.
+Rerun doctor against the live repository after the PR lands. Do not report the
+update complete while `readyState` is `blocked`; name any remaining degraded
+capability in the handoff.

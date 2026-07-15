@@ -39,14 +39,14 @@ func TestListOpenIssuesPaginatesPastOneHundred(t *testing.T) {
 
 func TestGetIssueContextDecodesPullRequestDiscriminator(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"number": 7, "state": "open", "pull_request": map[string]any{"url": "https://api.example/pulls/7"}, "labels": []any{}})
+		json.NewEncoder(w).Encode(map[string]any{"number": 7, "state": "open", "locked": true, "comments": 17, "pull_request": map[string]any{"url": "https://api.example/pulls/7"}, "labels": []any{}})
 	}))
 	defer server.Close()
 	issue, err := NewClient(server.URL, "token", server.Client()).GetIssueContext(t.Context(), "example/repo", 7)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !issue.PullRequest {
+	if !issue.PullRequest || !issue.Locked || issue.CommentCount != 17 {
 		t.Fatalf("issue = %+v", issue)
 	}
 }
@@ -81,26 +81,6 @@ func TestListOpenPullRequestsPaginatesPastOneHundred(t *testing.T) {
 	}
 }
 
-func TestListClosedPullRequestsIncludesMergeState(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("state") != "closed" || r.URL.Query().Get("base") != "agent" {
-			t.Fatalf("query = %s", r.URL.RawQuery)
-		}
-		json.NewEncoder(w).Encode([]map[string]any{{
-			"number": 42, "title": "merged", "state": "closed", "merged_at": "2026-07-13T00:00:00Z",
-			"base": map[string]any{"ref": "agent", "sha": "base"}, "head": map[string]any{"ref": "agent-work/42", "sha": "head"},
-		}})
-	}))
-	defer server.Close()
-	prs, err := NewClient(server.URL, "token", server.Client()).ListClosedPullRequestsContext(t.Context(), "example/repo", "agent")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(prs) != 1 || !prs[0].Merged || prs[0].State != "closed" || prs[0].BaseSHA != "base" {
-		t.Fatalf("pull requests = %+v", prs)
-	}
-}
-
 func TestGetCheckRollupPaginatesCheckRunsAndStatuses(t *testing.T) {
 	checkPages, statusPages := []int{}, []int{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -118,7 +98,7 @@ func TestGetCheckRollupPaginatesCheckRunsAndStatuses(t *testing.T) {
 				if page == 2 {
 					conclusion = "failure"
 				}
-				runs[i] = map[string]any{"name": fmt.Sprintf("run-%d-%d", page, i), "status": "completed", "conclusion": conclusion}
+				runs[i] = map[string]any{"id": (page-1)*100 + i + 1, "name": fmt.Sprintf("run-%d-%d", page, i), "status": "completed", "conclusion": conclusion}
 			}
 			json.NewEncoder(w).Encode(map[string]any{"total_count": 101, "check_runs": runs})
 		case "/repos/example/repo/commits/sha/statuses":
@@ -142,7 +122,7 @@ func TestGetCheckRollupPaginatesCheckRunsAndStatuses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rollup.State != "failure" || rollup.Count != 202 || !rollup.Complete || fmt.Sprint(checkPages) != "[1 2]" || fmt.Sprint(statusPages) != "[1 2]" {
+	if rollup.State != "failure" || rollup.Count != 202 || rollup.Checks[0].ID != 1 || rollup.Checks[100].ID != 101 || !rollup.Complete || fmt.Sprint(checkPages) != "[1 2]" || fmt.Sprint(statusPages) != "[1 2]" {
 		t.Fatalf("rollup=%+v checkPages=%v statusPages=%v", rollup, checkPages, statusPages)
 	}
 }

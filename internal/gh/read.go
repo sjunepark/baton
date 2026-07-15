@@ -37,6 +37,7 @@ type CheckSummary struct {
 }
 
 type CheckState struct {
+	ID         int64  `json:"id,omitempty"`
 	Name       string `json:"name"`
 	Status     string `json:"status"`
 	Conclusion string `json:"conclusion"`
@@ -93,10 +94,13 @@ func (c *Client) ListOpenIssues(repo string) ([]Issue, error) {
 func (c *Client) GetIssueContext(ctx context.Context, repo string, number int) (Issue, error) {
 	var resource struct {
 		Number      int       `json:"number"`
+		NodeID      string    `json:"node_id"`
 		Title       string    `json:"title"`
 		HTMLURL     string    `json:"html_url"`
 		Body        string    `json:"body"`
 		State       string    `json:"state"`
+		Locked      bool      `json:"locked"`
+		Comments    int       `json:"comments"`
 		PullRequest *struct{} `json:"pull_request"`
 		Labels      []struct {
 			Name string `json:"name"`
@@ -109,7 +113,7 @@ func (c *Client) GetIssueContext(ctx context.Context, repo string, number int) (
 	for _, label := range resource.Labels {
 		labels = append(labels, label.Name)
 	}
-	return Issue{Number: resource.Number, Title: resource.Title, URL: resource.HTMLURL, Body: resource.Body, Labels: labels, State: resource.State, PullRequest: resource.PullRequest != nil}, nil
+	return Issue{Number: resource.Number, NodeID: resource.NodeID, Title: resource.Title, URL: resource.HTMLURL, Body: resource.Body, Labels: labels, State: resource.State, PullRequest: resource.PullRequest != nil, Locked: resource.Locked, CommentCount: resource.Comments}, nil
 }
 
 func (c *Client) ListOpenIssuesContext(ctx context.Context, repo string) ([]Issue, error) {
@@ -117,10 +121,13 @@ func (c *Client) ListOpenIssuesContext(ctx context.Context, repo string) ([]Issu
 	for page := 1; ; page++ {
 		var batch []struct {
 			Number      int    `json:"number"`
+			NodeID      string `json:"node_id"`
 			Title       string `json:"title"`
 			HTMLURL     string `json:"html_url"`
 			Body        string `json:"body"`
 			State       string `json:"state"`
+			Locked      bool   `json:"locked"`
+			Comments    int    `json:"comments"`
 			PullRequest *struct {
 				URL string `json:"url"`
 			} `json:"pull_request"`
@@ -141,12 +148,15 @@ func (c *Client) ListOpenIssuesContext(ctx context.Context, repo string) ([]Issu
 				labels = append(labels, label.Name)
 			}
 			out = append(out, Issue{
-				Number: issue.Number,
-				Title:  issue.Title,
-				URL:    issue.HTMLURL,
-				Body:   issue.Body,
-				Labels: labels,
-				State:  issue.State,
+				Number:       issue.Number,
+				NodeID:       issue.NodeID,
+				Title:        issue.Title,
+				URL:          issue.HTMLURL,
+				Body:         issue.Body,
+				Labels:       labels,
+				State:        issue.State,
+				Locked:       issue.Locked,
+				CommentCount: issue.Comments,
 			})
 		}
 		if len(batch) < 100 {
@@ -162,10 +172,6 @@ func (c *Client) ListOpenPullRequests(repo string, base string) ([]PullRequest, 
 
 func (c *Client) ListOpenPullRequestsContext(ctx context.Context, repo string, base string) ([]PullRequest, error) {
 	return c.listPullRequestsContext(ctx, repo, base, "open")
-}
-
-func (c *Client) ListClosedPullRequestsContext(ctx context.Context, repo string, base string) ([]PullRequest, error) {
-	return c.listPullRequestsContext(ctx, repo, base, "closed")
 }
 
 func (c *Client) listPullRequestsContext(ctx context.Context, repo, base, state string) ([]PullRequest, error) {
@@ -202,26 +208,36 @@ func (c *Client) GetPullRequestContext(ctx context.Context, repo string, number 
 }
 
 type pullRequestPayload struct {
-	Number     int    `json:"number"`
-	Title      string `json:"title"`
-	HTMLURL    string `json:"html_url"`
-	Body       string `json:"body"`
-	Draft      bool   `json:"draft"`
-	State      string `json:"state"`
-	MergedAt   string `json:"merged_at"`
-	Mergeable  *bool  `json:"mergeable"`
-	MergeState string `json:"mergeable_state"`
-	User       struct {
+	Number        int       `json:"number"`
+	NodeID        string    `json:"node_id"`
+	Title         string    `json:"title"`
+	HTMLURL       string    `json:"html_url"`
+	Body          string    `json:"body"`
+	Draft         bool      `json:"draft"`
+	State         string    `json:"state"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+	MergedAt      time.Time `json:"merged_at"`
+	MergeRevision string    `json:"merge_commit_sha"`
+	Mergeable     *bool     `json:"mergeable"`
+	MergeState    string    `json:"mergeable_state"`
+	User          struct {
 		Login string `json:"login"`
 		Type  string `json:"type"`
 	} `json:"user"`
 	Base struct {
-		Ref string `json:"ref"`
-		SHA string `json:"sha"`
+		Ref  string `json:"ref"`
+		SHA  string `json:"sha"`
+		Repo *struct {
+			FullName string `json:"full_name"`
+		} `json:"repo"`
 	} `json:"base"`
 	Head struct {
-		Ref string `json:"ref"`
-		SHA string `json:"sha"`
+		Ref  string `json:"ref"`
+		SHA  string `json:"sha"`
+		Repo *struct {
+			FullName string `json:"full_name"`
+		} `json:"repo"`
 	} `json:"head"`
 }
 
@@ -235,11 +251,21 @@ func pullRequestFromPayload(pr pullRequestPayload) PullRequest {
 		}
 	}
 	return PullRequest{
-		Number: pr.Number, Title: pr.Title, URL: pr.HTMLURL, Body: pr.Body,
+		Number: pr.Number, NodeID: pr.NodeID, Title: pr.Title, URL: pr.HTMLURL, Body: pr.Body,
 		BaseRef: pr.Base.Ref, BaseSHA: pr.Base.SHA, HeadRef: pr.Head.Ref, HeadSHA: pr.Head.SHA,
+		BaseRepositoryFullName: repositoryFullName(pr.Base.Repo), HeadRepositoryFullName: repositoryFullName(pr.Head.Repo),
 		Draft: pr.Draft, Author: Actor{Login: pr.User.Login, Type: pr.User.Type}, Mergeable: mergeable, MergeState: pr.MergeState,
-		State: pr.State, Merged: pr.MergedAt != "",
+		State: pr.State, Merged: !pr.MergedAt.IsZero(), CreatedAt: pr.CreatedAt, UpdatedAt: pr.UpdatedAt, MergedAt: pr.MergedAt, MergeRevision: pr.MergeRevision,
 	}
+}
+
+func repositoryFullName(repository *struct {
+	FullName string `json:"full_name"`
+}) string {
+	if repository == nil {
+		return ""
+	}
+	return repository.FullName
 }
 
 func (c *Client) GetCheckRollup(repo string, prNumber int, headSHA string) (CheckRollup, error) {
@@ -260,6 +286,7 @@ func (c *Client) GetCheckRollupContext(ctx context.Context, repo string, prNumbe
 		var runs struct {
 			TotalCount int `json:"total_count"`
 			CheckRuns  []struct {
+				ID         int64  `json:"id"`
 				Name       string `json:"name"`
 				Status     string `json:"status"`
 				Conclusion string `json:"conclusion"`
@@ -277,7 +304,7 @@ func (c *Client) GetCheckRollupContext(ctx context.Context, repo string, prNumbe
 			checkRunTotal = runs.TotalCount
 		}
 		for _, run := range runs.CheckRuns {
-			checks = append(checks, CheckState{Name: run.Name, Status: run.Status, Conclusion: run.Conclusion, URL: run.HTMLURL, AppID: run.App.ID})
+			checks = append(checks, CheckState{ID: run.ID, Name: run.Name, Status: run.Status, Conclusion: run.Conclusion, URL: run.HTMLURL, AppID: run.App.ID})
 		}
 		if len(checks) >= 1000 {
 			checkRunsComplete = checkRunTotal > 0 && checkRunTotal <= len(checks)
@@ -466,7 +493,7 @@ func (c *Client) postGraphQLContext(ctx context.Context, payload graphQLPayload,
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/graphql", bytes.NewReader(content))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, graphQLEndpoint(c.baseURL), bytes.NewReader(content))
 	if err != nil {
 		return nil, err
 	}
@@ -492,6 +519,14 @@ func (c *Client) postGraphQLContext(ctx context.Context, payload graphQLPayload,
 		return resp.Header.Clone(), APIError{Method: http.MethodPost, Path: "/graphql", Status: resp.Status, StatusCode: resp.StatusCode, RequestID: resp.Header.Get("X-GitHub-Request-Id"), Cause: err}
 	}
 	return resp.Header.Clone(), nil
+}
+
+func graphQLEndpoint(apiBaseURL string) string {
+	apiBaseURL = strings.TrimRight(apiBaseURL, "/")
+	if strings.HasSuffix(apiBaseURL, "/api/v3") {
+		return strings.TrimSuffix(apiBaseURL, "/api/v3") + "/api/graphql"
+	}
+	return apiBaseURL + "/graphql"
 }
 
 type reviewThreadsGraphQLResponse struct {

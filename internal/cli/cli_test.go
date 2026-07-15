@@ -80,6 +80,23 @@ func TestPRTransitionRequiresExplicitExecutionMode(t *testing.T) {
 	}
 }
 
+func TestDeliveryCommandsRequireReviewedExecutionModes(t *testing.T) {
+	tests := [][]string{
+		{"delivery-record", "--json"},
+		{"delivery-record", "--dry-run", "--apply", "--json"},
+		{"delivery-bootstrap", "--json"},
+		{"delivery-bootstrap", "--apply", "--json"},
+		{"delivery-bootstrap", "--dry-run", "--initialize", "--json"},
+		{"delivery-bootstrap", "--dry-run", "--genesis-promotion", "4", "--genesis-staging-sha", strings.Repeat("a", 40), "--json"},
+	}
+	for _, args := range tests {
+		var stdout, stderr bytes.Buffer
+		if code := Run(args, &stdout, &stderr, "test"); code != exitUsage {
+			t.Fatalf("Run(%v) exit = %d, want %d; stdout=%s stderr=%s", args, code, exitUsage, stdout.String(), stderr.String())
+		}
+	}
+}
+
 func TestSubcommandHelpExitsZeroOnStdout(t *testing.T) {
 	commands := [][]string{
 		{"queue", "--help"},
@@ -221,6 +238,42 @@ func TestDoctorFormatTOON(t *testing.T) {
 	}
 }
 
+func TestDoctorV2GoldenContracts(t *testing.T) {
+	ready := doctor.Result{
+		SchemaVersion: 2, Kind: "doctor", ReadyState: "ready", Counts: doctor.Counts{OK: 2},
+		Checks: []doctor.Check{
+			{Name: "github-auth", Status: "ok", Message: "authenticated repository read succeeded"},
+			{Name: "workflows-enabled", Status: "ok", Message: "all required workflows are active"},
+		},
+		Help: []string{"Run `baton queue --json` or `baton next --json` after doctor is ready."},
+	}
+	var stdout, stderr bytes.Buffer
+	if code := newRenderer(&stdout, &stderr, true).JSON(ready); code != exitOK || stderr.Len() != 0 {
+		t.Fatalf("JSON code = %d, stderr = %q", code, stderr.String())
+	}
+	assertGoldenFile(t, filepath.Join("..", "..", "testdata", "contracts", "doctor-v2-ready.json"), stdout.String())
+
+	blocked := doctor.Result{
+		SchemaVersion: 2, Kind: "doctor", ReadyState: "blocked", Counts: doctor.Counts{Fail: 1},
+		Checks: []doctor.Check{{Name: "actions-policy", Status: "fail", Message: "GitHub Actions is disabled", Remediation: "Enable GitHub Actions."}},
+		Help:   []string{"Enable GitHub Actions."},
+	}
+	stdout.Reset()
+	writeDoctorTOON(&stdout, blocked)
+	assertGoldenFile(t, filepath.Join("..", "..", "testdata", "contracts", "doctor-v2-blocked.toon"), stdout.String())
+}
+
+func assertGoldenFile(t *testing.T, path, got string) {
+	t.Helper()
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != string(want) {
+		t.Fatalf("output mismatch for %s\ngot:  %q\nwant: %q", path, got, want)
+	}
+}
+
 func TestFormatConflictReturnsStructuredError(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := Run([]string{"doctor", "--json", "--format", "toon"}, &stdout, &stderr, "test")
@@ -267,8 +320,11 @@ func TestTOONRenderersStable(t *testing.T) {
 		Help: []string{"Run `baton next --format toon`."},
 	}
 	writeQueueTOON(&stdout, snapshot)
-	wantQueue := "kind: queueSnapshot\nschemaVersion: 1\nrepo: example/repo\ncounts.totalIssues: 1\ncounts.eligibleIssues: 1\ncounts.eligibleByAction.issue-implementation: 1\ncounts.skippedIssues: 0\ncounts.openPullRequests: 0\nissues[1]:\n  - number=7 eligible=true action=issue-implementation priorityLabel=priority:p2 title=Fix flaky test reasons=eligible\nhelp[1]:\n  - Run `baton next --format toon`.\n"
-	if stdout.String() != wantQueue {
+	wantQueue, err := os.ReadFile(filepath.Join("..", "..", "testdata", "contracts", "queue-v2-label-intake.toon"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout.String() != string(wantQueue) {
 		t.Fatalf("queue toon = %q\nwant %q", stdout.String(), wantQueue)
 	}
 
@@ -337,8 +393,8 @@ func TestTOONRenderersStable(t *testing.T) {
 	}
 
 	stdout.Reset()
-	writeDoctorTOON(&stdout, doctor.Result{SchemaVersion: 1, Kind: "doctor", ReadyState: "ready", Counts: doctor.Counts{OK: 1}, Checks: []doctor.Check{{Name: "git", Status: "ok"}}})
-	if !strings.Contains(stdout.String(), "kind: doctor\n") || !strings.Contains(stdout.String(), "checks[1]:\n  - name=git status=ok\n") {
+	writeDoctorTOON(&stdout, doctor.Result{SchemaVersion: 2, Kind: "doctor", ReadyState: "blocked", Counts: doctor.Counts{Fail: 1}, Checks: []doctor.Check{{Name: "github-auth", Status: "fail", Message: "repository read failed", Remediation: "grant metadata read"}}})
+	if !strings.Contains(stdout.String(), "kind: doctor\nschemaVersion: 2\n") || !strings.Contains(stdout.String(), "checks[1]:\n  - name=github-auth status=fail message=repository read failed remediation=grant metadata read\n") {
 		t.Fatalf("doctor toon = %q", stdout.String())
 	}
 }
@@ -390,13 +446,15 @@ func TestGlobalHelpUsesCommandHelpCatalog(t *testing.T) {
 
 func TestCommandHelpCatalogCoversSafetyRelevantFlags(t *testing.T) {
 	required := map[string][]string{
-		"init":          {"profile", "go-install", "install-command"},
-		"issue-policy":  {"labels", "repo", "config"},
-		"pr-policy":     {"repo", "config"},
-		"pr-transition": {"dry-run", "apply", "repo", "config"},
-		"sync-labels":   {"dry-run", "apply", "repo", "config", "labels-file"},
-		"snapshot":      {"repo", "config", "format", "json"},
-		"ensure-branch": {"apply", "config", "remote-base", "remote-target", "local-target", "local-upstream"},
+		"init":               {"profile", "go-install", "install-command"},
+		"issue-policy":       {"labels", "repo", "config"},
+		"pr-policy":          {"repo", "config"},
+		"pr-transition":      {"dry-run", "apply", "repo", "config"},
+		"delivery-record":    {"dry-run", "apply", "repo", "config"},
+		"delivery-bootstrap": {"dry-run", "apply", "plan-id", "repo", "config"},
+		"sync-labels":        {"dry-run", "apply", "repo", "config", "labels-file"},
+		"snapshot":           {"repo", "config", "format", "json"},
+		"ensure-branch":      {"apply", "config", "remote-base", "remote-target", "local-target", "local-upstream"},
 	}
 	for command, flags := range required {
 		documented := strings.Join(commandHelps[command].Flags, "\n")
@@ -493,8 +551,8 @@ func TestPRPolicyJSONReturnsPolicyExitOnErrors(t *testing.T) {
     "number": 10,
     "title": "Update issue policy",
     "body": "Refs #123",
-    "baseRef": "agent",
-    "headRef": "agent/123-issue-policy",
+    "baseRef": "main",
+    "headRef": "agent-work/123-issue-policy",
     "baseRepositoryFullName": "example-org/example-repo",
     "headRepositoryFullName": "example-org/example-repo"
   },
@@ -515,6 +573,109 @@ func TestPRPolicyJSONReturnsPolicyExitOnErrors(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "agent-work/") {
 		t.Fatalf("stdout = %q, want branch-prefix policy error", stdout.String())
+	}
+}
+
+func TestPRPolicyWorkJSONContractUsesDurableOwnershipWithoutLabels(t *testing.T) {
+	dir := t.TempDir()
+	fixture := filepath.Join(dir, "pr.json")
+	content := `{
+  "pullRequest": {
+    "number": 10,
+    "title": "Update issue policy",
+    "body": "Refs #123",
+    "baseRef": "agent",
+    "headRef": "agent-work/123-issue-policy",
+    "baseRepositoryFullName": "example-org/example-repo",
+    "headRepositoryFullName": "example-org/example-repo"
+  },
+  "referencedIssues": [{
+    "number": 123,
+    "ownership": {"schemaVersion":1,"kind":"managedIssueOwnership","managed":true,"source":"recordV1","diagnostics":[],"errors":[]}
+  }],
+  "commitMessages": ["Document issue policy"]
+}`
+	if err := os.WriteFile(fixture, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"pr-policy", "--fixture", fixture, "--config", writeDefaultConfig(t, dir), "--json"}, &stdout, &stderr, "test")
+	if code != exitOK || stderr.Len() != 0 {
+		t.Fatalf("Run exit = %d; stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	want, err := os.ReadFile(filepath.Join("..", "..", "testdata", "contracts", "pr-policy-v4-work.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(stdout.String()) != strings.TrimSpace(string(want)) {
+		t.Fatalf("decision = %s\nwant = %s", stdout.String(), want)
+	}
+}
+
+func TestPRPolicyPromotionFixturesExposeEvidence(t *testing.T) {
+	dir := t.TempDir()
+	configPath := writeDefaultConfig(t, dir)
+	tests := []struct {
+		name     string
+		body     string
+		facts    string
+		wantCode int
+	}{
+		{name: "manual-only", body: "Manual promotion", facts: `{"expectedIssues":[],"complete":true,"source":"sealedDeliveryPlan","planDigest":"sha256:plan","cursorDigest":"sha256:cursor","coverageDigest":"sha256:coverage","baseIntegration":{"state":"integrated","observedBaseSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","observedStagingSha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","reason":"recorded"}}`, wantCode: exitOK},
+		{name: "issue-backed", body: "Closes #7", facts: `{"expectedIssues":[7],"complete":true,"source":"sealedDeliveryPlan","planDigest":"sha256:plan","cursorDigest":"sha256:cursor","coverageDigest":"sha256:coverage","baseIntegration":{"state":"integrated","observedBaseSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","observedStagingSha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","reason":"recorded"}}`, wantCode: exitOK},
+		{name: "unrelated", body: "Closes #8", facts: `{"expectedIssues":[7],"complete":true,"source":"sealedDeliveryPlan","planDigest":"sha256:plan","cursorDigest":"sha256:cursor","coverageDigest":"sha256:coverage","baseIntegration":{"state":"integrated","observedBaseSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","observedStagingSha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","reason":"recorded"}}`, wantCode: exitPolicy},
+		{name: "degraded", body: "Closes #7", facts: `{"expectedIssues":[7],"complete":false}`, wantCode: exitPolicy},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fixture := filepath.Join(dir, tt.name+".json")
+			content := fmt.Sprintf(`{
+  "pullRequest": {
+    "number": 10,
+    "title": "Promote agent to main",
+    "body": %q,
+    "baseRef": "main",
+    "headRef": "agent",
+    "baseRepositoryFullName": "example-org/example-repo",
+    "headRepositoryFullName": "example-org/example-repo"
+  },
+  "promotionFacts": %s,
+  "commitMessages": ["Promote reviewed changes"]
+}`, tt.body, tt.facts)
+			if err := os.WriteFile(fixture, []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var stdout, stderr bytes.Buffer
+			code := Run([]string{"pr-policy", "--fixture", fixture, "--config", configPath, "--json"}, &stdout, &stderr, "test")
+			if code != tt.wantCode {
+				t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, tt.wantCode, stdout.String(), stderr.String())
+			}
+			var decision policy.PRPolicyDecision
+			if err := json.Unmarshal(stdout.Bytes(), &decision); err != nil {
+				t.Fatal(err)
+			}
+			if decision.PromotionFacts == nil || !strings.Contains(stdout.String(), "expectedIssues") || !strings.Contains(stdout.String(), "complete") {
+				t.Fatalf("decision = %+v; stdout=%s", decision, stdout.String())
+			}
+		})
+	}
+}
+
+func TestPRPolicyHumanOutputExplainsPromotionEvidence(t *testing.T) {
+	dir := t.TempDir()
+	fixture := filepath.Join(dir, "promotion.json")
+	content := `{
+  "pullRequest": {"number":10,"title":"Promote","body":"","baseRef":"main","headRef":"agent","baseRepositoryFullName":"example-org/example-repo","headRepositoryFullName":"example-org/example-repo"},
+  "promotionFacts": {"expectedIssues":[],"complete":true,"source":"sealedDeliveryPlan","planDigest":"sha256:plan","cursorDigest":"sha256:cursor","coverageDigest":"sha256:coverage","baseIntegration":{"state":"integrated","observedBaseSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","observedStagingSha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","reason":"recorded"}},
+  "commitMessages": ["Promote manual changes"]
+}`
+	if err := os.WriteFile(fixture, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"pr-policy", "--fixture", fixture, "--config", writeDefaultConfig(t, dir)}, &stdout, &stderr, "test")
+	if code != exitOK || !strings.Contains(stdout.String(), "Promotion evidence: complete=true expectedIssues=[]") {
+		t.Fatalf("Run exit = %d; stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
 }
 
@@ -588,7 +749,7 @@ func TestNextMissingStagingBranchReturnsSetupError(t *testing.T) {
 	}
 }
 
-func TestSnapshotCommandReturnsOneUnifiedObservation(t *testing.T) {
+func TestSnapshotCommandBlocksRecommendationsWithoutDeliveryLocator(t *testing.T) {
 	t.Setenv("GITHUB_REPOSITORY", "")
 	server := newSnapshotTestServer(t, ruleAPIAvailable)
 	defer server.Close()
@@ -618,7 +779,7 @@ func TestSnapshotCommandReturnsOneUnifiedObservation(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
-	if result.SchemaVersion != 1 || result.Kind != "repositorySnapshot" || result.Repository != "example-org/example-repo" || result.Completeness != "complete" || result.Queue.Kind != "queueSnapshot" || result.Recommendation.Outcome != "idle" {
+	if result.SchemaVersion != 2 || result.Kind != "repositorySnapshot" || result.Repository != "example-org/example-repo" || result.Completeness != "degraded" || result.Queue.Kind != "queueSnapshot" || result.Recommendation.Outcome != "degraded" {
 		t.Fatalf("snapshot = %+v", result)
 	}
 }
@@ -654,7 +815,7 @@ func TestSnapshotCommandReturnsDegradedFactsAsData(t *testing.T) {
 	}
 }
 
-func TestQueueCommandsRemainAvailableWhenBranchRuleAPIsArePlanGated(t *testing.T) {
+func TestRecommendationCommandsFailClosedWithoutDeliveryLocatorWhenBranchRulesArePlanGated(t *testing.T) {
 	tests := []struct {
 		command string
 		kind    string
@@ -676,18 +837,31 @@ func TestQueueCommandsRemainAvailableWhenBranchRuleAPIsArePlanGated(t *testing.T
 
 			var stdout, stderr bytes.Buffer
 			code := Run([]string{tt.command, "--repo", "example-org/example-repo", "--config", configPath, "--json"}, &stdout, &stderr, "test")
-			if code != exitOK || stderr.Len() != 0 {
-				t.Fatalf("exit=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+			if stderr.Len() != 0 {
+				t.Fatalf("stderr=%s", stderr.String())
 			}
-			var result struct {
-				Kind         string `json:"kind"`
-				Completeness string `json:"completeness"`
+			if tt.command == "snapshot" {
+				if code != exitOK {
+					t.Fatalf("exit=%d stdout=%s", code, stdout.String())
+				}
+				var result struct {
+					Kind         string `json:"kind"`
+					Completeness string `json:"completeness"`
+				}
+				if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+					t.Fatal(err)
+				}
+				if result.Kind != tt.kind || result.Completeness != "degraded" {
+					t.Fatalf("result = %+v, want degraded %s output", result, tt.kind)
+				}
+				return
 			}
-			if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
-				t.Fatal(err)
+			if code != exitGitHub {
+				t.Fatalf("exit=%d stdout=%s, want fail-closed GitHub error", code, stdout.String())
 			}
-			if result.Kind != tt.kind || result.Completeness == "degraded" {
-				t.Fatalf("result = %+v, want normal %s output", result, tt.kind)
+			result := decodeErrorResult(t, stdout.String())
+			if result.Category != "github" || result.Details["warningScopes"] != "deliveryLedger" {
+				t.Fatalf("error result = %+v", result)
 			}
 		})
 	}
@@ -834,6 +1008,48 @@ func TestJSONUsageErrorReturnsStructuredError(t *testing.T) {
 	}
 }
 
+func TestInitYesCannotOverwriteInvalidExistingConfig(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	configPath := filepath.Join(dir, ".github", "baton.yml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	invalid := []byte(`version: 1
+repository:
+  base_branch: stable
+  staging_branch: integration
+unrelated_default_trap: true
+`)
+	if err := os.WriteFile(configPath, invalid, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"init", "--apply", "--yes", "--json"}, &stdout, &stderr, "test")
+	if code != exitConfig {
+		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitConfig, stdout.String(), stderr.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty structured-mode stderr", stderr.String())
+	}
+	result := decodeErrorResult(t, stdout.String())
+	if result.Category != "config" || !strings.Contains(result.Message, "unrelated_default_trap") {
+		t.Fatalf("error result = %+v", result)
+	}
+	got, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, invalid) {
+		t.Fatalf("invalid config was overwritten:\ngot:\n%s\nwant:\n%s", got, invalid)
+	}
+	workflowPath := filepath.Join(dir, ".github", "workflows", "pr-policy.yml")
+	if _, err := os.Stat(workflowPath); !os.IsNotExist(err) {
+		t.Fatalf("invalid config rendered unrelated default workflow: %v", err)
+	}
+}
+
 func TestApplicationErrorRendererPreservesAllStableCategories(t *testing.T) {
 	tests := []struct {
 		category apperror.Category
@@ -886,7 +1102,7 @@ func TestRepositorySnapshotTOONPreservesDecisionEvidence(t *testing.T) {
 	var stdout bytes.Buffer
 	action := snapshot.ActionIssueImplementation
 	writeRepositorySnapshotTOON(&stdout, snapshot.RepositorySnapshot{
-		SchemaVersion: 1, Kind: "repositorySnapshot", Repository: "example/repo", Completeness: snapshot.Degraded,
+		SchemaVersion: 2, Kind: "repositorySnapshot", Repository: "example/repo", Completeness: snapshot.Degraded,
 		Acquisition: snapshot.AcquisitionWindow{StartedAt: time.Unix(1, 0).UTC(), CompletedAt: time.Unix(2, 0).UTC()},
 		Warnings:    []snapshot.Warning{{Code: "rate_limited", Scope: "issues", Message: "retry later", Retryable: true, HTTPStatus: 429, RequestID: "request-1"}},
 		Recommendation: snapshot.Recommendation{

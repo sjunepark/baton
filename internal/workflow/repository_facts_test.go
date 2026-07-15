@@ -6,7 +6,11 @@ import (
 	"testing"
 
 	"github.com/sjunepark/baton/internal/apperror"
+	"github.com/sjunepark/baton/internal/config"
+	"github.com/sjunepark/baton/internal/delivery"
 	"github.com/sjunepark/baton/internal/gh"
+	"github.com/sjunepark/baton/internal/policy"
+	"github.com/sjunepark/baton/internal/repository"
 	"github.com/sjunepark/baton/internal/snapshot"
 )
 
@@ -70,7 +74,10 @@ type recommendationFactsGitHub struct {
 }
 
 func (client *recommendationFactsGitHub) GetPullRequestContext(_ context.Context, _ string, number int) (gh.PullRequest, error) {
+	client.mu.Lock()
 	client.detailCalls++
+	detailCall := client.detailCalls
+	client.mu.Unlock()
 	pullRequest, err := client.observationGitHubStub.GetPullRequestContext(context.Background(), "", number)
 	if client.mergeable != "" {
 		pullRequest.Mergeable = client.mergeable
@@ -78,7 +85,7 @@ func (client *recommendationFactsGitHub) GetPullRequestContext(_ context.Context
 	if client.currentBaseRef != "" {
 		pullRequest.BaseRef = client.currentBaseRef
 	}
-	if client.detailCalls%2 == 0 && client.verifiedHeadSHA != "" {
+	if detailCall%2 == 0 && client.verifiedHeadSHA != "" {
 		pullRequest.HeadSHA = client.verifiedHeadSHA
 	}
 	return pullRequest, err
@@ -103,7 +110,7 @@ func (client *recommendationFactsGitHub) GetRequestedReviewersContext(context.Co
 func completeRecommendationClient() *recommendationFactsGitHub {
 	return &recommendationFactsGitHub{observationGitHubStub: observationGitHubStub{
 		issues:       []gh.Issue{{Number: 7, Title: "Issue", Labels: []string{"agent:ready-bounded"}}},
-		pullRequests: []gh.PullRequest{{Number: 12, Title: "PR", BaseRef: "agent", BaseSHA: "base", HeadRef: "work", HeadSHA: "head", Mergeable: "mergeable", MergeState: "clean"}},
+		pullRequests: []gh.PullRequest{{Number: 12, Title: "PR", BaseRef: "agent", BaseSHA: "base", HeadRef: "agent-work/12", HeadSHA: "head", Mergeable: "mergeable", MergeState: "clean"}},
 		branch:       &gh.BranchHealth{Ref: "agent", SHA: "base", CheckState: "success"},
 		checkState:   "success",
 	}}
@@ -123,8 +130,9 @@ func TestAcquireRecommendationFactsIsCompleteForStableFacts(t *testing.T) {
 func TestMergedWorkHistoryPreventsIssueReadmission(t *testing.T) {
 	client := completeRecommendationClient()
 	client.pullRequests = nil
-	client.closedPullRequests = []gh.PullRequest{{Number: 42, BaseRef: "agent", HeadRef: "agent-work/7", Body: "Refs #7", Merged: true}}
-	repositorySnapshot, err := observationWorkflowForTest(client).Snapshot(RepositoryInput{}, "")
+	cfg, transport := recommendationLedgerFixture(t)
+	client.deliveryRecordGitHubStub = transport
+	repositorySnapshot, err := observationWorkflowForConfig(client, cfg).Snapshot(RepositoryInput{}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,11 +143,50 @@ func TestMergedWorkHistoryPreventsIssueReadmission(t *testing.T) {
 
 func TestNextRefusesWhenMergedWorkHistoryIsIncomplete(t *testing.T) {
 	client := completeRecommendationClient()
-	client.closedErr = gh.APIError{Method: "GET", StatusCode: 503}
-	_, err := observationWorkflowForTest(client).Next(RepositoryInput{}, "")
+	cfg, transport := recommendationLedgerFixture(t)
+	transport.records = map[int64]gh.IssueComment{}
+	client.deliveryRecordGitHubStub = transport
+	_, err := observationWorkflowForConfig(client, cfg).Next(RepositoryInput{}, "")
 	applicationError := apperror.As(err)
-	if applicationError == nil || applicationError.Details["completeness"] != "degraded" || !strings.Contains(applicationError.Details["warningScopes"], "mergedWorkPullRequests:agent") {
+	if applicationError == nil || applicationError.Details["completeness"] != "degraded" || !strings.Contains(applicationError.Details["warningScopes"], "deliveryLedger") {
 		t.Fatalf("error = %+v", applicationError)
+	}
+}
+
+func recommendationLedgerFixture(t *testing.T) (config.Config, *deliveryRecordGitHubStub) {
+	t.Helper()
+	cfg, locator, body := deliveryWorkflowFixture(t)
+	checkpoint, err := delivery.ParseCheckpointIndex(locator, delivery.StoredComment{Comment: locator.Checkpoint, Body: body, AuthorLogin: delivery.TrustedAuthorLogin, AuthorType: delivery.TrustedAuthorType})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownership := policy.NewManagedIssueRecord("I_7", 7)
+	plan, err := delivery.PlanStagedWorkAppend(delivery.Snapshot{Locator: locator, Checkpoint: checkpoint}, delivery.StagedWorkAppendInput{
+		PullRequest: delivery.ResourceIdentity{Number: 42, NodeID: "PR_42"}, StagingBranch: cfg.Repository.StagingBranch,
+		BaseSHA: strings.Repeat("1", 40), HeadSHA: strings.Repeat("2", 40), MergeRevision: strings.Repeat("3", 40), MergedAt: "2026-07-14T01:00:00Z",
+		Issues: []delivery.ManagedIssueReference{{Number: 7, NodeID: "I_7", OwnershipDigest: ownership.Digest}}, Writer: delivery.WriterProvenance{Workflow: "Delivery Recorder", RunID: 1},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	commit, err := delivery.FinalizeStagedWorkAppend(plan, checkpoint, delivery.CommentIdentity{DatabaseID: 201, NodeID: "IC_201"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cfg, &deliveryRecordGitHubStub{
+		repository: gh.RepositoryIdentity{Host: "github.com", FullName: "example/repo", NodeID: "R_1"},
+		issues:     map[int]gh.Issue{locator.Issue.Number: {Number: locator.Issue.Number, NodeID: locator.Issue.NodeID, Locked: true}},
+		checkpoint: gh.IssueComment{ID: locator.Checkpoint.DatabaseID, NodeID: locator.Checkpoint.NodeID, IssueURL: "https://api.github.com/repos/example/repo/issues/900", Body: commit.CheckpointBody, Author: gh.Actor{Login: delivery.TrustedAuthorLogin, Type: delivery.TrustedAuthorType}},
+		records:    map[int64]gh.IssueComment{201: {ID: 201, NodeID: "IC_201", IssueURL: "https://api.github.com/repos/example/repo/issues/900", Body: commit.RecordBody, Author: gh.Actor{Login: delivery.TrustedAuthorLogin, Type: delivery.TrustedAuthorType}}},
+	}
+}
+
+func observationWorkflowForConfig(client ObservationGitHub, cfg config.Config) ObservationWorkflow {
+	return ObservationWorkflow{
+		resolve: func(context.Context, repository.Options) (repository.Context, error) {
+			return repository.Context{Repository: "example/repo", Config: cfg}, nil
+		},
+		newClient: func(context.Context, RepositoryInput) (ObservationGitHub, error) { return client, nil },
 	}
 }
 

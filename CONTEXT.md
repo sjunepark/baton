@@ -26,8 +26,9 @@ caller policy permit it.
 _Avoid_: Job, Run, command
 
 **Candidate**:
-A repository-scoped issue, pull request, or branch identity considered by a
-Recommendation, including revision facts where the identity can move.
+A repository-level synchronization, issue, pull request, or branch identity
+considered by a Recommendation, including revision facts where the identity can
+move.
 _Avoid_: Task, Job
 
 **Completeness**:
@@ -61,3 +62,45 @@ The repository-policy capability selected in the issue form, such as ready for
 implementation or investigation only. It does not say where implementation is
 in its GitHub lifecycle.
 _Avoid_: Work Item State, execution status
+
+**Managed Issue Ownership**:
+A trusted, versioned record bound to stable GitHub issue identity. A matching
+legacy form fingerprint is temporary migration evidence that requires record
+backfill; labels are an index only.
+_Avoid_: Managed label, form shape alone, current Agent Mode
+
+**Pull Request Flow**:
+The ownership-aware classification `work`, `promotion`, `misroutedWork`,
+`indeterminate`, or `unmanaged`, derived from repository identity and branch
+shape before policy enrichment.
+_Avoid_: Target branch ownership, agent PR
+
+**Delivery Ledger**:
+The repository-scoped authoritative record of staged work, promotion sealing,
+delivery commitment, and acknowledged base integration.
+_Avoid_: PR history, commit history, delivery database
+
+**Staged Work Record**:
+An immutable snapshot of one managed work PR's merge revision and durably
+managed issue relationships, bound to the delivery cursor at observation time.
+_Avoid_: Merged PR, awaiting-review label, history entry
+
+**Staging Coverage**:
+The durable watermark proving which exact staging revision has been reconciled
+with the delivery ledger's managed-work records.
+_Avoid_: Latest staging SHA, event success, scan completion
+
+**Promotion Plan**:
+The exact set of staged work and reviewed exclusions proposed for one managed
+promotion revision. Only a sealed plan has delivery authority.
+_Avoid_: Expected issues, ancestry range, release contents
+
+**Promotion Cursor**:
+The durable position through staged work consumed by completed promotions,
+independent of the base commit identity GitHub creates for a merge strategy.
+_Avoid_: Base SHA, staging SHA, last merge commit
+
+**Base Integration**:
+Evidence that one exact base revision is acknowledged by a completed promotion
+or incorporated into staging by a reviewed synchronization.
+_Avoid_: Branch equality, ancestry alone, latest base commit

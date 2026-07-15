@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"sort"
 	"strings"
 	"testing"
 
@@ -124,7 +125,12 @@ func TestComputeIssuePolicy(t *testing.T) {
 				Policy:        policy,
 			})
 			assertEqual(t, decision.IsFormIssue, tt.wantFormIssue)
-			assertStringSlices(t, decision.LabelsToAdd, tt.wantAdd)
+			wantAdd := append([]string(nil), tt.wantAdd...)
+			if tt.wantFormIssue {
+				wantAdd = append(wantAdd, ManagedIssueIndexLabel)
+				sort.Strings(wantAdd)
+			}
+			assertStringSlices(t, decision.LabelsToAdd, wantAdd)
 			assertStringSlices(t, decision.LabelsToRemove, tt.wantRemove)
 			assertStringSlices(t, decision.MissingRequiredSections, tt.wantMissing)
 			if tt.wantPolicyCommentSubstr == "" {

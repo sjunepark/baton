@@ -1,0 +1,13 @@
+{
+  "action": "opened",
+  "repository": {"full_name": "example/repo"},
+  "pull_request": {
+    "number": 110,
+    "title": "Managed shape with incomplete head identity",
+    "body": "Refs #7",
+    "state": "open",
+    "merged": false,
+    "base": {"ref": "agent", "sha": "base-110", "repo": {"full_name": "example/repo"}},
+    "head": {"ref": "agent-work/7-unknown-head", "sha": "head-110"}
+  }
+}

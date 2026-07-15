@@ -1,0 +1,46 @@
+{
+  "scenarios": [
+    {
+      "name": "ordinary-direct-base-development",
+      "mutation": "directBasePending",
+      "wantState": "degraded",
+      "wantCheck": "base-staging-integration",
+      "wantStatus": "warn"
+    },
+    {
+      "name": "compatible-rulesets",
+      "mutation": "compatibleRuleset",
+      "wantState": "ready",
+      "wantCheck": "staging-synchronization",
+      "wantStatus": "ok"
+    },
+    {
+      "name": "missing-workflow",
+      "mutation": "missingWorkflow",
+      "wantState": "blocked",
+      "wantCheck": "workflows-enabled",
+      "wantStatus": "fail"
+    },
+    {
+      "name": "drifted-trusted-checkout",
+      "mutation": "driftedTrustedCheckout",
+      "wantState": "blocked",
+      "wantCheck": "managed-files",
+      "wantStatus": "fail"
+    },
+    {
+      "name": "unsupported-merge-queue",
+      "mutation": "mergeQueue",
+      "wantState": "blocked",
+      "wantCheck": "merge-queue",
+      "wantStatus": "fail"
+    },
+    {
+      "name": "insufficient-token-permissions",
+      "mutation": "insufficientToken",
+      "wantState": "blocked",
+      "wantCheck": "actions-policy-acquisition",
+      "wantStatus": "fail"
+    }
+  ]
+}

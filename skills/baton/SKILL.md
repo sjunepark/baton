@@ -18,9 +18,9 @@ contracts, and your judgment for code changes.
 - Run `baton home --format toon` or `baton doctor --format toon` to establish
   local Baton context.
 - Run `baton snapshot --format toon` before selecting unattended work.
-- Act only when `outcome` is `actionable`, then choose exactly one snapshot
-  candidate per automation run. Human-choice, waiting, blocked, idle, and
-  degraded outcomes are stop/report states.
+- Act only when `recommendation.outcome` is `actionable`, then choose exactly
+  one snapshot candidate per automation run. Human-choice, waiting, blocked,
+  idle, and degraded outcomes are stop/report states.
 - Verify you are in a caller-provided isolated checkout before editing files.
 - Work only inside that isolated checkout.
 - Never mutate the user's primary checkout for automation work.
@@ -49,7 +49,7 @@ argument.
 | `$baton implement <issue>` | In a caller-provided isolated checkout, implement one ready issue, validate, and open/update a PR to the staging branch. |
 | `$baton follow-up <pr>` | In a caller-provided isolated checkout, fix checks or review follow-up, validate, and push to that branch. |
 | `$baton run [repo]` | Let Baton return candidates, choose exactly one safe unit, then stop. |
-| `$baton adopt [repo]` | Check target-repo setup with dry-run/read-only commands and recommend next setup commands. |
+| `$baton adopt [repo]` | Check target-repo setup with dry-run/read-only commands; never report adoption complete while doctor is blocked. |
 | `$baton update [repo]` | Check and update an existing Baton adoption through a normal reviewed PR. Do not merge. |
 | `$baton automate [repo]` | Explain or prepare scheduled one-unit automation. Do not schedule implementation automation before a manual run succeeds. |
 
@@ -100,7 +100,8 @@ argument.
 - `$baton`: run `baton home --format toon` or `baton doctor --format toon`,
   then `baton queue --format toon` and `baton next --format toon` when a repo
   is known. Report state and exact next skill commands only.
-- `status`: run `baton doctor --format toon`, plus `baton ensure-branch --json`
+- `status`: from the target repository checkout, run
+  `baton doctor --repo <repo> --format toon`, plus `baton ensure-branch --json`
   and `baton sync-labels --dry-run --repo <repo> --json` when setup is in
   scope. Do not apply setup.
 - `next`: run `baton next --format toon --repo <repo>` and report the
@@ -114,21 +115,31 @@ argument.
   --body-file <tmp-file> --json`, then create issues with `gh issue create`.
 - `investigate`: inspect the issue through Baton/GitHub, confirm investigation
   scope, run focused diagnostics, and comment findings. Do not edit files.
-- `implement`: confirm the issue has an implementation label and no skip label,
+- `implement`: run `baton snapshot --format toon --repo <repo>` and continue
+  only when `recommendation.outcome` is `actionable`,
+  `recommendation.action` is `issue_implementation`, and
+  `recommendation.candidates` contains the requested issue identity. That
+  selection proves durable ownership and current intake eligibility. Then
   verify the isolated checkout, create a work branch from the staging branch,
   validate, and open/update a PR to the staging branch with `Refs #<issue>`.
 - `follow-up`: run `baton pr <number> --json`, `baton checks <number> --format
   toon`, and `baton review-threads <number> --format toon`; verify the
   isolated checkout, check out the existing PR branch, and push fixes there.
 - `run`: run `baton snapshot --format toon --repo <repo>`. Continue only when
-  `outcome` is `actionable`; choose exactly one returned candidate, handle it
-  according to `action`, validate, report the chosen candidate, and stop. All
-  other outcomes are report-and-stop states.
-- `adopt`: run read-only/dry-run setup checks: `baton home --format toon`,
-  `baton doctor --format toon`, `baton init --dry-run --json`,
+  `recommendation.outcome` is `actionable`; choose exactly one returned
+  candidate, handle it according to `recommendation.action`, validate, report
+  the chosen candidate, and stop. All other outcomes are report-and-stop states.
+- `adopt`: from the target repository checkout, run read-only/dry-run setup
+  checks: `baton home --format toon`,
+  `baton doctor --repo <repo> --format toon`, `baton init --dry-run --json`,
   `baton migrate-config --dry-run` when a legacy policy exists,
   `baton sync-labels --dry-run --repo <repo> --json`, and
-  `baton ensure-branch --json`.
+  `baton ensure-branch --json`. Treat every failed doctor check as an adoption
+  blocker with its reported remediation. After approved setup changes, rerun
+  doctor against the live repository; do not report adoption complete or
+  enable automation while `readyState` is `blocked`. If it is `degraded`,
+  report the reduced capability explicitly. If init used a reviewed custom
+  `--go-install` or `--install-command`, pass the same option to doctor.
 - `update`: read `references/updating-adopters.md`, inspect
   `.github/baton.yml` and `.github/workflows/*`, read the relevant adopter
   update notes, run the dry-run checks listed in the reference, then open or
@@ -153,17 +164,25 @@ argument.
 
 ## Issue Intake
 
-- Confirm the issue is implementation-ready and has no skip labels.
+- Confirm `snapshot` selected the requested issue with
+  `recommendation.outcome` equal to `actionable` and `recommendation.action`
+  equal to `issue_implementation`; an implementation label alone is not
+  durable managed ownership.
 - Create work from the configured staging branch in the isolated checkout.
 - Open the work PR to the staging branch with `Refs #<issue>`, not closing
   keywords.
-- Do not close issues from work PRs; closure belongs to promotion PRs.
+- Do not close issues from work PRs. Baton derives issue-backed work included
+  in each promotion, then explicitly closes the sealed issue set after the
+  promotion merges. Promotion closing references are optional presentation and
+  must exactly match that set when used.
 
 ## References
 
 - For creating Baton-ready GitHub issue todos, read
   `references/todo-creation.md`.
 - For commands and common flags, read `references/commands.md`.
+- For reviewed delivery-ledger initialization, migration, and cutover, read
+  `references/delivery-bootstrap.md`.
 - For JSON fields to inspect before acting, read `references/json-contracts.md`.
 - For target-repo setup and scheduled Codex app automations that run Baton, read
   `references/automation-setup.md`.

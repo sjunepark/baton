@@ -1,0 +1,174 @@
+# Managed by Baton. Edit in this repository when delivery policy changes.
+# Use delivery.authority: shadow for migration and sealed after reviewed cutover.
+name: Delivery Recorder
+
+on:
+  push:
+    branches:
+      - __BATON_BASE_BRANCH__
+  pull_request_target:
+    types:
+      - closed
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Delivery action
+        required: true
+        type: choice
+        default: record
+        options:
+          - record
+          - bootstrap-initialize
+          - bootstrap-migrate
+      ledger_issue:
+        description: Existing locked ledger issue number (initialization)
+        required: false
+        type: string
+      ledger_id:
+        description: Stable ledger identity (initialization)
+        required: false
+        type: string
+      genesis_staging_sha:
+        description: Reviewed staging boundary SHA
+        required: false
+        type: string
+      genesis_promotion:
+        description: Last acknowledged promotion PR (migration alternative)
+        required: false
+        type: string
+      observed_at:
+        description: Fixed RFC3339 genesis observation time (initialization)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  checks: write
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: baton-delivery-${{ github.repository_id }}
+  queue: max
+
+jobs:
+  record-delivery:
+    name: Record delivery
+    if: __BATON_WORK_PR_OWNERSHIP_PREFILTER__
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out trusted default-branch policy
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+
+      - name: Install Baton
+        run: |
+          __BATON_INSTALL_COMMAND__
+
+      - name: Record merged work delivery
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request_target" ]]; then
+            baton delivery-record --event "$GITHUB_EVENT_PATH" --apply --json
+          else
+            baton delivery-record --apply --json
+          fi
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+  plan-bootstrap:
+    name: Plan delivery bootstrap
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode != 'record' }}
+    runs-on: ubuntu-latest
+    outputs:
+      plan_id: ${{ steps.plan.outputs.plan_id }}
+    steps:
+      - name: Check out trusted default-branch policy
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+
+      - name: Install Baton
+        run: |
+          __BATON_INSTALL_COMMAND__
+
+      - name: Emit exact bootstrap plan
+        id: plan
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          MODE: ${{ inputs.mode }}
+          LEDGER_ISSUE: ${{ inputs.ledger_issue }}
+          LEDGER_ID: ${{ inputs.ledger_id }}
+          GENESIS_STAGING_SHA: ${{ inputs.genesis_staging_sha }}
+          GENESIS_PROMOTION: ${{ inputs.genesis_promotion }}
+          OBSERVED_AT: ${{ inputs.observed_at }}
+        run: |
+          args=(delivery-bootstrap --dry-run --json)
+          if [[ "$MODE" == "bootstrap-initialize" ]]; then
+            args+=(--initialize --ledger-issue "$LEDGER_ISSUE" --ledger-id "$LEDGER_ID" --genesis-staging-sha "$GENESIS_STAGING_SHA" --observed-at "$OBSERVED_AT")
+          elif [[ -n "$GENESIS_PROMOTION" ]]; then
+            args+=(--genesis-promotion "$GENESIS_PROMOTION")
+          else
+            args+=(--genesis-staging-sha "$GENESIS_STAGING_SHA")
+          fi
+          result="$(baton "${args[@]}")"
+          printf '%s\n' "$result"
+          plan_id="$(jq -er '.planId' <<<"$result")"
+          printf 'plan_id=%s\n' "$plan_id" >> "$GITHUB_OUTPUT"
+
+  apply-bootstrap:
+    name: Apply reviewed delivery bootstrap
+    needs: plan-bootstrap
+    runs-on: ubuntu-latest
+    environment: baton-delivery-bootstrap
+    steps:
+      - name: Check out trusted default-branch policy
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+
+      - name: Install Baton
+        run: |
+          __BATON_INSTALL_COMMAND__
+
+      - name: Apply unchanged bootstrap plan
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          MODE: ${{ inputs.mode }}
+          LEDGER_ISSUE: ${{ inputs.ledger_issue }}
+          LEDGER_ID: ${{ inputs.ledger_id }}
+          GENESIS_STAGING_SHA: ${{ inputs.genesis_staging_sha }}
+          GENESIS_PROMOTION: ${{ inputs.genesis_promotion }}
+          OBSERVED_AT: ${{ inputs.observed_at }}
+          PLAN_ID: ${{ needs.plan-bootstrap.outputs.plan_id }}
+        run: |
+          args=(delivery-bootstrap --apply --json --plan-id "$PLAN_ID")
+          if [[ "$MODE" == "bootstrap-initialize" ]]; then
+            args+=(--initialize --ledger-issue "$LEDGER_ISSUE" --ledger-id "$LEDGER_ID" --genesis-staging-sha "$GENESIS_STAGING_SHA" --observed-at "$OBSERVED_AT")
+          elif [[ -n "$GENESIS_PROMOTION" ]]; then
+            args+=(--genesis-promotion "$GENESIS_PROMOTION")
+          else
+            args+=(--genesis-staging-sha "$GENESIS_STAGING_SHA")
+          fi
+          baton "${args[@]}"

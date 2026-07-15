@@ -1,9 +1,11 @@
 package policy
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/sjunepark/baton/internal/config"
+	"github.com/sjunepark/baton/internal/delivery"
 )
 
 func TestComputePullRequestPolicy(t *testing.T) {
@@ -16,24 +18,24 @@ func TestComputePullRequestPolicy(t *testing.T) {
 		wantErrorSubstr string
 	}{
 		{
-			name: "agent work PR with one ready trivial issue passes",
+			name: "agent work PR with one managed issue passes",
 			input: PRPolicyInput{
 				PullRequest:      workPullRequest("Refs #123"),
-				ReferencedIssues: []ReferencedIssue{issue(123, "agent:ready-trivial")},
+				ReferencedIssues: []ReferencedIssue{issue(123)},
 				CommitMessages:   []string{"Document issue policy"},
 			},
 			wantFlow:   PRFlowWork,
 			wantErrors: []string{},
 		},
 		{
-			name: "agent work PR requires work branch prefix",
+			name: "non prefixed PR is unmanaged",
 			input: PRPolicyInput{
 				PullRequest:      workPullRequestWithHead("Refs #123", "agent/123-issue-policy"),
-				ReferencedIssues: []ReferencedIssue{issue(123, "agent:ready-trivial")},
+				ReferencedIssues: []ReferencedIssue{issue(123)},
 				CommitMessages:   []string{"Document issue policy"},
 			},
-			wantFlow:        PRFlowWork,
-			wantErrorSubstr: "Work PR branches into agent must start with agent-work/; agent/... is reserved by the shared staging branch.",
+			wantFlow:   PRFlowUnmanaged,
+			wantErrors: []string{},
 		},
 		{
 			name: "agent work PR requires refs",
@@ -45,52 +47,63 @@ func TestComputePullRequestPolicy(t *testing.T) {
 			wantErrorSubstr: "Work PRs into agent must reference at least one issue with Refs #123.",
 		},
 		{
+			name: "agent work PR requires referenced issue facts",
+			input: PRPolicyInput{
+				PullRequest:    workPullRequest("Refs #123"),
+				CommitMessages: []string{"Document issue policy"},
+			},
+			wantFlow:        PRFlowWork,
+			wantErrorSubstr: "#123 could not be loaded for managed-issue validation.",
+		},
+		{
+			name: "agent work PR requires managed issue ownership",
+			input: PRPolicyInput{
+				PullRequest:      workPullRequest("Refs #123"),
+				ReferencedIssues: []ReferencedIssue{{Number: 123, Ownership: IssueOwnershipDecision{SchemaVersion: 1, Source: IssueOwnershipNone}}},
+				CommitMessages:   []string{"Document issue policy"},
+			},
+			wantFlow:        PRFlowWork,
+			wantErrorSubstr: "#123 is not a Baton-managed issue.",
+		},
+		{
+			name: "agent work PR rejects invalid ownership",
+			input: PRPolicyInput{
+				PullRequest: workPullRequest("Refs #123"),
+				ReferencedIssues: []ReferencedIssue{{Number: 123, Ownership: IssueOwnershipDecision{
+					SchemaVersion: 1, Source: IssueOwnershipInvalid, Errors: []string{"record identity mismatch"},
+				}}},
+				CommitMessages: []string{"Document issue policy"},
+			},
+			wantFlow:        PRFlowWork,
+			wantErrorSubstr: "#123 has invalid managed-issue ownership: record identity mismatch.",
+		},
+		{
 			name: "agent work PR rejects closing keywords",
 			input: PRPolicyInput{
 				PullRequest:      workPullRequest("Refs #123\n\nCloses #123"),
-				ReferencedIssues: []ReferencedIssue{issue(123, "agent:ready-trivial")},
+				ReferencedIssues: []ReferencedIssue{issue(123)},
 				CommitMessages:   []string{"Document issue policy"},
 			},
 			wantFlow:        PRFlowWork,
 			wantErrorSubstr: "Work PRs into agent must use Refs #123, not closing keywords.",
 		},
 		{
-			name: "agent work PR requires implementation labels",
-			input: PRPolicyInput{
-				PullRequest:      workPullRequest("Refs #123"),
-				ReferencedIssues: []ReferencedIssue{issue(123, "agent:investigate-only")},
-				CommitMessages:   []string{"Document issue policy"},
-			},
-			wantFlow:        PRFlowWork,
-			wantErrorSubstr: "#123 must have one of: agent:ready-trivial, agent:ready-bounded.",
-		},
-		{
-			name: "agent work PR rejects skip labels",
-			input: PRPolicyInput{
-				PullRequest:      workPullRequest("Refs #123"),
-				ReferencedIssues: []ReferencedIssue{issue(123, "agent:ready-bounded", "needs:discussion")},
-				CommitMessages:   []string{"Document issue policy"},
-			},
-			wantFlow:        PRFlowWork,
-			wantErrorSubstr: "#123 has skip label needs:discussion.",
-		},
-		{
-			name: "multi issue all trivial rejected",
+			name: "multi issue work requires only durable ownership",
 			input: PRPolicyInput{
 				PullRequest:      workPullRequest("Refs #123\nRefs #124"),
-				ReferencedIssues: []ReferencedIssue{issue(123, "agent:ready-trivial"), issue(124, "agent:ready-trivial")},
+				ReferencedIssues: []ReferencedIssue{issue(123), issue(124)},
 				CommitMessages:   []string{"Document issue policy"},
 			},
-			wantFlow:        PRFlowWork,
-			wantErrorSubstr: "Multi-issue PRs cannot be all-trivial in v1; split them or use bounded review.",
+			wantFlow:   PRFlowWork,
+			wantErrors: []string{},
 		},
 		{
-			name: "direct base branch PR is skipped by default",
+			name: "unmanaged direct base branch PR is skipped",
 			input: PRPolicyInput{
 				PullRequest:    promotionPullRequest("Refs #123", "feature"),
 				CommitMessages: []string{"fix lint"},
 			},
-			wantFlow:   PRFlowDirectBase,
+			wantFlow:   PRFlowUnmanaged,
 			wantErrors: []string{},
 		},
 		{
@@ -99,32 +112,84 @@ func TestComputePullRequestPolicy(t *testing.T) {
 				PullRequest:    promotionPullRequest("Refs #123", "agent-work/123-issue-policy"),
 				CommitMessages: []string{"Document issue policy"},
 			},
-			wantFlow:        PRFlowInvalidDirectWork,
+			wantFlow:        PRFlowMisroutedWork,
 			wantErrorSubstr: "Baton work PRs from agent-work/* must target agent before promotion to main.",
 		},
 		{
-			name: "promotion PR from agent requires closing keywords",
+			name: "partial optional promotion closing references are rejected",
 			input: PRPolicyInput{
-				PullRequest:    promotionPullRequest("Refs #123", "agent"),
+				PullRequest:    promotionPullRequest("Closes #124", "agent"),
+				PromotionFacts: completePromotionFacts(123, 124),
 				CommitMessages: []string{"Document issue policy"},
 			},
 			wantFlow:        PRFlowPromotion,
-			wantErrorSubstr: "Promotion PRs into main must close promoted issues with Closes #123.",
+			wantErrorSubstr: "Promotion closing references into main are optional presentation, but when present must exactly match the sealed plan; missing: #123; extra: none.",
 		},
 		{
-			name: "promotion PR from agent with closing keywords passes",
+			name: "issue-backed promotion needs no closing keyword",
 			input: PRPolicyInput{
-				PullRequest:    promotionPullRequest("Closes #123", "agent"),
+				PullRequest:    promotionPullRequest("Promote sealed Baton work", "agent"),
+				PromotionFacts: completePromotionFacts(123, 124),
 				CommitMessages: []string{"Document issue policy"},
 			},
 			wantFlow:   PRFlowPromotion,
 			wantErrors: []string{},
 		},
 		{
+			name: "issue-backed promotion with every expected issue passes",
+			input: PRPolicyInput{
+				PullRequest:    promotionPullRequest("Closes #124, #123", "agent"),
+				PromotionFacts: completePromotionFacts(123, 124),
+				CommitMessages: []string{"Document issue policy"},
+			},
+			wantFlow:   PRFlowPromotion,
+			wantErrors: []string{},
+		},
+		{
+			name: "manual-only promotion needs no closing keyword",
+			input: PRPolicyInput{
+				PullRequest:    promotionPullRequest("Manual maintenance", "agent"),
+				PromotionFacts: completePromotionFacts(),
+				CommitMessages: []string{"Maintain deployment files"},
+			},
+			wantFlow:   PRFlowPromotion,
+			wantErrors: []string{},
+		},
+		{
+			name: "unrelated optional closing issue disagrees with promotion",
+			input: PRPolicyInput{
+				PullRequest:    promotionPullRequest("Closes #999", "agent"),
+				PromotionFacts: completePromotionFacts(123),
+				CommitMessages: []string{"Promote agent work"},
+			},
+			wantFlow:        PRFlowPromotion,
+			wantErrorSubstr: "Promotion closing references into main are optional presentation, but when present must exactly match the sealed plan; missing: #123; extra: #999.",
+		},
+		{
+			name: "mixed promotion requires only Baton issues",
+			input: PRPolicyInput{
+				PullRequest:    promotionPullRequest("Includes manual changes. Closes #123", "agent"),
+				PromotionFacts: completePromotionFacts(123),
+				CommitMessages: []string{"Promote mixed changes"},
+			},
+			wantFlow:   PRFlowPromotion,
+			wantErrors: []string{},
+		},
+		{
+			name: "incomplete promotion evidence fails explicitly",
+			input: PRPolicyInput{
+				PullRequest:    promotionPullRequest("Closes #123", "agent"),
+				PromotionFacts: &PromotionFacts{ExpectedIssues: []int{123}},
+				CommitMessages: []string{"Promote agent work"},
+			},
+			wantFlow:        PRFlowPromotion,
+			wantErrorSubstr: "Promotion evidence is incomplete; Baton requires an exact sealed delivery plan with matching cursor and coverage.",
+		},
+		{
 			name: "commit subjects must be meaningful",
 			input: PRPolicyInput{
 				PullRequest:      workPullRequest("Refs #123"),
-				ReferencedIssues: []ReferencedIssue{issue(123, "agent:ready-trivial")},
+				ReferencedIssues: []ReferencedIssue{issue(123)},
 				CommitMessages:   []string{"fix lint"},
 			},
 			wantFlow:        PRFlowWork,
@@ -134,7 +199,7 @@ func TestComputePullRequestPolicy(t *testing.T) {
 			name: "agent work PR fails closed at commit cap",
 			input: PRPolicyInput{
 				PullRequest:             workPullRequest("Refs #123"),
-				ReferencedIssues:        []ReferencedIssue{issue(123, "agent:ready-trivial")},
+				ReferencedIssues:        []ReferencedIssue{issue(123)},
 				CommitMessages:          meaningfulCommits(250),
 				CommitListingReachedCap: true,
 			},
@@ -145,6 +210,7 @@ func TestComputePullRequestPolicy(t *testing.T) {
 			name: "promotion PR fails closed at commit cap",
 			input: PRPolicyInput{
 				PullRequest:             promotionPullRequest("Closes #123", "agent"),
+				PromotionFacts:          completePromotionFacts(123),
 				CommitMessages:          meaningfulCommits(250),
 				CommitListingReachedCap: true,
 			},
@@ -170,9 +236,25 @@ func TestComputePullRequestPolicy(t *testing.T) {
 	}
 }
 
-func TestComputePullRequestPolicyCanRejectDirectBaseBranchPRs(t *testing.T) {
+func TestPromotionPolicyRejectsUnincorporatedOrUnknownBaseIntegration(t *testing.T) {
 	cfg := config.DefaultConfig()
-	cfg.PRPolicy.AllowDirectBaseBranchPRs = false
+	for _, state := range []delivery.BaseIntegrationState{delivery.BaseDirectWorkPending, delivery.BaseIntegrationDiverged, delivery.BaseIntegrationUnknown} {
+		t.Run(string(state), func(t *testing.T) {
+			facts := completePromotionFacts()
+			facts.BaseIntegration.State = state
+			decision := ComputePullRequestPolicy(PRPolicyInput{
+				PullRequest:    PullRequest{Number: 50, BaseRef: cfg.Repository.BaseBranch, HeadRef: cfg.Repository.StagingBranch, BaseRepositoryFullName: "example/repo", HeadRepositoryFullName: "example/repo"},
+				PromotionFacts: facts, CommitMessages: []string{"Promote"}, Policy: cfg,
+			})
+			if len(decision.Errors) == 0 || !strings.Contains(decision.Errors[0], string(state)) {
+				t.Fatalf("decision = %+v", decision)
+			}
+		})
+	}
+}
+
+func TestComputePullRequestPolicyIgnoresDirectBaseBranchPRs(t *testing.T) {
+	cfg := config.DefaultConfig()
 
 	decision := ComputePullRequestPolicy(PRPolicyInput{
 		PullRequest:    promotionPullRequest("Refs #123", "feature"),
@@ -180,11 +262,11 @@ func TestComputePullRequestPolicyCanRejectDirectBaseBranchPRs(t *testing.T) {
 		Policy:         cfg,
 	})
 
-	if decision.Flow != PRFlowDirectBase {
-		t.Fatalf("flow = %q, want %q", decision.Flow, PRFlowDirectBase)
+	if decision.Flow != PRFlowUnmanaged {
+		t.Fatalf("flow = %q, want %q", decision.Flow, PRFlowUnmanaged)
 	}
-	if !containsString(decision.Errors, "Direct PRs into main are disabled by Baton policy; target agent for Baton-managed work or use agent for promotion.") {
-		t.Fatalf("errors = %#v, want direct-base policy error", decision.Errors)
+	if len(decision.Errors) != 0 {
+		t.Fatalf("errors = %#v, want unmanaged no-op", decision.Errors)
 	}
 }
 
@@ -200,30 +282,30 @@ func TestComputePullRequestPolicyUsesConfiguredKeywords(t *testing.T) {
 
 	work := ComputePullRequestPolicy(PRPolicyInput{
 		PullRequest:      workPullRequest("Relates #123\n\nCloses #123"),
-		ReferencedIssues: []ReferencedIssue{issue(123, "agent:ready-trivial")},
+		ReferencedIssues: []ReferencedIssue{issue(123)},
 		CommitMessages:   []string{"Document issue policy"},
 		Policy:           cfg,
 	})
 	assertStringSlices(t, work.Errors, []string{})
 
 	promotion := ComputePullRequestPolicy(PRPolicyInput{
-		PullRequest:    promotionPullRequest("Closes #123", "agent"),
+		PullRequest:    promotionPullRequest("Finishes #124", "agent"),
+		PromotionFacts: completePromotionFacts(123),
 		CommitMessages: []string{"Document issue policy"},
 		Policy:         cfg,
 	})
-	if !containsString(promotion.Errors, "Promotion PRs into main must close promoted issues with Finishes #123.") {
+	if !containsString(promotion.Errors, "Promotion closing references into main are optional presentation, but when present must exactly match the sealed plan; missing: #123; extra: #124.") {
 		t.Fatalf("errors = %#v, want configured closing keyword error", promotion.Errors)
 	}
 }
 
-func TestComputePullRequestPolicyHonorsFalsePRPolicyOptions(t *testing.T) {
+func TestComputePullRequestPolicyHonorsDisabledCommitCapRule(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.PRPolicy.FailWhenCommitListingReachesCap = false
-	cfg.PRPolicy.RejectAllTrivialMultiIssuePRs = false
 
 	decision := ComputePullRequestPolicy(PRPolicyInput{
 		PullRequest:             workPullRequest("Refs #123\nRefs #124"),
-		ReferencedIssues:        []ReferencedIssue{issue(123, "agent:ready-trivial"), issue(124, "agent:ready-trivial")},
+		ReferencedIssues:        []ReferencedIssue{issue(123), issue(124)},
 		CommitMessages:          meaningfulCommits(250),
 		CommitListingReachedCap: true,
 		Policy:                  cfg,
@@ -265,8 +347,16 @@ func promotionPullRequest(body, headRef string) PullRequest {
 	}
 }
 
-func issue(number int, labels ...string) ReferencedIssue {
-	return ReferencedIssue{Number: number, Labels: labels}
+func issue(number int) ReferencedIssue {
+	return ReferencedIssue{Number: number, Ownership: IssueOwnershipDecision{SchemaVersion: 1, Managed: true, Source: IssueOwnershipRecord}}
+}
+
+func completePromotionFacts(issueNumbers ...int) *PromotionFacts {
+	return &PromotionFacts{
+		ExpectedIssues: issueNumbers, Complete: true, Source: "sealedDeliveryPlan",
+		PlanDigest: "sha256:plan", CursorDigest: "sha256:cursor", CoverageDigest: "sha256:coverage",
+		BaseIntegration: delivery.BaseIntegrationFacts{State: delivery.BaseIntegrated, ObservedBaseSHA: strings.Repeat("a", 40), ObservedStagingSHA: strings.Repeat("b", 40)},
+	}
 }
 
 func meaningfulCommits(count int) []string {

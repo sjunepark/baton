@@ -1,0 +1,12 @@
+{
+  "action": "opened",
+  "pull_request": {
+    "number": 109,
+    "title": "Managed shape with incomplete base identity",
+    "body": "Refs #7",
+    "state": "open",
+    "merged": false,
+    "base": {"ref": "agent", "sha": "base-109"},
+    "head": {"ref": "agent-work/7-unknown-base", "sha": "head-109", "repo": {"full_name": "example/repo"}}
+  }
+}

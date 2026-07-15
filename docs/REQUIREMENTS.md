@@ -52,6 +52,9 @@ Baton should extract this workflow into a reusable tool for the user's projects.
   CLI rather than copied repo-local scripts.
 - Baton must support controlled label groups so policy automation removes only
   labels it owns.
+- Managed work-PR policy must use durable issue ownership, PR-local references
+  and closing-keyword rules, and revision-bound commit facts. Mutable issue
+  intake labels must not become merge authority.
 
 ### Queue Inspection
 
@@ -116,6 +119,50 @@ Baton should extract this workflow into a reusable tool for the user's projects.
 - Dry-run must be available for install, label sync, and branch setup.
 - `pull_request_target` workflows must execute trusted Baton code, not
   untrusted PR-modified scripts.
+- Generated PR and transition workflows must cover all target branches. PR
+  Policy's conservative prefilter may over-admit but must not skip a candidate
+  the authoritative Go classifier would manage or reject. Transition admits
+  promotions; Delivery Recorder owns managed work and synchronization events.
+- Ordinary and known-fork PRs must be observable no-ops. Same-repository use of
+  the reserved work prefix on the wrong target must fail explicitly; incomplete
+  repository identity for a managed shape must fail as indeterminate.
+- Managed issue ownership must come from a trusted, versioned record bound to
+  stable issue identity. Labels are an index only and body/label edits do not
+  revoke ownership.
+- Delivery bootstrap and recording must use a pinned locked issue/checkpoint,
+  bounded exact record reads, explicit dry-run/apply consent, stale
+  preconditions, and operation reports. `delivery.authority: shadow` permits
+  migration writes only; a reviewed change to `sealed` is the documented
+  authority cutover.
+- Managed promotion, work transition, and recommendation readers must require
+  complete sealed delivery state and must not fall back to mutable PR bodies,
+  ancestry selection, or an unbounded closed-staging-PR scan.
+- A merged managed promotion must close still-open sealed-plan issues, remove
+  their awaiting-review index, append exact base-integration evidence, and
+  commit the cursor last. A committed duplicate must not inspect or re-close
+  issues, and promotion closing keywords must not be completion authority.
+- Bootstrap writes must run as the trusted generated recorder under its shared
+  concurrency group; plan and apply must preserve exact writer provenance.
+- A staged-record write or repair must re-request any successful managed
+  promotion-policy check whose exact head contains that work revision.
+- Promotion policy must bind observed base/staging SHAs to explicit integration
+  evidence. Recorded merge/squash/rebase promotion results remain integrated
+  even when absent from staging, provided the recorded promotion head remains
+  in staging's lineage; later base movement requires synchronization.
+- Synchronization is a human-reviewed base-to-staging PR whose merge preserves
+  both histories. Baton records it but never pushes, merges, rebases, squashes,
+  or rewrites staging.
+- Adoption readiness must prove an authenticated live repository read and
+  verify exact managed files, trusted active workflows, Actions policy,
+  source-bound required checks, labels, ownership/delivery readiness, merge
+  settings, branch rules, and queues. Unknown execution policy must degrade or
+  block explicitly; blocked doctor results must exit nonzero.
+- Incomplete delivery facts stop recommendations as degraded. Otherwise the
+  order is staging-branch health, `sync-staging`, existing PR follow-up, then
+  new issue intake.
+- PR Policy and delivery mutations must share repository concurrency, and a
+  record batch must re-list promotions and reacquire check rollups only after
+  its final checkpoint commit before re-requesting checks.
 - Baton must fail closed when GitHub API pagination limits prevent complete
   policy validation.
 - Baton must redact tokens from logs and never print GitHub auth secrets.

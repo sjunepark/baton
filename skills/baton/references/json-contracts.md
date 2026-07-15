@@ -15,6 +15,8 @@ Common fields:
 - `completeness`: `complete` or `degraded`; degraded Recommendations never
   include an Action.
 - `warnings[]`: scoped partial, stale, unknown, or upstream failure evidence.
+- `baseIntegration`: observed and acknowledged base/staging revisions plus
+  `integrated`, `direct-base-work-pending`, `diverged`, or `unknown`.
 - `queue`, `branches[]`, and `pullRequests[]`: facts from the same acquisition.
 - `recommendation.outcome`: `actionable`, `human_choice_required`, `waiting`,
   `blocked`, `idle`, or `degraded`.
@@ -23,12 +25,12 @@ Common fields:
 - `recommendation.candidates[].identity`: repository-scoped issue, PR revision,
   or branch revision identity.
 
-New integrations should use `repositorySnapshot` v1. `nextCandidates` v2 and
-`queueSnapshot` v1 remain migration projections.
+New integrations should use `repositorySnapshot` v2. `nextCandidates` v3 and
+`queueSnapshot` v2 remain migration projections.
 
 `nextCandidates`:
 
-- `selectedAction`: one of `pr-followup`, `branch-health`,
+- `selectedAction`: one of `sync-staging`, `pr-followup`, `branch-health`,
   `issue-implementation`, `issue-investigation`, or `none`.
 - `reason`: why Baton selected the candidate tier.
 - `selectionReason`: more specific priority explanation when eligible lower-tier
@@ -72,11 +74,56 @@ New integrations should use `repositorySnapshot` v1. `nextCandidates` v2 and
 
 `workItemTransitionPlan`:
 
+- `schemaVersion`: `4`.
 - `eventAction`, `pullRequestNumber`, and `flow`: the verified PR lifecycle
   input and repository-policy flow.
-- `operations[]`: deterministic issue-label writes planned for merged staging
-  work.
+- `operations[]`: deterministic issue-label writes for merged staging work, or
+  ordered issue close/index removal, base-integration append, and cursor commit
+  for a merged promotion.
+- `deliveryRecordDigest`: the immutable staged-work record that supplied the
+  issue set.
+- `promotionPlanDigest`, `promotionCursorDigest`, and
+  `baseIntegrationDigest`: exact promotion commitment identities. A committed
+  duplicate has no issue operations.
 - `warnings[]`: non-mutating edge conditions such as a merged work PR without
   configured issue references.
 - `report`: present after apply, with per-operation `applied`, `unchanged`,
   `refused`, `failed`, or `not_attempted` outcomes.
+
+`deliveryRecordPlan` v3:
+
+- `complete` and `applicable`: both must be true before mutation.
+- `append`: exact staged-work record, checkpoint precondition, or committed
+  retry match.
+- `coverage`: exact checkpoint-only coverage advance after a complete scan
+  finds no missing managed record.
+- `ownershipBackfill[]`: durable ownership writes that precede the record.
+- `promotionRechecks[]`: exact head/check-run identities invalidated after a
+  new or repaired record, including the status/conclusion observed during
+  planning. Apply reacquires the rollup after checkpoint commit.
+- `report`: preserves partial ownership, append, checkpoint, and recheck effects.
+- `synchronization`: exact reviewed base-to-staging PR and ancestry-preserving
+  result plus durable promotion-recheck targets; apply records evidence but
+  never creates or merges the PR. Pending targets are recovered before later
+  delivery work and cleared only after reconciliation.
+
+`deliveryBootstrapPlan` v1 exposes a stable `planId`, every source fact and
+relationship, explicit ambiguities, structured open-promotion shadow
+comparisons, the reviewed genesis boundary, and exact ownership/staged records.
+Apply requires the same `planId`. Initialization
+returns the checkpoint body and exact locator for review into config.
+Initialization v2 can also return a drained-ledger rollover with exact
+predecessor/successor commitment. Record
+append and checkpoint update operations are reported independently.
+
+`prPolicyDecision` v4 and transition v4 use one ownership vocabulary:
+`work`, `promotion`, `misroutedWork`, `indeterminate`, or `unmanaged`.
+Unmanaged is a successful no-op; misrouted and indeterminate candidate shapes
+fail or plan no writes.
+For `work`, referenced issue eligibility comes from durable ownership, not
+current implementation or skip labels. Queue and snapshot contracts retain
+label-derived intake eligibility.
+For `promotion`, `promotionFacts.baseIntegration.state` must be `integrated`.
+Issue close/index operations precede the base-integration
+append and cursor commit. Exact plan, integration, and cursor digests bind the
+plan; a committed duplicate has no operations.

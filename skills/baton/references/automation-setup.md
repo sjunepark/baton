@@ -29,13 +29,22 @@ against the same queue is unsafe.
 
 Before scheduling, verify the target repository is Baton-ready:
 
+Run checkout-scoped commands such as `ensure-branch` from that repository's
+checkout.
+
 ```sh
 baton home --format toon
-baton doctor --format toon
+baton doctor --repo owner/name --format toon
 baton ensure-branch --json
 baton sync-labels --dry-run --repo owner/name --json
 baton snapshot --format toon --repo owner/name
 ```
+
+Do not schedule implementation automation while doctor is blocked. Prefer
+`readyState: ready`. If the only degraded check is unavailable organization
+hosted-runner policy, require both an explicit operator confirmation that
+standard GitHub-hosted runners are enabled and a successful manual run of the
+same prompt; otherwise degraded is not full automation readiness.
 
 If setup is incomplete, install Baton repository files first:
 
@@ -57,10 +66,21 @@ baton sync-labels --apply --repo owner/name --json
 - `.github/workflows/issue-policy.yml`
 - `.github/workflows/pr-policy.yml`
 - `.github/workflows/work-item-transition.yml`
+- `.github/workflows/delivery-recorder.yml`
 
 Review the `baton init --dry-run --json` plan before applying it. Use
 `baton ensure-branch --apply` to create or verify the staging branch, normally
 `agent`, without force-resetting existing branch state.
+
+The delivery recorder is a no-op until repository config pins a reviewed
+locator. When adopting it, follow `delivery-bootstrap.md`: use
+`delivery.authority: shadow` during bootstrap and change it to `sealed` only
+after the complete plan and every shadow comparison are reviewed.
+
+Keep merge commits enabled and do not require linear history on staging. For a
+`sync_staging` recommendation, open a reviewed PR from base into staging and
+merge it with a merge commit. Do not automate push, merge, squash, rebase, or
+staging rewrites.
 
 ## Target Repository AGENTS.md
 
@@ -72,7 +92,7 @@ autonomous agents should work from the GitHub issue/PR queue:
 
 - Use `$baton` for unattended GitHub issue and PR work.
 - Run `baton snapshot --format toon` before choosing unattended work. Continue
-  only for `outcome: actionable`.
+  only when `recommendation.outcome` is `actionable`.
 - Choose and handle at most one Baton candidate per run.
 - Verify the automation is running in an isolated checkout before editing
   files; do not mutate the primary checkout for automation work.
@@ -178,7 +198,8 @@ After scheduling, inspect the first few automation outputs before trusting the
 cadence. Check that each run:
 
 - loaded `$baton`;
-- ran `baton snapshot` and gated on `outcome: actionable` before selecting work;
+- ran `baton snapshot` and gated on `recommendation.outcome` being `actionable`
+  before selecting work;
 - handled zero or one unit;
 - verified isolated checkout context before edits;
 - worked only in that isolated checkout;

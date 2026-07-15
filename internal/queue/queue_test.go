@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/sjunepark/baton/internal/config"
+	"github.com/sjunepark/baton/internal/delivery"
 	"github.com/sjunepark/baton/internal/workitem"
 )
 
@@ -16,6 +17,22 @@ func TestBuildSnapshotWithLifecycleKeepsMergedWorkOutOfIntake(t *testing.T) {
 		[]PullRequest{{Number: 42, BaseRef: "agent", HeadRef: "agent-work/7", Body: "Refs #7", Merged: true}}, nil)
 	if snapshot.Issues[0].Eligible || snapshot.Issues[0].State != workitem.StateAwaitingReview {
 		t.Fatalf("issue state = %+v", snapshot.Issues[0])
+	}
+}
+
+func TestRecommendNextPrioritizesSynchronizationOverPullRequestsAndIssues(t *testing.T) {
+	cfg := config.DefaultConfig()
+	snapshot := BuildSnapshot("example/repo", cfg,
+		[]Issue{{Number: 7, Title: "New work", Labels: []string{"agent:ready-bounded"}}},
+		[]PullRequest{{Number: 42, Title: "Failing work", BaseRef: cfg.Repository.StagingBranch, HeadRef: cfg.Repository.WorkBranchPrefix + "7", CheckState: "failure"}},
+	)
+	snapshot.BaseIntegration = &delivery.BaseIntegrationFacts{
+		State: delivery.BaseDirectWorkPending, ObservedBaseSHA: strings.Repeat("a", 40), ObservedStagingSHA: strings.Repeat("b", 40),
+		IntegratedBaseSHA: strings.Repeat("c", 40), IntegratedStagingSHA: strings.Repeat("d", 40),
+	}
+	next := RecommendNext(snapshot)
+	if next.SelectedAction != "sync-staging" || len(next.Candidates) != 1 || next.Candidates[0].Type != "repository" || next.Candidates[0].HeadRef != cfg.Repository.BaseBranch || next.Candidates[0].BaseRef != cfg.Repository.StagingBranch {
+		t.Fatalf("synchronization recommendation = %+v", next)
 	}
 }
 
@@ -478,7 +495,7 @@ func TestRecommendNextJSONOmitsLegacySingularFields(t *testing.T) {
 	if err := json.Unmarshal(content, &fields); err != nil {
 		t.Fatal(err)
 	}
-	if fields["kind"] != "nextCandidates" || fields["schemaVersion"].(float64) != 2 {
+	if fields["kind"] != "nextCandidates" || fields["schemaVersion"].(float64) != 3 {
 		t.Fatalf("fields = %#v", fields)
 	}
 	if fields["selectedAction"] != "issue-implementation" {
