@@ -901,6 +901,48 @@ func TestJSONUsageErrorReturnsStructuredError(t *testing.T) {
 	}
 }
 
+func TestInitYesCannotOverwriteInvalidExistingConfig(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	configPath := filepath.Join(dir, ".github", "baton.yml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	invalid := []byte(`version: 1
+repository:
+  base_branch: stable
+  staging_branch: integration
+unrelated_default_trap: true
+`)
+	if err := os.WriteFile(configPath, invalid, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"init", "--apply", "--yes", "--json"}, &stdout, &stderr, "test")
+	if code != exitConfig {
+		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitConfig, stdout.String(), stderr.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty structured-mode stderr", stderr.String())
+	}
+	result := decodeErrorResult(t, stdout.String())
+	if result.Category != "config" || !strings.Contains(result.Message, "unrelated_default_trap") {
+		t.Fatalf("error result = %+v", result)
+	}
+	got, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, invalid) {
+		t.Fatalf("invalid config was overwritten:\ngot:\n%s\nwant:\n%s", got, invalid)
+	}
+	workflowPath := filepath.Join(dir, ".github", "workflows", "pr-policy.yml")
+	if _, err := os.Stat(workflowPath); !os.IsNotExist(err) {
+		t.Fatalf("invalid config rendered unrelated default workflow: %v", err)
+	}
+}
+
 func TestApplicationErrorRendererPreservesAllStableCategories(t *testing.T) {
 	tests := []struct {
 		category apperror.Category

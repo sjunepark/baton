@@ -25,6 +25,49 @@ func TestPreviewPlansTemplateCreation(t *testing.T) {
 	}
 }
 
+func TestPreviewRejectsInvalidExistingConfig(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{
+			name:    "strict parse error",
+			content: "version: 1\nunexpected: true\n",
+			want:    "field unexpected not found",
+		},
+		{
+			name: "validation error",
+			content: `version: 1
+repository:
+  base_branch: main
+  staging_branch: main
+`,
+			want: "repository.base_branch and repository.staging_branch must differ",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			path := filepath.Join(root, ".github", "baton.yml")
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(test.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			plan, err := Preview(root)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Preview() plan=%+v error=%v, want error containing %q", plan, err, test.want)
+			}
+			if len(plan.Changes) != 0 {
+				t.Fatalf("invalid config produced reconciliation changes: %+v", plan.Changes)
+			}
+		})
+	}
+}
+
 func TestApplyWritesTemplatesAndRefusesOverwrite(t *testing.T) {
 	root := t.TempDir()
 	if _, err := Apply(root, false); err != nil {

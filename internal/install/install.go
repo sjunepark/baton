@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -265,13 +266,16 @@ func managedFiles(root string, options Options) ([]ManagedFile, error) {
 	var policy config.RepositoryPolicy
 	if options.Policy != nil {
 		policy = *options.Policy
-	} else if loaded, _, err := config.LoadForRepoWithPath(root); err == nil {
-		policy = loaded
 	} else {
-		// Invalid repository policy is itself a reconcile conflict. Render the
-		// compiled defaults so planning can report the file instead of failing
-		// before the caller can review or replace it.
-		policy = config.DefaultConfig()
+		loaded, _, err := config.LoadForRepoWithPath(root)
+		switch {
+		case err == nil:
+			policy = loaded
+		case errors.Is(err, config.ErrConfigNotFound):
+			policy = config.DefaultConfig()
+		default:
+			return nil, err
+		}
 	}
 	return RenderManagedFiles(policy, options)
 }
