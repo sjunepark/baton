@@ -74,7 +74,12 @@ func definitionForLabel(label string) (LabelDefinition, error) {
 }
 
 func isBlocker(label string) bool {
-	return strings.EqualFold(label, BlockerNeedsInfo) || strings.EqualFold(label, BlockerNeedsDiscussion)
+	for _, blocker := range orderedBlockerLabels {
+		if strings.EqualFold(label, blocker) {
+			return true
+		}
+	}
+	return false
 }
 
 func isFixedLabel(label string) bool {

@@ -239,7 +239,7 @@ func TestMutationReportsConfirmedPartialFailureAndFinalReread(t *testing.T) {
 	if !errors.As(err, &mutationErr) {
 		t.Fatalf("Mutate() error = %#v", err)
 	}
-	if mutationErr.Task == nil || len(mutationErr.Changes) != 3 || mutationErr.Changes[1] != (task.Change{Action: task.ChangeAddLabel, Label: task.LabelManaged}) {
+	if mutationErr.Task != nil || !reflect.DeepEqual(mutationErr.Changes, []task.Change{{Action: task.ChangeCreateLabel, Label: "agent:ready-bounded"}}) {
 		t.Fatalf("partial error = %#v", mutationErr)
 	}
 }
@@ -278,19 +278,107 @@ func TestUpdateClearsFacetAndRejectsConflictingBlockerChange(t *testing.T) {
 func TestUpdatePlannerNormalizesFacetsAndPreservesProjectLabels(t *testing.T) {
 	t.Parallel()
 	bounded := task.ModeBounded
+	p2 := task.PriorityP2
 	issue := task.Issue{Number: 1, State: task.IssueOpen, Labels: []string{
-		task.LabelManaged, "agent:ready-trivial", "agent:investigate-only", "priority:p0", "priority:p3", "enhancement",
+		task.LabelManaged, "agent:ready-trivial", "agent:investigate-only", "priority:p0", "priority:p3", "Customer:Acme",
 	}}
 	originalLabels := append([]string(nil), issue.Labels...)
-	plan, err := task.PlanMutation(issue, task.Mutation{Kind: task.MutationUpdate, ModeSet: true, Mode: &bounded, PrioritySet: true})
+	plan, err := task.PlanMutation(issue, task.Mutation{Kind: task.MutationUpdate, ModeSet: true, Mode: &bounded, PrioritySet: true, Priority: &p2})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Projected == nil || plan.Projected.Mode == nil || *plan.Projected.Mode != task.ModeBounded || plan.Projected.Priority == nil || *plan.Projected.Priority != task.PriorityP2 || !reflect.DeepEqual(plan.Projected.ProjectLabels, []string{"enhancement"}) {
+	if plan.Projected == nil || plan.Projected.Mode == nil || *plan.Projected.Mode != task.ModeBounded || plan.Projected.Priority == nil || *plan.Projected.Priority != task.PriorityP2 || !reflect.DeepEqual(plan.Projected.ProjectLabels, []string{"Customer:Acme"}) {
 		t.Fatalf("PlanMutation() = %#v", plan)
 	}
 	if !reflect.DeepEqual(issue.Labels, originalLabels) {
 		t.Fatalf("PlanMutation() mutated input labels: %v", issue.Labels)
+	}
+}
+
+func TestMutationPlansKeepIncompleteWorkNonDispatchable(t *testing.T) {
+	t.Parallel()
+	bounded := task.ModeBounded
+	p1 := task.PriorityP1
+	tests := []struct {
+		name     string
+		issue    task.Issue
+		mutation task.Mutation
+	}{
+		{
+			name:     "enrollment publishes last",
+			issue:    issueWithLabels("Customer:Acme"),
+			mutation: task.Mutation{Kind: task.MutationEnroll, ModeSet: true, Mode: &bounded, PrioritySet: true, Priority: &p1},
+		},
+		{
+			name:     "blocker replacement adds before removal",
+			issue:    issueWithLabels(task.LabelManaged, "agent:ready-bounded", task.BlockerNeedsInfo),
+			mutation: task.Mutation{Kind: task.MutationUpdate, AddBlockers: []string{task.BlockerNeedsDiscussion}, RemoveBlockers: []string{task.BlockerNeedsInfo}},
+		},
+		{
+			name:     "facet replacement keeps conflict until complete",
+			issue:    issueWithLabels(task.LabelManaged, "agent:ready-trivial", "agent:investigate-only"),
+			mutation: task.Mutation{Kind: task.MutationUpdate, ModeSet: true, Mode: &bounded},
+		},
+		{
+			name:     "unenrollment hides before activity cleanup",
+			issue:    issueWithLabels(task.LabelManaged, "agent:ready-bounded", task.LabelInProgress),
+			mutation: task.Mutation{Kind: task.MutationUnenroll},
+		},
+		{
+			name:     "close reaches terminal state before activity cleanup",
+			issue:    issueWithLabels(task.LabelManaged, "agent:ready-bounded", task.LabelInProgress),
+			mutation: task.Mutation{Kind: task.MutationClose},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			plan, err := task.PlanMutation(test.issue, test.mutation)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for failedWrite := 1; failedWrite < len(plan.Changes); failedWrite++ {
+				store := newInstrumentedStore(test.issue)
+				store.failAfterIssueWrite = failedWrite
+				_, err := task.NewService(store).Mutate(context.Background(), repository, 1, test.mutation, false)
+				var mutationErr *task.MutationError
+				if !errors.As(err, &mutationErr) {
+					t.Fatalf("write %d error = %#v, want MutationError", failedWrite, err)
+				}
+				if mutationErr.Task != nil && mutationErr.Task.State == task.StateReady {
+					t.Fatalf("write %d of %d published ready task before plan completed: %#v", failedWrite, len(plan.Changes), mutationErr)
+				}
+			}
+		})
+	}
+}
+
+func TestPlannerRejectsUnsafeConflictingFacetClear(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		labels   []string
+		mutation task.Mutation
+	}{
+		{
+			name:     "mode",
+			labels:   []string{task.LabelManaged, "agent:ready-trivial", "agent:ready-bounded"},
+			mutation: task.Mutation{Kind: task.MutationUpdate, ModeSet: true},
+		},
+		{
+			name:     "priority",
+			labels:   []string{task.LabelManaged, "agent:ready-trivial", "priority:p0", "priority:p1"},
+			mutation: task.Mutation{Kind: task.MutationUpdate, PrioritySet: true},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := task.PlanMutation(issueWithLabels(test.labels...), test.mutation)
+			var taskErr *task.Error
+			if !errors.As(err, &taskErr) || taskErr.Code != "invalid_transition" || taskErr.Hint == "" {
+				t.Fatalf("PlanMutation() error = %#v", err)
+			}
+		})
 	}
 }
 

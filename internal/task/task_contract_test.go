@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/sjunepark/baton/internal/task"
@@ -195,8 +196,8 @@ func TestEveryMutationExecutionState(t *testing.T) {
 		t.Run(test.name+"/no-op", func(t *testing.T) {
 			store := newInstrumentedStore(test.noOpInitial)
 			result, err := task.NewService(store).Mutate(context.Background(), repository, 1, test.mutation, false)
-			if err != nil || result.Changed || len(result.Changes) != 0 || store.issueWrites != 0 {
-				t.Fatalf("no-op = %#v, writes %d, error %v", result, store.issueWrites, err)
+			if err != nil || result.Changed || len(result.Changes) != 0 || store.issueWrites != 0 || store.getCalls != 1 {
+				t.Fatalf("no-op = %#v, gets %d, writes %d, error %v", result, store.getCalls, store.issueWrites, err)
 			}
 		})
 		t.Run(test.name+"/partial-failure", func(t *testing.T) {
@@ -235,6 +236,9 @@ func TestEveryMutationExecutionState(t *testing.T) {
 				t.Fatalf("mutation did not apply before final reread failure")
 			}
 			assertMutationErrorMatchesIssue(t, mutationErr, after)
+			if !strings.Contains(mutationErr.Cause.Error(), "injected get failure") {
+				t.Fatalf("mutation cause omitted confirmation failure: %v", mutationErr.Cause)
+			}
 		})
 	}
 }

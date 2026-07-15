@@ -66,34 +66,44 @@ func PlanMutation(issue Issue, mutation Mutation) (Plan, error) {
 			Hint:    "Choose an open task.",
 		}
 	}
+	if err := validateSafeFacetClear(labels, mutation); err != nil {
+		return Plan{}, err
+	}
 
 	changes := []Change{}
 	switch mutation.Kind {
 	case MutationEnroll:
-		appendAdd(&changes, labels, LabelManaged)
 		appendFacetChanges(&changes, labels, orderedModeLabels, mutation.ModeSet, modeLabel(mutation.Mode))
 		appendFacetChanges(&changes, labels, orderedPriorityLabels, mutation.PrioritySet, priorityLabel(mutation.Priority))
+		// Enrollment is the publication boundary. Apply requested
+		// classification first so a partial enrollment stays hidden from next.
+		appendAdd(&changes, labels, LabelManaged)
 	case MutationUpdate:
 		appendFacetChanges(&changes, labels, orderedModeLabels, mutation.ModeSet, modeLabel(mutation.Mode))
 		appendFacetChanges(&changes, labels, orderedPriorityLabels, mutation.PrioritySet, priorityLabel(mutation.Priority))
-		for _, blocker := range uniqueSorted(mutation.RemoveBlockers) {
-			appendRemove(&changes, labels, blocker)
-		}
+		// Establish replacement blockers before cleanup so a failed swap
+		// cannot publish work that was blocked before the update.
 		for _, blocker := range uniqueSorted(mutation.AddBlockers) {
 			appendAdd(&changes, labels, blocker)
 		}
+		for _, blocker := range uniqueSorted(mutation.RemoveBlockers) {
+			appendRemove(&changes, labels, blocker)
+		}
 	case MutationUnenroll:
-		appendRemove(&changes, labels, LabelInProgress)
+		// Enrollment is also the visibility boundary on removal. Hide the task
+		// before clearing advisory activity.
 		appendRemove(&changes, labels, LabelManaged)
+		appendRemove(&changes, labels, LabelInProgress)
 	case MutationStart:
 		appendAdd(&changes, labels, LabelInProgress)
 	case MutationStop:
 		appendRemove(&changes, labels, LabelInProgress)
 	case MutationClose:
-		appendRemove(&changes, labels, LabelInProgress)
 		if issue.State != IssueClosed {
 			changes = append(changes, Change{Action: ChangeCloseIssue})
 		}
+		// A closed issue remains done if advisory cleanup fails.
+		appendRemove(&changes, labels, LabelInProgress)
 	default:
 		return Plan{}, fmt.Errorf("unknown Task mutation %q", mutation.Kind)
 	}
@@ -108,6 +118,31 @@ func PlanMutation(issue Issue, mutation Mutation) (Plan, error) {
 		projected = &value
 	}
 	return Plan{Changes: changes, Projected: projected}, nil
+}
+
+func validateSafeFacetClear(labels map[string]struct{}, mutation Mutation) error {
+	if mutation.Kind != MutationUpdate {
+		return nil
+	}
+	if mutation.ModeSet && mutation.Mode == nil {
+		if _, count := classifiedMode(labels); count > 1 {
+			return &Error{
+				Code:    "invalid_transition",
+				Message: "conflicting mode labels cannot be cleared safely in one update",
+				Hint:    "First set one mode, then run update --mode none.",
+			}
+		}
+	}
+	if mutation.PrioritySet && mutation.Priority == nil {
+		if _, count := classifiedPriority(labels); count > 1 {
+			return &Error{
+				Code:    "invalid_transition",
+				Message: "conflicting priority labels cannot be cleared safely in one update",
+				Hint:    "First set one priority, then run update --priority none.",
+			}
+		}
+	}
+	return nil
 }
 
 func validateMutation(mutation Mutation) error {
@@ -230,19 +265,23 @@ func uniqueSorted(values []string) []string {
 }
 
 func applyChanges(issue Issue, changes []Change) Issue {
-	labels := canonicalLabelSet(issue.Labels)
+	labels := make(map[string]string, len(issue.Labels))
+	for _, label := range issue.Labels {
+		labels[strings.ToLower(strings.TrimSpace(label))] = label
+	}
 	for _, change := range changes {
+		key := strings.ToLower(strings.TrimSpace(change.Label))
 		switch change.Action {
 		case ChangeAddLabel:
-			labels[change.Label] = struct{}{}
+			labels[key] = change.Label
 		case ChangeRemoveLabel:
-			delete(labels, change.Label)
+			delete(labels, key)
 		case ChangeCloseIssue:
 			issue.State = IssueClosed
 		}
 	}
 	issue.Labels = make([]string, 0, len(labels))
-	for label := range labels {
+	for _, label := range labels {
 		issue.Labels = append(issue.Labels, label)
 	}
 	sort.Strings(issue.Labels)

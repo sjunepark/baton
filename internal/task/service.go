@@ -2,6 +2,7 @@ package task
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"unicode/utf8"
@@ -26,7 +27,8 @@ func (s *Service) List(ctx context.Context, repository string, state ListState) 
 	for _, issue := range issues {
 		task, classifyErr := Classify(issue)
 		if classifyErr != nil {
-			if taskErr, ok := classifyErr.(*Error); ok && taskErr.Code == "not_managed" {
+			var taskErr *Error
+			if errors.As(classifyErr, &taskErr) && taskErr.Code == "not_managed" {
 				continue
 			}
 			return nil, classifyErr
@@ -114,6 +116,9 @@ func (s *Service) Mutate(ctx context.Context, repository string, number int, mut
 			return MutationResult{}, s.mutationFailure(ctx, repository, number, applied, &change, err)
 		}
 	}
+	if len(plan.Changes) == 0 {
+		return MutationResult{Changes: plan.Changes, Task: plan.Projected}, nil
+	}
 	finalTask, err := s.readFinalTask(ctx, repository, number)
 	if err != nil {
 		return MutationResult{}, s.mutationFailure(ctx, repository, number, applied, nil, fmt.Errorf("reread final task: %w", err))
@@ -159,6 +164,9 @@ func (s *Service) mutationFailure(ctx context.Context, repository string, number
 	if readErr == nil && attempted != nil && changeConfirmed(issue, *attempted) {
 		confirmed = append(confirmed, *attempted)
 	}
+	if readErr != nil {
+		cause = errors.Join(cause, fmt.Errorf("reread state after mutation failure: %w", readErr))
+	}
 	return &MutationError{
 		Code: "mutation_failed", Message: fmt.Sprintf("Task mutation for issue #%d failed", number),
 		Hint:    "Inspect the confirmed changes and current task, then retry the command.",
@@ -177,7 +185,8 @@ func (s *Service) readFinalState(ctx context.Context, repository string, number 
 		return Issue{}, nil, err
 	}
 	task, err := Classify(issue)
-	if taskErr, ok := err.(*Error); ok && taskErr.Code == "not_managed" {
+	var taskErr *Error
+	if errors.As(err, &taskErr) && taskErr.Code == "not_managed" {
 		return issue, nil, nil
 	}
 	if err != nil {
