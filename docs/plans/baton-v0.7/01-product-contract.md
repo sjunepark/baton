@@ -7,6 +7,14 @@ This plan converts the confirmed direction into observable semantics without
 preserving v0.6 branch, PR, delivery, body-schema, or downstream-tool
 compatibility.
 
+## Current state
+
+- The contract is represented in the new `internal/task` model and service.
+- Lifecycle precedence, missing/contradictory classification, blockers with
+  activity, closed Tasks, and unenrolled issues have direct external-package
+  tests. CLI JSON/text goldens and the complete ordering/idempotence matrix
+  remain for the CLI cutover slice.
+
 ## Domain model
 
 - **Issue**: the GitHub resource. Baton reads only the number, title, URL,
@@ -221,7 +229,7 @@ There is no installed intake profile in v0.7:
 ## Contract tests
 
 - [ ] Table-test every label combination and derived lifecycle outcome.
-- [ ] Cover contradictory modes, missing mode, multiple priorities, blockers
+- [x] Cover contradictory modes, missing mode, multiple priorities, blockers
   with activity, closed tasks, and unenrolled issues.
 - [ ] Golden-test the small JSON list/show/next/mutation and error shapes
   without downstream-tool-specific fixtures.
@@ -242,3 +250,11 @@ There is no installed intake profile in v0.7:
 - Every later implementation and migration task can cite this contract instead
   of recovering behavior from v0.6 code.
 - No unresolved product choice prevents implementing the Task module and CLI.
+
+## Progress log
+
+- **2026-07-16 — Domain contract:** Added the canonical Task fields, fixed
+  label semantics, machine-readable reasons, derived lifecycle, bounded detail,
+  and singular ready-Task selection. Focused, race, vet, and repository-wide
+  tests pass. Remaining M1 contract work is primarily CLI/output goldens and
+  the exhaustive ordering/idempotence coverage completed with that surface.

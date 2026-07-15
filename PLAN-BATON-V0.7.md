@@ -32,9 +32,10 @@ used as v0.7 requirements.
   instructions that a standalone issue manager does not need.
 - Config and label manifests are the only runtime users of YAML. Removing
   active repository config allows the v0.7 CLI to drop that dependency.
-- No v0.7 implementation has started. Existing v0.6 behavior and tests remain
-  the source of truth only for migration evidence, not for the new product
-  boundary.
+- The first M1/M2 implementation slice now exists in `internal/task`: the
+  canonical Task model, fixed-label classification, singular next selection,
+  one lifecycle planner, an issue-store seam, and an in-memory adapter. The
+  legacy CLI/runtime remains active until the later cutover and M3 deletion.
 
 ## Confirmed product decisions
 
@@ -202,3 +203,12 @@ milestone.
 No product decision blocks implementation. The public command and result
 shapes are fixed in `01-product-contract.md`; implementation naming inside the
 Task module may change without adding public concepts.
+
+## Progress log
+
+- **2026-07-16 — Task core seam:** Added the issue-only Task domain and tested
+  lifecycle precedence, priority selection across modes, bounded detail,
+  dry-run/apply parity, idempotent lifecycle operations, lazy fixed-label
+  creation, and confirmed partial failures. `go vet ./...`, `go test ./...`,
+  and `go test -race ./internal/task` pass. Next: preserve bounded v0.6
+  decommission evidence, then add the production GitHub issue adapter.

@@ -7,6 +7,17 @@ module backed by GitHub Issues. The resulting CLI must provide useful task
 behavior from a small interface and delete complexity rather than hiding it
 behind compatibility wrappers.
 
+## Current state
+
+- `internal/task` now owns the canonical Task, fixed labels, classification,
+  deterministic selection, one mutation planner, the issue-store port, and a
+  tested in-memory adapter.
+- Dry-run and apply share the same Task-change plan. Apply creates only labels
+  needed by additions, writes changes minimally, and rereads final state;
+  confirmed prerequisite creation is surfaced on partial failure.
+- The production GitHub adapter, setup-free repository resolution, CLI cutover,
+  bounded v0.6 migration evidence, and old-runtime deletion remain.
+
 ## Architecture audit findings
 
 The v0.6 implementation contains more than a few named downstream fixtures;
@@ -68,23 +79,23 @@ one real adapter and no testing value.
 
 ### 1. Establish the new contract in code
 
-- [ ] Add the canonical Task, state, mode, blocker, priority, list, singular
+- [x] Add the canonical Task, state, mode, blocker, priority, list, singular
   next, label-change plan, and compact mutation-result types.
-- [ ] Implement pure label classification and priority ordering with
+- [x] Implement pure label classification and priority ordering with
   table-driven tests from the product-contract plan, including zero, one, and
   conflicting priority labels.
-- [ ] Implement one pure label-change planner without stable operation IDs,
+- [x] Implement one pure label-change planner without stable operation IDs,
   resource-generic actions, or compare-and-set claims GitHub cannot enforce.
-- [ ] Make explicit mutation verbs apply immediately and expose the same pure
+- [x] Make explicit mutation verbs apply immediately and expose the same pure
   plans through a uniform `--dry-run`; do not add a redundant `--apply` gate.
-- [ ] For apply, read current issue state, compute minimal idempotent writes,
+- [x] For apply, read current issue state, compute minimal idempotent writes,
   apply them, and reread the final Task. A dry-run is a current projection, not
   a lease or reusable atomic plan.
 
 ### 2. Add the issue-store adapters
 
-- [ ] Define the minimum issue-store port from real command needs.
-- [ ] Add the in-memory adapter first and test list, detail, next, and every
+- [x] Define the minimum issue-store port from real command needs.
+- [x] Add the in-memory adapter first and test list, detail, next, and every
   transition through the Task interface.
 - [ ] Trim the GitHub adapter to server-side queries for open/closed
   `baton:managed` issues, one-issue detail, label definitions and mutations,
@@ -105,7 +116,7 @@ one real adapter and no testing value.
   already supplied the repository.
 - [ ] Delete active config loading, `--config`, `.github/baton.yml` discovery,
   legacy decoding, label manifests, and all config precedence/validation.
-- [ ] Put the fixed mode, priority, blocker, managed, and activity labels in
+- [x] Put the fixed mode, priority, blocker, managed, and activity labels in
   the Task module. Do not add a configurable label-role abstraction.
 - [ ] Remove `gopkg.in/yaml.v3` and run `go mod tidy` after its config,
   manifest, and installer consumers are gone.
@@ -141,7 +152,7 @@ one real adapter and no testing value.
 
 ### 5. Keep project guidance outside the runtime
 
-- [ ] Let explicit lifecycle planners lazily create only the missing default
+- [x] Let explicit lifecycle planners lazily create only the missing default
   label needed by that operation so first use does not require setup; do not
   update existing label metadata or create arbitrary project labels.
 - [ ] Do not add setup/readiness commands, a template installer, issue-policy
@@ -265,3 +276,12 @@ Keep and simplify modules that continue to earn their interface:
   for adapting or validating a downstream orchestrator.
 - The full Go validation suite passes after old runtime tests and fixtures are
   deleted or replaced.
+
+## Progress log
+
+- **2026-07-16 — Task core and memory adapter:** Implemented and reviewed the
+  deep Task seam with safe replacement ordering, input-pure planning,
+  dry-run/apply Task-change parity, idempotent transitions, final rereads, and
+  Task-specific partial failures. `go vet ./...`, `go test ./...`, and
+  `go test -race ./internal/task` pass. Next: preserve v0.6 decommission
+  evidence and implement the typed GitHub issue-store adapter.
