@@ -12,6 +12,7 @@ import (
 	"github.com/sjunepark/baton/internal/apperror"
 	"github.com/sjunepark/baton/internal/config"
 	"github.com/sjunepark/baton/internal/gh"
+	"github.com/sjunepark/baton/internal/operation"
 	"github.com/sjunepark/baton/internal/policy"
 )
 
@@ -124,7 +125,7 @@ func TestIssuePolicyRepairsEditedTrustedOwnershipRecordAfterBodyEdit(t *testing.
 	issue := gh.Issue{Number: 12, NodeID: "I_12", Body: "body no longer matches the issue form"}
 	report, ownership, err := applyIssueDecisionWithOwnershipContext(
 		context.Background(), client, "example/repo", issue, policy.IssuePolicyDecision{}, "<!-- baton-policy -->", "needs-info",
-		ownershipRepair{Requested: true, CommentID: 88},
+		ownershipRepair{Requested: true, CommentID: 88, Action: "edited", ExpectedBody: "<!-- baton-managed-issue:v1 malformed -->"},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -134,23 +135,45 @@ func TestIssuePolicyRepairsEditedTrustedOwnershipRecordAfterBodyEdit(t *testing.
 	}
 }
 
-func TestOwnershipRepairRecognizesMarkerRemovalFromIndexedIssue(t *testing.T) {
-	repair := ownershipRepairFromEvent(gh.IssueEvent{
-		Action: "edited", CommentID: 88, CommentBody: "marker removed", CommentPreviousBody: "<!-- baton-managed-issue:v1 original -->", Labels: []string{policy.ManagedIssueIndexLabel},
-		CommentAuthor: gh.Actor{Login: policy.ManagedIssueTrustedLogin, Type: "Bot"},
-	})
-	if !repair.Requested || repair.CommentID != 88 {
-		t.Fatalf("repair = %+v", repair)
+func TestOwnershipRepairFromEvent(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		event     gh.IssueEvent
+		requested bool
+	}{
+		{name: "marker removed", requested: true, event: gh.IssueEvent{
+			Action: "edited", CommentID: 88, CommentBody: "marker removed", CommentPreviousBody: "<!-- baton-managed-issue:v1 original -->", Labels: []string{policy.ManagedIssueIndexLabel},
+			CommentAuthor: gh.Actor{Login: policy.ManagedIssueTrustedLogin, Type: "Bot"},
+		}},
+		{name: "unrelated bot comment", event: gh.IssueEvent{
+			Action: "edited", CommentID: 88, CommentBody: "routine automation note", Labels: []string{policy.ManagedIssueIndexLabel},
+			CommentAuthor: gh.Actor{Login: policy.ManagedIssueTrustedLogin, Type: "Bot"},
+		}},
+		{name: "untrusted marker", event: gh.IssueEvent{
+			Action: "edited", CommentID: 88, CommentBody: "<!-- baton-managed-issue:v1 malformed -->",
+			CommentAuthor: gh.Actor{Login: "contributor", Type: "User"},
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repair := ownershipRepairFromEvent(test.event)
+			if repair.Requested != test.requested || (test.requested && (repair.CommentID != 88 || repair.ExpectedBody != test.event.CommentBody || repair.Action != test.event.Action)) {
+				t.Fatalf("repair = %+v", repair)
+			}
+		})
 	}
 }
 
-func TestOwnershipRepairIgnoresIndexedIssueWithUnrelatedBotComment(t *testing.T) {
-	repair := ownershipRepairFromEvent(gh.IssueEvent{
-		Action: "edited", CommentID: 88, CommentBody: "routine automation note", Labels: []string{policy.ManagedIssueIndexLabel},
-		CommentAuthor: gh.Actor{Login: policy.ManagedIssueTrustedLogin, Type: "Bot"},
-	})
-	if repair.Requested {
-		t.Fatalf("repair = %+v", repair)
+func TestIssuePolicyRefusesStaleOwnershipRepairBody(t *testing.T) {
+	client := &issuePolicyGitHub{comments: []gh.IssueComment{{
+		ID: 88, Body: "newer comment revision", Author: gh.Actor{Login: policy.ManagedIssueTrustedLogin, Type: "Bot"},
+	}}}
+	report, _, err := applyIssueDecisionWithOwnershipContext(
+		context.Background(), client, "example/repo", gh.Issue{Number: 12, NodeID: "I_12", Labels: []string{policy.ManagedIssueIndexLabel}},
+		policy.IssuePolicyDecision{}, "<!-- baton-policy -->", "needs-info",
+		ownershipRepair{Requested: true, CommentID: 88, Action: "edited", ExpectedBody: "marker removed"},
+	)
+	if err == nil || report.Status != operation.ReportRefused || client.updated != "" || client.created != "" || len(client.added) != 0 {
+		t.Fatalf("report=%+v err=%v updated=%q created=%q added=%v", report, err, client.updated, client.created, client.added)
 	}
 }
 

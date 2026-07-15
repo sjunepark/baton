@@ -251,6 +251,7 @@ func TestDoctorWarnsWhenLocalBaseTrackingRefIsMissing(t *testing.T) {
 
 func setupDoctorGitRepo(t *testing.T, pushMain bool) string {
 	t.Helper()
+	t.Setenv("GITHUB_REPOSITORY", "")
 	root := t.TempDir()
 	remote := filepath.Join(root, "remote.git")
 	work := filepath.Join(root, "work")
@@ -283,6 +284,7 @@ func setupDoctorGitRepo(t *testing.T, pushMain bool) string {
 
 func setupDoctorManagedGitRepo(t *testing.T, desired []install.ManagedFile) string {
 	t.Helper()
+	t.Setenv("GITHUB_REPOSITORY", "")
 	root := t.TempDir()
 	remote := filepath.Join(root, "remote.git")
 	work := filepath.Join(root, "work")

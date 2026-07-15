@@ -70,21 +70,28 @@ func RenderManagedFiles(policy config.RepositoryPolicy, options Options) ([]Mana
 var exactGoInstallPattern = regexp.MustCompile(`^[A-Za-z0-9._~/-]+@v\d+\.\d+\.\d+$`)
 
 func renderedTransitionWorkflow(policy config.RepositoryPolicy, options Options) ([]byte, error) {
-	if !exactGoInstallPattern.MatchString(options.GoInstall) {
-		return nil, fmt.Errorf("work-item transition workflow requires --go-install module@vX.Y.Z")
+	trusted, err := trustedWorkflowOptions(options, "work-item transition")
+	if err != nil {
+		return nil, err
 	}
-	trusted := options
-	trusted.InstallCommand = "mkdir -p \"$RUNNER_TEMP/baton-bin\"\nGOBIN=\"$RUNNER_TEMP/baton-bin\" go install " + options.GoInstall + "\necho \"$RUNNER_TEMP/baton-bin\" >> \"$GITHUB_PATH\""
 	return renderedEmbeddedTemplate(".github/workflows/work-item-transition.yml", policy, trusted)
 }
 
 func renderedDeliveryWorkflow(policy config.RepositoryPolicy, options Options) ([]byte, error) {
+	trusted, err := trustedWorkflowOptions(options, "delivery recorder")
+	if err != nil {
+		return nil, err
+	}
+	return renderedEmbeddedTemplate(".github/workflows/delivery-recorder.yml", policy, trusted)
+}
+
+func trustedWorkflowOptions(options Options, workflow string) (Options, error) {
 	if !exactGoInstallPattern.MatchString(options.GoInstall) {
-		return nil, fmt.Errorf("delivery recorder workflow requires --go-install module@vX.Y.Z")
+		return Options{}, fmt.Errorf("%s workflow requires --go-install module@vX.Y.Z", workflow)
 	}
 	trusted := options
 	trusted.InstallCommand = "mkdir -p \"$RUNNER_TEMP/baton-bin\"\nGOBIN=\"$RUNNER_TEMP/baton-bin\" go install " + options.GoInstall + "\necho \"$RUNNER_TEMP/baton-bin\" >> \"$GITHUB_PATH\""
-	return renderedEmbeddedTemplate(".github/workflows/delivery-recorder.yml", policy, trusted)
+	return trusted, nil
 }
 
 func renderedEmbeddedTemplate(path string, policy config.RepositoryPolicy, options Options) ([]byte, error) {
@@ -114,19 +121,26 @@ const workflowOwnershipPrefilterPlaceholder = "__BATON_PR_OWNERSHIP_PREFILTER__"
 const deliveryRecorderPrefilterPlaceholder = "__BATON_WORK_PR_OWNERSHIP_PREFILTER__"
 const deliveryRecorderBaseBranchPlaceholder = "__BATON_BASE_BRANCH__"
 
+func quoteWorkflowExpression(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+}
+
+func sameRepositoryExpression() string {
+	// Missing repository identities must reach the authoritative CLI classifier,
+	// which reports an indeterminate flow instead of silently skipping policy.
+	return "(!github.event.pull_request.head.repo.full_name || !github.event.pull_request.base.repo.full_name || github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name)"
+}
+
 func replaceWorkflowOwnershipPrefilter(path, rendered string, policy config.RepositoryPolicy) (string, error) {
 	if !strings.Contains(rendered, workflowOwnershipPrefilterPlaceholder) {
 		return "", fmt.Errorf("render workflow %s: expected ownership prefilter placeholder is missing", path)
 	}
-	quoteExpression := func(value string) string {
-		return "'" + strings.ReplaceAll(value, "'", "''") + "'"
-	}
-	prefix := quoteExpression(policy.Repository.WorkBranchPrefix)
-	staging := quoteExpression(policy.Repository.StagingBranch)
-	base := quoteExpression(policy.Repository.BaseBranch)
-	prefilter := "${{ (!github.event.pull_request.head.repo.full_name || !github.event.pull_request.base.repo.full_name || github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name) && (startsWith(github.event.pull_request.head.ref, " + prefix + ") || (github.event.pull_request.head.ref == " + staging + " && github.event.pull_request.base.ref == " + base + ")) }}"
+	prefix := quoteWorkflowExpression(policy.Repository.WorkBranchPrefix)
+	staging := quoteWorkflowExpression(policy.Repository.StagingBranch)
+	base := quoteWorkflowExpression(policy.Repository.BaseBranch)
+	prefilter := "${{ " + sameRepositoryExpression() + " && (startsWith(github.event.pull_request.head.ref, " + prefix + ") || (github.event.pull_request.head.ref == " + staging + " && github.event.pull_request.base.ref == " + base + ")) }}"
 	if path == ".github/workflows/work-item-transition.yml" {
-		prefilter = "${{ (!github.event.pull_request.head.repo.full_name || !github.event.pull_request.base.repo.full_name || github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name) && github.event.pull_request.head.ref == " + staging + " && github.event.pull_request.base.ref == " + base + " }}"
+		prefilter = "${{ " + sameRepositoryExpression() + " && github.event.pull_request.head.ref == " + staging + " && github.event.pull_request.base.ref == " + base + " }}"
 	}
 	return strings.Replace(rendered, workflowOwnershipPrefilterPlaceholder, prefilter, 1), nil
 }
@@ -138,13 +152,11 @@ func replaceDeliveryRecorderPrefilter(path, rendered string, policy config.Repos
 	if !strings.Contains(rendered, deliveryRecorderBaseBranchPlaceholder) {
 		return "", fmt.Errorf("render workflow %s: expected base branch placeholder is missing", path)
 	}
-	quote := func(value string) string { return "'" + strings.ReplaceAll(value, "'", "''") + "'" }
-	sameRepository := "(!github.event.pull_request.head.repo.full_name || !github.event.pull_request.base.repo.full_name || github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name)"
-	work := "(startsWith(github.event.pull_request.head.ref, " + quote(policy.Repository.WorkBranchPrefix) + ") && github.event.pull_request.base.ref == " + quote(policy.Repository.StagingBranch) + ")"
-	synchronization := "(github.event.pull_request.head.ref == " + quote(policy.Repository.BaseBranch) + " && github.event.pull_request.base.ref == " + quote(policy.Repository.StagingBranch) + ")"
-	prefilter := "${{ (github.event_name == 'workflow_dispatch' && inputs.mode == 'record') || github.event_name == 'push' || (" + sameRepository + " && (" + work + " || " + synchronization + ")) }}"
+	work := "(startsWith(github.event.pull_request.head.ref, " + quoteWorkflowExpression(policy.Repository.WorkBranchPrefix) + ") && github.event.pull_request.base.ref == " + quoteWorkflowExpression(policy.Repository.StagingBranch) + ")"
+	synchronization := "(github.event.pull_request.head.ref == " + quoteWorkflowExpression(policy.Repository.BaseBranch) + " && github.event.pull_request.base.ref == " + quoteWorkflowExpression(policy.Repository.StagingBranch) + ")"
+	prefilter := "${{ (github.event_name == 'workflow_dispatch' && inputs.mode == 'record') || github.event_name == 'push' || (" + sameRepositoryExpression() + " && (" + work + " || " + synchronization + ")) }}"
 	rendered = strings.Replace(rendered, deliveryRecorderPrefilterPlaceholder, prefilter, 1)
-	return strings.Replace(rendered, deliveryRecorderBaseBranchPlaceholder, quote(policy.Repository.BaseBranch), 1), nil
+	return strings.Replace(rendered, deliveryRecorderBaseBranchPlaceholder, quoteWorkflowExpression(policy.Repository.BaseBranch), 1), nil
 }
 
 type issueFormDocument struct {

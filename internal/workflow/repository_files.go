@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 
 	"github.com/sjunepark/baton/internal/apperror"
@@ -27,6 +28,8 @@ func (RepositoryFilesWorkflow) Init(input InitInput) (install.Plan, error) {
 		root = "."
 		if resolved, err := gitadapter.RepositoryRoot(root); err == nil {
 			root = resolved
+		} else if !errors.Is(err, gitadapter.ErrNotRepository) {
+			return install.Plan{}, apperror.Wrap(apperror.Config, "repository root could not be resolved", err, "Repair the checkout before initializing Baton.")
 		}
 	}
 	options := install.Options{GoInstall: input.GoInstall, InstallCommand: input.InstallCommand}

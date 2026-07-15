@@ -192,16 +192,9 @@ func (workflow ObservationWorkflow) acquire(ctx context.Context, input Repositor
 	if len(issueWarnings) > 0 {
 		return queue.Snapshot{}, incompleteWarningsError(issueWarnings)
 	}
-	prs, err := client.ListOpenPullRequestsContext(ctx, repositoryContext.Repository, repositoryContext.Config.Repository.StagingBranch)
+	prs, err := client.ListOpenPullRequestsContext(ctx, repositoryContext.Repository, "")
 	if err != nil {
 		return queue.Snapshot{}, classifyGitHubError(err)
-	}
-	if repositoryContext.Config.Repository.BaseBranch != "" && repositoryContext.Config.Repository.BaseBranch != repositoryContext.Config.Repository.StagingBranch {
-		promotionPRs, err := client.ListOpenPullRequestsContext(ctx, repositoryContext.Repository, repositoryContext.Config.Repository.BaseBranch)
-		if err != nil {
-			return queue.Snapshot{}, classifyGitHubError(err)
-		}
-		prs = append(prs, promotionPRs...)
 	}
 	prs, ownershipWarnings := managedPullRequests(prs, repositoryContext.Config)
 	if len(ownershipWarnings) > 0 {

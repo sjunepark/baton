@@ -12,17 +12,17 @@ func recommend(repository RepositorySnapshot, requestedAction string) Recommenda
 	if repository.Completeness != Complete {
 		return Recommendation{Outcome: OutcomeDegraded, Reasons: []string{"incomplete_facts"}, Candidates: []Candidate{}, DeferredCandidates: []Candidate{}, Instructions: []string{"Retry after the reported facts are complete and stable."}}
 	}
-	if requestedAction == "issue-investigation" {
-		if issues := recommendIssues(repository, ActionIssueInvestigation); issues != nil {
-			return *issues
-		}
-		return idleRecommendation("no eligible candidates for requested action")
-	}
 	if branch := stagingBranchRecommendation(repository); branch != nil {
 		return *branch
 	}
 	if integration := synchronizationRecommendation(repository); integration != nil {
 		return *integration
+	}
+	if requestedAction == "issue-investigation" {
+		if issues := recommendIssues(repository, ActionIssueInvestigation); issues != nil {
+			return *issues
+		}
+		return idleRecommendation("no eligible candidates for requested action")
 	}
 	if pullRequests := pullRequestRecommendation(repository, false); pullRequests != nil {
 		return *pullRequests

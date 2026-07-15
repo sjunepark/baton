@@ -55,11 +55,11 @@ func (workflow ObservationWorkflow) acquireRecommendationFacts(ctx context.Conte
 
 	prs := []gh.PullRequest{}
 	var acquiredDelivery *delivery.Snapshot
-	stagingPRs, err := client.ListOpenPullRequestsContext(ctx, repositoryContext.Repository, repositoryContext.Config.Repository.StagingBranch)
+	openPullRequests, err := client.ListOpenPullRequestsContext(ctx, repositoryContext.Repository, "")
 	if err != nil {
-		facts.AddWarning(acquisitionWarning("pullRequests:"+repositoryContext.Config.Repository.StagingBranch, err))
+		facts.AddWarning(acquisitionWarning("pullRequests", err))
 	} else {
-		prs = append(prs, stagingPRs...)
+		prs = append(prs, openPullRequests...)
 	}
 	if repositoryContext.Config.Delivery == nil {
 		if repositoryContext.Config.Repository.BaseBranch != repositoryContext.Config.Repository.StagingBranch {
@@ -75,14 +75,6 @@ func (workflow ObservationWorkflow) acquireRecommendationFacts(ctx context.Conte
 		facts.MergedWorkPullRequests = deliveryQueuePullRequests(store.Snapshot)
 		value := store.Snapshot
 		acquiredDelivery = &value
-	}
-	if repositoryContext.Config.Repository.BaseBranch != "" && repositoryContext.Config.Repository.BaseBranch != repositoryContext.Config.Repository.StagingBranch {
-		promotionPRs, err := client.ListOpenPullRequestsContext(ctx, repositoryContext.Repository, repositoryContext.Config.Repository.BaseBranch)
-		if err != nil {
-			facts.AddWarning(acquisitionWarning("pullRequests:"+repositoryContext.Config.Repository.BaseBranch, err))
-		} else {
-			prs = append(prs, promotionPRs...)
-		}
 	}
 	var ownershipWarnings []snapshot.Warning
 	prs, ownershipWarnings = managedPullRequests(prs, repositoryContext.Config)
@@ -442,6 +434,8 @@ func managedPullRequests(prs []gh.PullRequest, cfg config.Config) ([]gh.PullRequ
 		switch classifyTransportPullRequest(pr, cfg) {
 		case policy.PRFlowWork, policy.PRFlowPromotion:
 			result = append(result, pr)
+		case policy.PRFlowMisroutedWork:
+			warnings = append(warnings, snapshot.Warning{Code: "invalid", Scope: fmt.Sprintf("pullRequest:%d:ownership", pr.Number), Message: "managed work branch targets a non-staging branch"})
 		case policy.PRFlowIndeterminate:
 			warnings = append(warnings, snapshot.Warning{Code: "unknown", Scope: fmt.Sprintf("pullRequest:%d:ownership", pr.Number), Message: "pull request ownership is indeterminate"})
 		}

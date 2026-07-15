@@ -41,9 +41,9 @@ type PullRequest struct {
 }
 
 type RepositoryIdentity struct {
-	Host     string
-	FullName string
-	NodeID   string
+	Host     string `json:"host"`
+	FullName string `json:"fullName"`
+	NodeID   string `json:"nodeId"`
 }
 
 type Actor struct {

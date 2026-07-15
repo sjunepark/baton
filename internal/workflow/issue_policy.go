@@ -217,14 +217,19 @@ type IssuePolicyGitHub interface {
 }
 
 type ownershipRepair struct {
-	Requested bool
-	CommentID int64
+	Requested    bool
+	CommentID    int64
+	Action       string
+	ExpectedBody string
 }
 
 func ownershipRepairFromEvent(event gh.IssueEvent) ownershipRepair {
 	trusted := strings.EqualFold(event.CommentAuthor.Login, policy.ManagedIssueTrustedLogin) && strings.EqualFold(event.CommentAuthor.Type, "Bot")
 	ownershipEvidence := strings.Contains(event.CommentBody, "<!-- baton-managed-issue:v1") || strings.Contains(event.CommentPreviousBody, "<!-- baton-managed-issue:v1")
-	return ownershipRepair{Requested: event.CommentID != 0 && trusted && ownershipEvidence && (event.Action == "edited" || event.Action == "deleted"), CommentID: event.CommentID}
+	return ownershipRepair{
+		Requested: event.CommentID != 0 && trusted && ownershipEvidence && (event.Action == "edited" || event.Action == "deleted"),
+		CommentID: event.CommentID, Action: event.Action, ExpectedBody: event.CommentBody,
+	}
 }
 
 func applyIssueDecisionWithOwnershipContext(ctx context.Context, client IssuePolicyGitHub, repo string, issue gh.Issue, decision policy.IssuePolicyDecision, marker, qualityGateLabel string, repair ownershipRepair) (operation.Report, policy.IssueOwnershipDecision, error) {
@@ -238,6 +243,13 @@ func applyIssueDecisionWithOwnershipContext(ctx context.Context, client IssuePol
 			ID: "issue-policy-preflight", Resource: fmt.Sprintf("%s#%d", repo, issue.Number), Action: "list_comments", Status: operation.StatusFailed,
 			Error: operationFailure("github", "issue policy preflight failed", classified),
 		}}), policy.IssueOwnershipDecision{}, classified
+	}
+	if repair.Requested && !ownershipRepairMatchesCurrent(repair, comments) {
+		failure := apperror.New(apperror.GitHub, "managed issue ownership repair event is stale", "Let the newest issue-comment event repair the current ownership state.")
+		return operation.NewReport([]operation.Result{{
+			ID: "issue-ownership-preflight", Resource: fmt.Sprintf("%s#%d:ownership", repo, issue.Number), Action: "verify_ownership_repair_event", Status: operation.StatusRefused,
+			Error: &operation.Failure{Category: "stale", Message: "ownership comment changed after the repair event was captured"},
+		}}), policy.IssueOwnershipDecision{}, failure
 	}
 	ownershipComments := issueOwnershipComments(comments)
 	ownership := policy.ClassifyIssueOwnership(policy.IssueOwnershipInput{
@@ -364,6 +376,24 @@ func applyIssueDecisionWithOwnershipContext(ctx context.Context, client IssuePol
 	ownership.Record = &record
 	ownership.Errors = []string{}
 	return operation.NewReport(results), ownership, nil
+}
+
+func ownershipRepairMatchesCurrent(repair ownershipRepair, comments []gh.IssueComment) bool {
+	var current *gh.IssueComment
+	for index := range comments {
+		if comments[index].ID == repair.CommentID {
+			current = &comments[index]
+			break
+		}
+	}
+	switch repair.Action {
+	case "edited":
+		return current != nil && current.Body == repair.ExpectedBody
+	case "deleted":
+		return current == nil
+	default:
+		return false
+	}
 }
 
 func issueOwnershipComments(comments []gh.IssueComment) []policy.IssueOwnershipComment {

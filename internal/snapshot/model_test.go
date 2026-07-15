@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/sjunepark/baton/internal/config"
+	"github.com/sjunepark/baton/internal/delivery"
 	"github.com/sjunepark/baton/internal/gh"
 	"github.com/sjunepark/baton/internal/queue"
 )
@@ -164,6 +165,36 @@ func TestBuildRepositorySnapshotRequestedInvestigation(t *testing.T) {
 	}
 	if result.Recommendation.Outcome != OutcomeActionable || result.Recommendation.Action == nil || *result.Recommendation.Action != ActionIssueInvestigation || result.NextV3().SelectedAction != "issue-investigation" {
 		t.Fatalf("snapshot = %+v", result)
+	}
+}
+
+func TestRequestedInvestigationDoesNotBypassSynchronization(t *testing.T) {
+	cfg := config.DefaultConfig()
+	integration := &delivery.BaseIntegrationFacts{
+		State: delivery.BaseDirectWorkPending, ObservedBaseSHA: strings.Repeat("a", 40), ObservedStagingSHA: strings.Repeat("b", 40),
+	}
+	queueProjection := queue.BuildSnapshot("example/repo", cfg, []queue.Issue{{Number: 9, Labels: []string{"agent:investigate-only"}}}, nil)
+	queueProjection.BaseIntegration = integration
+	started := time.Date(2026, 7, 13, 0, 0, 0, 0, time.UTC)
+	result, err := Build(BuildInput{
+		Facts: Acquisition{Repository: "example/repo", Completeness: Complete, BaseIntegration: integration}, Queue: queueProjection,
+		StartedAt: started, CompletedAt: started.Add(time.Second), RequestedAction: "issue-investigation",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Recommendation.Action == nil || *result.Recommendation.Action != ActionSyncStaging || result.NextV3().SelectedAction != "sync-staging" {
+		t.Fatalf("snapshot = %+v next = %+v", result.Recommendation, result.NextV3())
+	}
+}
+
+func TestBuildRejectsMismatchedQueueIntegration(t *testing.T) {
+	cfg := config.DefaultConfig()
+	queueProjection := queue.BuildSnapshot("example/repo", cfg, nil, nil)
+	queueProjection.BaseIntegration = &delivery.BaseIntegrationFacts{State: delivery.BaseDirectWorkPending}
+	started := time.Date(2026, 7, 13, 0, 0, 0, 0, time.UTC)
+	if _, err := Build(BuildInput{Facts: Acquisition{Repository: "example/repo", Completeness: Complete}, Queue: queueProjection, StartedAt: started, CompletedAt: started.Add(time.Second)}); err == nil || !strings.Contains(err.Error(), "integration") {
+		t.Fatalf("error = %v", err)
 	}
 }
 

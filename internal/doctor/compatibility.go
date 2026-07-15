@@ -117,6 +117,9 @@ type compatibilityGitHub interface {
 
 func EvaluateCompatibility(cfg config.Config, facts CompatibilityFacts) []Check {
 	checks := append([]Check(nil), facts.AcquisitionChecks...)
+	if !facts.RepositoryObserved {
+		checks = append(checks, failCheck("github-repository", "repository facts were not observed", "Grant repository metadata access and rerun doctor."))
+	}
 	if facts.RepositoryObserved {
 		if !strings.EqualFold(facts.Repository.Identity.FullName, facts.ExpectedRepository) {
 			checks = append(checks, failCheck("github-repository", "GitHub returned a different repository identity", "Run doctor from the matching checkout and repository."))
@@ -139,6 +142,9 @@ func EvaluateCompatibility(cfg config.Config, facts CompatibilityFacts) []Check 
 		return checks
 	}
 
+	if !facts.BranchesObserved {
+		checks = append(checks, failCheck("base-staging-branches", "configured branch facts were not observed", "Grant branch metadata access and rerun doctor."))
+	}
 	if facts.BranchesObserved {
 		if facts.BaseBranch.Ref != cfg.Repository.BaseBranch || facts.StagingBranch.Ref != cfg.Repository.StagingBranch || facts.BaseBranch.SHA == "" || facts.StagingBranch.SHA == "" {
 			checks = append(checks, failCheck("base-staging-branches", "configured base or staging branch is missing from GitHub", "Create or repair the configured branches before enabling Baton."))
@@ -176,7 +182,9 @@ func EvaluateCompatibility(cfg config.Config, facts CompatibilityFacts) []Check 
 		checks = append(checks, okCheck("issue-ownership", fmt.Sprintf("%d durable managed-issue records are valid", facts.Ownership.Durable)))
 	}
 
-	if facts.LabelsObserved {
+	if !facts.LabelsObserved {
+		checks = append(checks, failCheck("managed-labels", "managed label facts were not observed", "Grant issue metadata access and rerun doctor."))
+	} else {
 		if facts.Labels.Counts.Create > 0 || facts.Labels.Counts.Update > 0 {
 			checks = append(checks, failCheck("managed-labels", fmt.Sprintf("%d labels missing and %d labels drifted", facts.Labels.Counts.Create, facts.Labels.Counts.Update), "Review `baton sync-labels --dry-run --json`, then apply the approved label plan."))
 		} else {
@@ -186,7 +194,9 @@ func EvaluateCompatibility(cfg config.Config, facts CompatibilityFacts) []Check 
 
 	checks = append(checks, evaluateManagedFiles(facts.ManagedFiles)...)
 	checks = append(checks, evaluateWorkflows(facts.Workflows)...)
-	if facts.ActionsObserved {
+	if !facts.ActionsObserved {
+		checks = append(checks, failCheck("actions-policy", "GitHub Actions policy facts were not observed", "Grant Actions administration read access and rerun doctor."))
+	} else {
 		checks = append(checks, evaluateActionsPolicy(facts))
 	}
 	switch {
@@ -197,7 +207,9 @@ func EvaluateCompatibility(cfg config.Config, facts CompatibilityFacts) []Check 
 	default:
 		checks = append(checks, okCheck("hosted-runner-policy", firstNonBlank(facts.RunnerPolicy.Message, "standard GitHub-hosted runners are available")))
 	}
-	if facts.RulesObserved {
+	if !facts.RulesObserved {
+		checks = append(checks, failCheck("branch-rules", "branch rules were not observed", "Grant rules and branch-protection read access and rerun doctor."))
+	} else {
 		checks = append(checks, requiredCheckCompatibility("base-required-check", facts.BaseRules, facts.GitHubActionsAppID))
 		checks = append(checks, requiredCheckCompatibility("staging-required-check", facts.StagingRules, facts.GitHubActionsAppID))
 		checks = append(checks, SynchronizationCompatibilityCheck(facts.Repository.Settings, facts.StagingRules))

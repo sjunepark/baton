@@ -161,6 +161,10 @@ func Build(input BuildInput) (RepositorySnapshot, error) {
 	if input.Queue.Repo != input.Facts.Repository || input.Queue.Kind != "queueSnapshot" || input.Queue.SchemaVersion != 2 {
 		return RepositorySnapshot{}, fmt.Errorf("repository snapshot queue projection does not match its repository facts")
 	}
+	if (input.Queue.BaseIntegration == nil) != (input.Facts.BaseIntegration == nil) ||
+		(input.Queue.BaseIntegration != nil && *input.Queue.BaseIntegration != *input.Facts.BaseIntegration) {
+		return RepositorySnapshot{}, fmt.Errorf("repository snapshot queue integration does not match its repository facts")
+	}
 	if input.StartedAt.IsZero() || input.CompletedAt.IsZero() || input.CompletedAt.Before(input.StartedAt) {
 		return RepositorySnapshot{}, fmt.Errorf("repository snapshot requires an ordered acquisition window")
 	}
@@ -263,6 +267,12 @@ func (result RepositorySnapshot) NextV3() queue.NextCandidates {
 }
 
 func legacyRecommendation(queueSnapshot queue.Snapshot, requestedAction string) queue.NextCandidates {
+	if queueSnapshot.BranchHealth != nil && (queueSnapshot.BranchHealth.CheckState == "failure" || queueSnapshot.BranchHealth.CheckState == "pending") {
+		return queue.RecommendNext(queueSnapshot)
+	}
+	if queueSnapshot.BaseIntegration != nil && queueSnapshot.BaseIntegration.State == delivery.BaseDirectWorkPending {
+		return queue.RecommendNext(queueSnapshot)
+	}
 	if requestedAction == "issue-investigation" {
 		return queue.RecommendNextInvestigation(queueSnapshot)
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 
@@ -23,6 +24,7 @@ type observationGitHubStub struct {
 	checkState   string
 	err          error
 	checkCalls   int
+	openPRBases  []string
 }
 
 func (stub *observationGitHubStub) ListOpenIssuesContext(context.Context, string) ([]gh.Issue, error) {
@@ -40,7 +42,8 @@ func (stub *observationGitHubStub) ListIssueCommentsContext(_ context.Context, _
 	return []gh.IssueComment{{ID: int64(number), Body: policy.RenderManagedIssueRecord(record), Author: gh.Actor{Login: policy.ManagedIssueTrustedLogin, Type: "Bot"}}}, stub.err
 }
 
-func (stub *observationGitHubStub) ListOpenPullRequestsContext(context.Context, string, string) ([]gh.PullRequest, error) {
+func (stub *observationGitHubStub) ListOpenPullRequestsContext(_ context.Context, _ string, base string) ([]gh.PullRequest, error) {
+	stub.openPRBases = append(stub.openPRBases, base)
 	return normalizedTestPullRequests(stub.pullRequests), stub.err
 }
 
@@ -167,6 +170,21 @@ func TestObservationWorkflowFiltersUnmanagedPullRequestsBeforeEnrichment(t *test
 	}
 	if len(next.Candidates) != 0 || client.checkCalls != 0 {
 		t.Fatalf("next=%+v checkCalls=%d, want unmanaged no-op before enrichment", next, client.checkCalls)
+	}
+}
+
+func TestObservationWorkflowSurfacesMisroutedManagedPullRequest(t *testing.T) {
+	client := &observationGitHubStub{
+		pullRequests: []gh.PullRequest{{Number: 13, Title: "Misrouted", BaseRef: "release", HeadRef: "agent-work/13", HeadSHA: "abc"}},
+		branch:       &gh.BranchHealth{Ref: "agent", SHA: "def", CheckState: "success"},
+	}
+	_, err := observationWorkflowForTest(client).Queue(RepositoryInput{})
+	applicationError := apperror.As(err)
+	if applicationError == nil || applicationError.Details["warningCodes"] != "invalid" || !strings.Contains(applicationError.Details["warningScopes"], "pullRequest:13:ownership") {
+		t.Fatalf("error = %v", err)
+	}
+	if len(client.openPRBases) != 1 || client.openPRBases[0] != "" {
+		t.Fatalf("open PR base filters = %v", client.openPRBases)
 	}
 }
 

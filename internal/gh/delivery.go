@@ -130,13 +130,24 @@ func (c *Client) ListNewestIssueComments(repo string, issueNumber int) (IssueCom
 // ListNewestIssueCommentsContext reads exactly one newest-first bounded window.
 // Complete is false when GitHub reports comments before that window.
 func (c *Client) ListNewestIssueCommentsContext(ctx context.Context, repo string, issueNumber int) (IssueCommentListing, error) {
+	return c.listNewestCommentsContext(ctx, repo, issueNumber, "issue")
+}
+
+// ListNewestPullRequestCommentsContext reads the bounded append-only policy
+// evidence window on one pull request.
+func (c *Client) ListNewestPullRequestCommentsContext(ctx context.Context, repo string, pullRequestNumber int) (IssueCommentListing, error) {
+	return c.listNewestCommentsContext(ctx, repo, pullRequestNumber, "pullRequest")
+}
+
+func (c *Client) listNewestCommentsContext(ctx context.Context, repo string, number int, target string) (IssueCommentListing, error) {
 	owner, name, err := splitRepo(repo)
 	if err != nil {
 		return IssueCommentListing{}, err
 	}
-	var result issueCommentsGraphQLResponse
-	headers, err := c.postGraphQLContext(ctx, graphQLPayload{
-		Query: `query($owner: String!, $name: String!, $number: Int!, $limit: Int!) {
+	query := ""
+	switch target {
+	case "issue":
+		query = `query($owner: String!, $name: String!, $number: Int!, $limit: Int!) {
   repository(owner: $owner, name: $name) {
     issue(number: $number) {
       comments(last: $limit) {
@@ -152,40 +163,9 @@ func (c *Client) ListNewestIssueCommentsContext(ctx context.Context, repo string
       }
     }
   }
-}`,
-		Variables: map[string]any{"owner": owner, "name": name, "number": issueNumber, "limit": newestIssueCommentLimit},
-	}, &result)
-	if err != nil {
-		return IssueCommentListing{}, err
-	}
-	if len(result.Errors) > 0 {
-		return IssueCommentListing{}, graphQLResponseError(result.Errors, headers)
-	}
-	if result.Data.Repository == nil || result.Data.Repository.Issue == nil {
-		return IssueCommentListing{}, fmt.Errorf("repository issue %s#%d was not found", repo, issueNumber)
-	}
-	connection := result.Data.Repository.Issue.Comments
-	comments := make([]IssueComment, 0, len(connection.Nodes))
-	for _, node := range connection.Nodes {
-		comments = append(comments, IssueComment{
-			ID: node.DatabaseID, NodeID: node.NodeID, Body: node.Body,
-			Author:    Actor{Login: node.Author.Login, Type: node.Author.TypeName},
-			CreatedAt: node.CreatedAt, UpdatedAt: node.UpdatedAt,
-		})
-	}
-	return IssueCommentListing{Comments: comments, Complete: !connection.PageInfo.HasPreviousPage}, nil
-}
-
-// ListNewestPullRequestCommentsContext reads the bounded append-only policy
-// evidence window on one pull request.
-func (c *Client) ListNewestPullRequestCommentsContext(ctx context.Context, repo string, pullRequestNumber int) (IssueCommentListing, error) {
-	owner, name, err := splitRepo(repo)
-	if err != nil {
-		return IssueCommentListing{}, err
-	}
-	var result issueCommentsGraphQLResponse
-	headers, err := c.postGraphQLContext(ctx, graphQLPayload{
-		Query: `query($owner: String!, $name: String!, $number: Int!, $limit: Int!) {
+}`
+	case "pullRequest":
+		query = `query($owner: String!, $name: String!, $number: Int!, $limit: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
       comments(last: $limit) {
@@ -201,8 +181,13 @@ func (c *Client) ListNewestPullRequestCommentsContext(ctx context.Context, repo 
       }
     }
   }
-}`,
-		Variables: map[string]any{"owner": owner, "name": name, "number": pullRequestNumber, "limit": newestIssueCommentLimit},
+}`
+	default:
+		return IssueCommentListing{}, fmt.Errorf("newest comment target %q is unsupported", target)
+	}
+	var result issueCommentsGraphQLResponse
+	headers, err := c.postGraphQLContext(ctx, graphQLPayload{
+		Query: query, Variables: map[string]any{"owner": owner, "name": name, "number": number, "limit": newestIssueCommentLimit},
 	}, &result)
 	if err != nil {
 		return IssueCommentListing{}, err
@@ -210,10 +195,22 @@ func (c *Client) ListNewestPullRequestCommentsContext(ctx context.Context, repo 
 	if len(result.Errors) > 0 {
 		return IssueCommentListing{}, graphQLResponseError(result.Errors, headers)
 	}
-	if result.Data.Repository == nil || result.Data.Repository.PullRequest == nil {
-		return IssueCommentListing{}, fmt.Errorf("repository pull request %s#%d was not found", repo, pullRequestNumber)
+	if result.Data.Repository == nil {
+		return IssueCommentListing{}, fmt.Errorf("repository %s was not found", repo)
 	}
-	connection := result.Data.Repository.PullRequest.Comments
+	connection := issueCommentConnection{}
+	switch target {
+	case "issue":
+		if result.Data.Repository.Issue == nil {
+			return IssueCommentListing{}, fmt.Errorf("repository issue %s#%d was not found", repo, number)
+		}
+		connection = result.Data.Repository.Issue.Comments
+	case "pullRequest":
+		if result.Data.Repository.PullRequest == nil {
+			return IssueCommentListing{}, fmt.Errorf("repository pull request %s#%d was not found", repo, number)
+		}
+		connection = result.Data.Repository.PullRequest.Comments
+	}
 	comments := make([]IssueComment, 0, len(connection.Nodes))
 	for _, node := range connection.Nodes {
 		comments = append(comments, IssueComment{

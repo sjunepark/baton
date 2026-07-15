@@ -145,6 +145,34 @@ func TestEditableDocumentDriftDegradesWithoutBlocking(t *testing.T) {
 	}
 }
 
+func TestCompatibilityFailsWhenRequiredObservationsAreMissing(t *testing.T) {
+	cfg := config.DefaultConfig()
+	for _, test := range []struct {
+		name   string
+		check  string
+		mutate func(*CompatibilityFacts)
+	}{
+		{name: "repository", check: "github-repository", mutate: func(f *CompatibilityFacts) { f.RepositoryObserved = false }},
+		{name: "branches", check: "base-staging-branches", mutate: func(f *CompatibilityFacts) { f.BranchesObserved = false }},
+		{name: "labels", check: "managed-labels", mutate: func(f *CompatibilityFacts) { f.LabelsObserved = false }},
+		{name: "actions", check: "actions-policy", mutate: func(f *CompatibilityFacts) { f.ActionsObserved = false }},
+		{name: "rules", check: "branch-rules", mutate: func(f *CompatibilityFacts) { f.RulesObserved = false }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			facts := readyCompatibilityFacts(t, cfg)
+			facts.AcquisitionChecks = nil
+			test.mutate(&facts)
+			checks := EvaluateCompatibility(cfg, facts)
+			if check := findCheck(t, checks, test.check); check.Status != "fail" {
+				t.Fatalf("check = %+v", check)
+			}
+			if readyState(countChecks(checks)) != "blocked" {
+				t.Fatalf("checks = %+v", checks)
+			}
+		})
+	}
+}
+
 func TestActionsPolicyFailsClosedOnUnknownOrIncompatiblePolicy(t *testing.T) {
 	for _, test := range []struct {
 		name     string

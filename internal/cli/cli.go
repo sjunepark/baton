@@ -854,14 +854,14 @@ func runDeliveryBootstrap(ctx context.Context, args []string, stdout, stderr io.
 	if *dryRun == *apply {
 		return out.ErrorMessage(exitUsage, "delivery-bootstrap requires exactly one of --dry-run or --apply", "Review a --dry-run plan before applying.")
 	}
+	if *initialize && *genesisPromotion > 0 {
+		return out.ErrorMessage(exitUsage, "delivery-bootstrap initialization cannot use --genesis-promotion", "Pass the exact reviewed staging SHA.")
+	}
 	if *genesisPromotion > 0 && strings.TrimSpace(*genesisStagingSHA) != "" {
 		return out.ErrorMessage(exitUsage, "delivery-bootstrap accepts only one genesis selector", "Choose --genesis-promotion or --genesis-staging-sha.")
 	}
 	if *initialize && (*ledgerIssue <= 0 || strings.TrimSpace(*ledgerID) == "" || strings.TrimSpace(*genesisStagingSHA) == "" || strings.TrimSpace(*observedAt) == "") {
 		return out.ErrorMessage(exitUsage, "delivery-bootstrap --initialize requires --ledger-issue, --ledger-id, --genesis-staging-sha, and --observed-at", "Create and lock the reserved ledger issue before initialization.")
-	}
-	if *initialize && *genesisPromotion > 0 {
-		return out.ErrorMessage(exitUsage, "delivery-bootstrap initialization cannot use --genesis-promotion", "Pass the exact reviewed staging SHA.")
 	}
 	if *apply && strings.TrimSpace(*planID) == "" {
 		return out.ErrorMessage(exitUsage, "delivery-bootstrap --apply requires --plan-id", "Pass the exact planId from the reviewed dry-run output.")
