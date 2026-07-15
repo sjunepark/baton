@@ -30,7 +30,7 @@ tests/scripts/github-pr-policy.test.ts
 
 ### Issue Policy
 
-Current behavior:
+Historical Creo behavior at extraction time:
 
 - Parse issue form sections from Markdown headings.
 - Detect whether an issue matches the configured form fingerprint.
@@ -49,33 +49,39 @@ Reusable Baton behavior:
 
 ### PR Policy
 
-Current behavior:
+Historical Creo behavior at extraction time:
 
 - Work PRs target `agent`.
 - Work PR heads start with `agent-work/`.
 - Work PRs reference issues with `Refs #123`.
 - Work PRs must not use closing keywords.
-- Referenced issues must have implementation labels.
-- Referenced issues must not have skip labels.
-- Multi-issue all-trivial PRs are rejected.
+- Referenced issues had to have implementation labels.
+- Referenced issues could not have skip labels.
+- Multi-issue all-trivial PRs were rejected.
 - Promotion PRs target `main` from `agent`.
-- Promotion PRs use closing keywords.
-- Direct PRs to `main` from ordinary branches are outside Baton's automation
-  policy by default; `agent-work/*` branches must target `agent` first.
+- Promotion closing keywords are optional presentation and, when present, must
+  exactly match the sealed delivery plan. Explicit post-merge transition owns
+  issue closure.
+- Direct PRs to `main` from ordinary branches were outside Creo's automation
+  policy; `agent-work/*` branches had to target `agent` first.
 - Noisy commit subjects are rejected.
 - GitHub commit listing cap fails closed.
 
-Reusable Baton behavior:
+Current Baton direction:
 
 - Branch names and prefixes configurable.
-- Label sets configurable.
-- Keyword rules configurable where useful, but defaults should preserve the
-  Creo model.
+- Durable managed-issue ownership, rather than current implementation, skip,
+  or trivial labels, gates referenced resources in work-PR policy.
+- Label sets remain configurable for issue intake and recommendation.
+- Keyword rules remain configurable where useful.
 - Commit cap behavior remains fail-closed by default.
+- Promotion selection comes from the sealed delivery plan, not mutable merged
+  PR prose or ancestry. Bootstrap shadow comparisons gate cutover, and active
+  recommendation paths never scan all closed staging PRs.
 
 ### Branch Setup
 
-Current behavior:
+Historical Creo behavior at extraction time:
 
 - Inspect `origin/main`, `origin/agent`, and local `agent`.
 - Create/publish `agent` only when it exactly matches `origin/main`.
@@ -91,7 +97,7 @@ Reusable Baton behavior:
 
 ### Label Sync
 
-Current behavior:
+Historical Creo behavior at extraction time:
 
 - Read `.github/labels.yml`.
 - Create missing labels.
@@ -115,11 +121,16 @@ For a consuming repository, `baton init --apply` should be able to install:
 .github/workflows/issue-policy.yml
 .github/workflows/pr-policy.yml
 .github/workflows/work-item-transition.yml
+.github/workflows/delivery-recorder.yml
 ```
 
 The workflow files should call Baton, not copied scripts.
 
-## Compatibility Strategy
+## Historical Creo Migration Strategy
+
+This section records the original parity migration. Current adopters should use
+[the v0.6.0 adopter update](adopter-updates/v0.6.0.md) and the live doctor gate;
+the Creo scripts are not current Baton policy authority.
 
 Completed compatibility path:
 

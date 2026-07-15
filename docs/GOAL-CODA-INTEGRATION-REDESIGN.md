@@ -2,6 +2,13 @@
 
 Status: Complete — Slices 1-8 are implemented, reviewed, and validated.
 
+Historical note: this goal records the v0.5 redesign baseline. Current public
+contracts are `nextCandidates` v3, `queueSnapshot` v2, and
+`repositorySnapshot` v2; current ownership and delivery behavior is documented
+in [the v0.6.0 adopter update](adopter-updates/v0.6.0.md). Statements below are
+preserved as the state and decisions of their original slices, not current
+runtime authority.
+
 ## Current State
 
 - Coda's current adapter and UI contracts are frozen in producer-backed golden
@@ -83,11 +90,11 @@ Status: Complete — Slices 1-8 are implemented, reviewed, and validated.
   Mode and routes queue, recommendations, and PR dashboards through one
   classifier. Open work PRs are active; merged staging work is awaiting review;
   other gates are blocked; closed issues are terminal.
-- Merged work PR events produce deterministic `workItemTransitionPlan` v1
+- Merged work PR events now produce deterministic `workItemTransitionPlan` v4
   operations. `pr-transition` requires an explicit dry-run/apply gate, verifies
-  current PR content and revision plus every referenced resource before its
-  first write, skips already-satisfied or closed issues, and preserves partial
-  effects in `operationReport` v1.
+  current PR content and revision plus every referenced issue's durable Baton
+  ownership before its first write, skips already-satisfied or closed issues,
+  and preserves partial effects in `operationReport` v1.
 - Generated transition automation checks out trusted base code, grants only
   issue-write plus read permissions, and installs an exact released Baton
   SemVer target. Arbitrary install-command overrides cannot reach this mutation

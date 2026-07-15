@@ -31,7 +31,7 @@ The skill must instruct Codex to:
   permission to start mutating work.
 - Treat everything after a recognized skill command as the command argument so
   users do not need to paste boilerplate workflow prompts.
-- Run `baton home --format toon` or `baton doctor --format toon` when
+- Run `baton home --format toon` or `baton doctor --repo owner/name --format toon` when
   repository readiness is uncertain.
 - Run `baton snapshot --format toon` before selecting unattended work. Proceed
   only when `outcome` is `actionable`; every other outcome is report-and-stop.
@@ -72,7 +72,7 @@ The bundled skill must expose these concise commands:
 | `$baton implement <issue>` | In a caller-provided isolated checkout, implement one ready issue, validate, and open/update a staging PR. |
 | `$baton follow-up <pr>` | In a caller-provided isolated checkout, fix checks or review follow-up on the existing PR branch. |
 | `$baton run [repo]` | Let Baton return candidates, choose exactly one safe unit, then stop. |
-| `$baton adopt [repo]` | Check target-repo Baton setup with dry-run/read-only commands. |
+| `$baton adopt [repo]` | Check target-repo setup read-only; never report adoption complete while doctor is blocked. |
 | `$baton update [repo]` | Check and update an existing Baton adoption through a normal reviewed PR. Do not merge. |
 | `$baton automate [repo]` | Explain or prepare scheduled one-unit automation. |
 
@@ -119,7 +119,8 @@ Routing rules:
 
 ### Issue Intake
 
-1. Confirm issue has implementation label and no skip labels.
+1. Confirm `snapshot` selected the issue as durably managed and eligible for
+   implementation; implementation and skip labels remain intake facts only.
 2. Branch from configured staging branch.
 3. Implement the smallest change satisfying acceptance criteria.
 4. Validate.

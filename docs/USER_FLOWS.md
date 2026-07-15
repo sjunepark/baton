@@ -57,16 +57,22 @@ uncertain.
 - CLI equivalent:
 
   ```sh
-  baton doctor --format toon
+  baton doctor --repo owner/name --format toon
   baton sync-labels --dry-run --repo owner/name --json
   baton ensure-branch --json
   ```
 
-- Expected output: setup gaps, auth/config status, and exact safe commands to
-  fix missing pieces.
+- Expected output: a live `ready`, `degraded`, or `blocked` compatibility result
+  with per-check remediation. Token discovery alone is not success: doctor
+  reads the selected repository and its workflows, rules, labels, Actions
+  policy, ownership records, and delivery ledger.
+- Organization repositories may be degraded when GitHub does not expose the
+  standard-hosted-runner disablement setting through its supported REST API;
+  confirm that setting explicitly instead of treating unknown as enabled.
 - Safety boundaries: read-only or dry-run; no setup is applied.
-- Common stop conditions: missing auth, missing local config, or a local
-  staging branch that differs from its configured remote.
+- Common stop conditions: missing auth, missing local config, or any blocked
+  live compatibility check. Local tracking-ref drift is diagnostic only; live
+  GitHub facts decide adoption compatibility.
 
 ## Inspect Queue And Next Action
 
@@ -171,6 +177,7 @@ Use when preparing a repository for Baton-managed issue and PR automation.
 - CLI equivalent:
 
   ```sh
+  baton doctor --repo owner/name --format toon
   baton init --dry-run --json
   baton migrate-config --dry-run
   baton sync-labels --dry-run --repo owner/name --json
@@ -178,11 +185,15 @@ Use when preparing a repository for Baton-managed issue and PR automation.
   ```
 
 - Expected output: setup plan, migration preview when applicable, label diff,
-  branch readiness, and exact apply commands for a human to approve.
+  branch readiness, live compatibility blockers, and exact apply commands for
+  a human to approve. After approved changes, rerun doctor; adoption is not
+  complete while `readyState` is `blocked`, and any `degraded` capability must
+  be named in the handoff.
 - Safety boundaries: dry-run/read-only by default; do not apply setup or resolve
   branch divergence without explicit approval.
 - Common stop conditions: unreviewed install diff, legacy config ambiguity,
-  label policy mismatch, or unsafe local staging-branch state.
+  label policy mismatch, unsafe local staging-branch state, or any blocked
+  doctor check.
 
 ## Set Up Scheduled Automation
 
@@ -197,7 +208,7 @@ respected checkout isolation boundaries.
 
   ```sh
   baton home --format toon
-  baton doctor --format toon
+  baton doctor --repo owner/name --format toon
   baton ensure-branch --json
   baton sync-labels --dry-run --repo owner/name --json
   baton snapshot --format toon --repo owner/name

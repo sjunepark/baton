@@ -1,5 +1,10 @@
 # Use one repository snapshot for observation and recommendation
 
+Status: Accepted, with contract versions superseded. The current forms are
+`repositorySnapshot` v2, `queueSnapshot` v2, and `nextCandidates` v3; the
+single-acquisition decision remains in force. See
+[the current Coda adopter note](../adopter-updates/coda-repository-snapshot-v2.md).
+
 Baton will expose one versioned `repositorySnapshot` produced by a single
 bounded GitHub acquisition. The snapshot owns a typed Recommendation whose
 Outcome is distinct from its optional Action, while `queueSnapshot` v1 and

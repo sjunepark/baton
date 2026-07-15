@@ -13,5 +13,8 @@ Use these with:
 
 Available update notes:
 
-- [v0.6.0](v0.6.0.md): promotion closure is derived from included Baton work.
+- [v0.6.0](v0.6.0.md): explicit ownership, sealed delivery, synchronization,
+  live adoption compatibility, and migration steps.
 - [v0.5.0](v0.5.0.md): repository orchestration and completion migration.
+- [Coda repository snapshot v2](coda-repository-snapshot-v2.md): current
+  single-acquisition consumer contract and projection window.

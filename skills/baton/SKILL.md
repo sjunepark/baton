@@ -49,7 +49,7 @@ argument.
 | `$baton implement <issue>` | In a caller-provided isolated checkout, implement one ready issue, validate, and open/update a PR to the staging branch. |
 | `$baton follow-up <pr>` | In a caller-provided isolated checkout, fix checks or review follow-up, validate, and push to that branch. |
 | `$baton run [repo]` | Let Baton return candidates, choose exactly one safe unit, then stop. |
-| `$baton adopt [repo]` | Check target-repo setup with dry-run/read-only commands and recommend next setup commands. |
+| `$baton adopt [repo]` | Check target-repo setup with dry-run/read-only commands; never report adoption complete while doctor is blocked. |
 | `$baton update [repo]` | Check and update an existing Baton adoption through a normal reviewed PR. Do not merge. |
 | `$baton automate [repo]` | Explain or prepare scheduled one-unit automation. Do not schedule implementation automation before a manual run succeeds. |
 
@@ -100,7 +100,7 @@ argument.
 - `$baton`: run `baton home --format toon` or `baton doctor --format toon`,
   then `baton queue --format toon` and `baton next --format toon` when a repo
   is known. Report state and exact next skill commands only.
-- `status`: run `baton doctor --format toon`, plus `baton ensure-branch --json`
+- `status`: run `baton doctor --repo <repo> --format toon`, plus `baton ensure-branch --json`
   and `baton sync-labels --dry-run --repo <repo> --json` when setup is in
   scope. Do not apply setup.
 - `next`: run `baton next --format toon --repo <repo>` and report the
@@ -125,10 +125,15 @@ argument.
   according to `action`, validate, report the chosen candidate, and stop. All
   other outcomes are report-and-stop states.
 - `adopt`: run read-only/dry-run setup checks: `baton home --format toon`,
-  `baton doctor --format toon`, `baton init --dry-run --json`,
+  `baton doctor --repo <repo> --format toon`, `baton init --dry-run --json`,
   `baton migrate-config --dry-run` when a legacy policy exists,
   `baton sync-labels --dry-run --repo <repo> --json`, and
-  `baton ensure-branch --json`.
+  `baton ensure-branch --json`. Treat every failed doctor check as an adoption
+  blocker with its reported remediation. After approved setup changes, rerun
+  doctor against the live repository; do not report adoption complete or
+  enable automation while `readyState` is `blocked`. If it is `degraded`,
+  report the reduced capability explicitly. If init used a reviewed custom
+  `--go-install` or `--install-command`, pass the same option to doctor.
 - `update`: read `references/updating-adopters.md`, inspect
   `.github/baton.yml` and `.github/workflows/*`, read the relevant adopter
   update notes, run the dry-run checks listed in the reference, then open or
@@ -158,8 +163,9 @@ argument.
 - Open the work PR to the staging branch with `Refs #<issue>`, not closing
   keywords.
 - Do not close issues from work PRs. Baton derives issue-backed work included
-  in each promotion and requires that promotion to close every derived issue;
-  manual-only promotions do not need a synthetic closing reference.
+  in each promotion, then explicitly closes the sealed issue set after the
+  promotion merges. Promotion closing references are optional presentation and
+  must exactly match that set when used.
 
 ## References
 

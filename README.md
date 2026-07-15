@@ -43,7 +43,7 @@ Build or run locally:
 go test ./...
 go run ./cmd/baton --help
 go run ./cmd/baton home --format toon
-go run ./cmd/baton doctor --format toon
+go run ./cmd/baton doctor --repo owner/name --format toon
 ```
 
 Preview installation files for a target repository:
@@ -80,7 +80,7 @@ baton next --format toon --repo owner/name
 `baton snapshot` returns one bounded repository observation with explicit
 completeness and a typed recommendation outcome. Only an `actionable` outcome
 with one candidate means agent work is currently useful; it is still not
-execution state or merge authority. `baton next` remains the v2 compatibility
+execution state or merge authority. `baton next` remains the v3 compatibility
 projection for existing callers. Use
 `baton queue` for the full eligible issue list, or
 `baton next --action issue-investigation --format toon --repo owner/name` when
@@ -105,6 +105,7 @@ completion. Baton does not maintain a local completion ledger.
 .github/workflows/issue-policy.yml
 .github/workflows/pr-policy.yml
 .github/workflows/work-item-transition.yml
+.github/workflows/delivery-recorder.yml
 ```
 
 `.github/baton.yml` includes `setup.baseline_baton_version`, which records the
@@ -113,10 +114,11 @@ The workflow install command remains the runtime pin, and `version` remains the
 config schema version.
 
 `--install-command` customizes the issue/PR policy workflow install step. The
-write-capable work-item transition workflow intentionally ignores arbitrary
-shell install commands and installs the exact `--go-install` target instead.
+write-capable transition and delivery-recorder workflows intentionally ignore
+arbitrary shell install commands and install the exact `--go-install` target.
 Use an exact `module/path@vX.Y.Z` with `--go-install` when adopting an alternate
-Baton pin for that workflow.
+Baton pin for that workflow. Pass the same reviewed option to `baton doctor`
+so its exact trusted-file reconciliation uses the intended installer.
 
 The generated workflows install trusted Baton code, then run:
 
@@ -124,13 +126,57 @@ The generated workflows install trusted Baton code, then run:
 baton issue-policy --event "$GITHUB_EVENT_PATH" --apply
 baton pr-policy --event "$GITHUB_EVENT_PATH"
 baton pr-transition --event "$GITHUB_EVENT_PATH" --apply --json
+baton delivery-record --event "$GITHUB_EVENT_PATH" --apply --json
 
 # Preview the same transition without GitHub writes.
 baton pr-transition --event "$GITHUB_EVENT_PATH" --dry-run --json
 ```
 
 `pull_request_target` policy runs check out the trusted base SHA before
-installing Baton so PR-modified repository code is not executed.
+installing Baton so PR-modified repository code is not executed. The generated
+PR policy and transition workflows listen on all target branches and leave the
+Go classifier authoritative. PR Policy conservatively admits every managed
+candidate shape; Work Item Transition admits promotions, while Delivery
+Recorder owns work and synchronization transitions. Ordinary and fork PRs are
+unmanaged no-ops; a same-repository `agent-work/` branch is explicit Baton
+intent and must target staging.
+
+PR Policy shares the repository delivery concurrency group with the Delivery
+Recorder. Promotion checks therefore cannot start inside a ledger batch; the
+recorder re-lists open promotions and re-acquires their check rollups after the
+final checkpoint commit. Generated workflows opt into GitHub's `queue: max`
+mode so up to 100 pending runs wait instead of replacing one another.
+
+Issue policy writes a trusted, versioned ownership record before its managed
+index label and other controlled labels. Queue, PR-reference, and transition
+paths require that ownership decision; labels alone do not enroll an issue.
+Existing form fingerprints remain a temporary read/backfill path.
+Implementation and skip labels continue to decide issue intake and
+recommendation, but changing them after a managed work PR opens does not alter
+that PR's merge policy. Work PR policy uses durable ownership, PR references,
+forbidden closing keywords, and commit facts.
+
+Delivery recording is disabled until `.github/baton.yml` pins a reviewed
+ledger locator. Bootstrap compares the bounded ancestry projection with the
+planned ledger projection and blocks on every mismatch. Commit the locator
+with `delivery.authority: shadow`, complete bootstrap, then review the explicit
+change to `sealed`. Promotion policy thereafter seals the exact ledger plan and
+uses it as authority. After merge, Work Item Transition closes the seal's
+still-open issues, removes the awaiting-review index, records base integration,
+and commits the cursor last; PR closing keywords are not delivery authority.
+Recommendation commands also require the bounded ledger and do not fall back
+to closed-PR history. Bootstrap runs through the same generated workflow and
+concurrency group; protect its `baton-delivery-bootstrap`
+environment with required reviewers. See
+[Delivery bootstrap](docs/DELIVERY_BOOTSTRAP.md).
+
+Ordinary PRs may still merge directly to base. Baton then recommends a normal
+human-reviewed base-to-staging sync PR before further managed work. Use a merge
+commit so both histories remain ancestors of staging; Baton records the result
+but never pushes, merges, squashes, rebases, or rewrites staging. `doctor`
+reads the live repository and blocks workflow, Actions, ownership/delivery,
+required-check, merge-setting, ruleset, or merge-queue incompatibilities. Do
+not finish adoption while its `readyState` is `blocked`.
 
 ## Project Map
 

@@ -3,13 +3,17 @@
 ## Current State
 
 - Baton is a Go CLI with policy, queue, GitHub inspection, install, label sync,
-  branch setup, doctor, migration, and work-item transition commands.
+  branch setup, live adoption doctor, migration, delivery-ledger, and work-item
+  transition commands.
 - Baton ships a bundled Codex skill under `skills/baton/`.
 - Baton no longer owns worktree leasing, release, pruning, or checkout cleanup.
   Execution isolation is caller-provided; see
   [EXECUTION_CONTEXT.md](EXECUTION_CONTEXT.md).
 - Target repositories use `.github/baton.yml`; legacy
   `.github/agent-issue-policy.yml` remains readable for migration.
+- Durable issue records establish managed ownership, and a sealed bounded
+  delivery ledger establishes promotion and completion authority. Branch
+  targets and labels are routing/index facts rather than authority.
 - Automation-facing commands are JSON-first, with TOON output for compact agent
   context on read-heavy commands.
 
