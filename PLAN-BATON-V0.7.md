@@ -28,6 +28,8 @@ used as v0.7 requirements.
 - YAML is no longer a dependency. Repository-wide tests, race detection, vet,
   pinned Staticcheck, CLI boundary checks, and the implementation/diet review
   pass.
+- Review follow-up makes mutation plans prefix-safe, preserves dry-run label
+  casing, bounds GitHub requests, and propagates output failures.
 - M4 adopter decommissioning and M5 skill/docs/release work have not started.
 
 ## Confirmed product decisions
@@ -183,13 +185,12 @@ v0.7 does not install or monitor an issue-policy workflow:
 
 ## Next implementation slice
 
-The first substantial goal should complete M1 through M3: freeze the contract,
-deliver the setup-free issue-only Task CLI, and delete the runtime
-orchestration/compatibility path. Stop before changing external adopter
-repositories or preparing the release PR; those require the new CLI contract
-to be stable first. Delete downstream-specific Baton artifacts during M3;
-adapting or validating a downstream orchestrator does not belong to any Baton
-milestone.
+M4 is next: execute the adopter decommission and migration workflow defined in
+`docs/plans/baton-v0.7/03-adopter-migration.md`, including read-only inventory,
+explicit approval for external mutations, and post-change verification. Stop
+before M5's bundled-skill, active-documentation, distribution, and release
+work; do not adapt or validate a downstream orchestrator as Baton product
+scope.
 
 ## Open questions
 
@@ -228,3 +229,10 @@ Task module may change without adding public concepts.
   execution-state tests. YAML is gone; repository-wide tests, race detection,
   vet, pinned Staticcheck, CLI boundary checks, v0.6 evidence hashes, and the
   implementation/diet review pass. M1–M3 are complete; next is M4.
+- **2026-07-16 — Review hardening:** Made enrollment, unenrollment, blocker
+  replacement, facet replacement, and close plans safe at every incomplete
+  write prefix; unsafe conflicted-facet clears now require an explicit two-step
+  normalization. Dry-run projections preserve project-label casing, mutation
+  failures retain state-confirmation errors, no-op mutations avoid a redundant
+  read, production requests have finite deadlines, and all text writers
+  propagate failures. M4 remains next; M5 docs and skill work remains pending.
