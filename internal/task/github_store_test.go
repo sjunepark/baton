@@ -118,56 +118,74 @@ func TestGitHubStoreMutationCreatesLabelsWithoutUpdatingExistingMetadata(t *test
 	current := issueState{labels: []string{"bug"}, state: "open"}
 	definitions := map[string]map[string]any{}
 	requests := []string{}
+	var handlerErr error
 	var mu sync.Mutex
+	recordHandlerError := func(w http.ResponseWriter, status int, format string, args ...any) {
+		if handlerErr == nil {
+			handlerErr = fmt.Errorf(format, args...)
+		}
+		http.Error(w, handlerErr.Error(), status)
+	}
+	writeHandlerJSON := func(w http.ResponseWriter, value any) bool {
+		if err := json.NewEncoder(w).Encode(value); err != nil {
+			recordHandlerError(w, http.StatusInternalServerError, "encode response: %v", err)
+			return false
+		}
+		return true
+	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
 		requests = append(requests, r.Method+" "+r.URL.RequestURI())
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/repos/example/repo/issues/7":
-			writeJSON(t, w, githubIssuePayload(7, current.state, current.labels))
+			writeHandlerJSON(w, githubIssuePayload(7, current.state, current.labels))
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/repos/example/repo/labels/"):
 			name, err := url.PathUnescape(strings.TrimPrefix(r.URL.Path, "/repos/example/repo/labels/"))
 			if err != nil {
-				t.Error(err)
-				w.WriteHeader(http.StatusBadRequest)
+				recordHandlerError(w, http.StatusBadRequest, "decode label path: %v", err)
 				return
 			}
 			definition, exists := definitions[strings.ToLower(name)]
 			if !exists {
 				w.WriteHeader(http.StatusNotFound)
-				writeJSON(t, w, map[string]any{"message": "Not Found"})
+				writeHandlerJSON(w, map[string]any{"message": "Not Found"})
 				return
 			}
-			writeJSON(t, w, definition)
+			writeHandlerJSON(w, definition)
 		case r.Method == http.MethodPost && r.URL.Path == "/repos/example/repo/labels":
 			var definition map[string]any
 			if err := json.NewDecoder(r.Body).Decode(&definition); err != nil {
-				t.Fatal(err)
+				recordHandlerError(w, http.StatusBadRequest, "decode create-label body: %v", err)
+				return
 			}
 			name, ok := definition["name"].(string)
 			if !ok || name == "" {
-				t.Fatalf("create label name = %#v", definition["name"])
+				recordHandlerError(w, http.StatusBadRequest, "create label name = %#v", definition["name"])
+				return
 			}
 			definitions[strings.ToLower(name)] = definition
 			w.WriteHeader(http.StatusCreated)
-			writeJSON(t, w, definition)
+			writeHandlerJSON(w, definition)
 		case r.Method == http.MethodPost && r.URL.Path == "/repos/example/repo/issues/7/labels":
 			var input struct {
 				Labels []string `json:"labels"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-				t.Fatal(err)
+				recordHandlerError(w, http.StatusBadRequest, "decode add-label body: %v", err)
+				return
 			}
 			if len(input.Labels) != 1 || input.Labels[0] == "" {
-				t.Errorf("add-label body = %#v", input)
+				recordHandlerError(w, http.StatusBadRequest, "add-label body = %#v", input)
+				return
 			}
 			current.labels = append(current.labels, input.Labels...)
-			writeJSON(t, w, []map[string]any{})
+			writeHandlerJSON(w, []map[string]any{})
 		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/repos/example/repo/issues/7/labels/"):
 			name, err := url.PathUnescape(strings.TrimPrefix(r.URL.Path, "/repos/example/repo/issues/7/labels/"))
 			if err != nil {
-				t.Fatal(err)
+				recordHandlerError(w, http.StatusBadRequest, "decode remove-label path: %v", err)
+				return
 			}
 			filtered := current.labels[:0]
 			for _, label := range current.labels {
@@ -182,26 +200,34 @@ func TestGitHubStoreMutationCreatesLabelsWithoutUpdatingExistingMetadata(t *test
 				State string `json:"state"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-				t.Error(err)
-				w.WriteHeader(http.StatusBadRequest)
+				recordHandlerError(w, http.StatusBadRequest, "decode close body: %v", err)
 				return
 			}
 			if input.State != "closed" {
-				t.Errorf("close body = %#v", input)
+				recordHandlerError(w, http.StatusBadRequest, "close body = %#v", input)
+				return
 			}
 			current.state = "closed"
 			w.WriteHeader(http.StatusOK)
-			writeJSON(t, w, githubIssuePayload(7, current.state, current.labels))
+			writeHandlerJSON(w, githubIssuePayload(7, current.state, current.labels))
 		default:
-			t.Fatalf("unexpected request %s %s", r.Method, r.URL.RequestURI())
+			recordHandlerError(w, http.StatusNotFound, "unexpected request %s %s", r.Method, r.URL.RequestURI())
 		}
 	}))
 	defer server.Close()
+	handlerError := func() error {
+		mu.Lock()
+		defer mu.Unlock()
+		return handlerErr
+	}
 	service := task.NewService(task.NewGitHubStore(gh.NewClient(server.URL, "", server.Client())))
 	trivial, p1 := task.ModeTrivial, task.PriorityP1
 	result, err := service.Mutate(context.Background(), repository, 7, task.Mutation{
 		Kind: task.MutationEnroll, ModeSet: true, Mode: &trivial, PrioritySet: true, Priority: &p1,
 	}, false)
+	if requestErr := handlerError(); requestErr != nil {
+		t.Fatal(requestErr)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,14 +235,23 @@ func TestGitHubStoreMutationCreatesLabelsWithoutUpdatingExistingMetadata(t *test
 		t.Fatalf("enroll = %#v, definitions = %#v", result, definitions)
 	}
 	result, err = service.Mutate(context.Background(), repository, 7, task.Mutation{Kind: task.MutationStart}, false)
+	if requestErr := handlerError(); requestErr != nil {
+		t.Fatal(requestErr)
+	}
 	if err != nil || result.Task == nil || result.Task.State != task.StateInProgress {
 		t.Fatalf("start = %#v, %v", result, err)
 	}
 	result, err = service.Mutate(context.Background(), repository, 7, task.Mutation{Kind: task.MutationClose}, false)
+	if requestErr := handlerError(); requestErr != nil {
+		t.Fatal(requestErr)
+	}
 	if err != nil || result.Task == nil || result.Task.State != task.StateDone || result.Task.InProgress {
 		t.Fatalf("close = %#v, %v", result, err)
 	}
-	for _, request := range requests {
+	mu.Lock()
+	requestLog := append([]string(nil), requests...)
+	mu.Unlock()
+	for _, request := range requestLog {
 		if strings.HasPrefix(request, http.MethodPatch+" /repos/example/repo/labels/") {
 			t.Fatalf("existing label metadata was updated: %s", request)
 		}
@@ -307,7 +342,7 @@ func TestGitHubStoreConfirmsOnlyAlreadyAbsentLabelDeletion(t *testing.T) {
 	}
 }
 
-func TestGitHubStoreMutationTranslatesPartialFailure(t *testing.T) {
+func TestGitHubStoreMutationPreservesFailureWithoutConfirmedChange(t *testing.T) {
 	t.Parallel()
 	getCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -332,7 +367,7 @@ func TestGitHubStoreMutationTranslatesPartialFailure(t *testing.T) {
 	)
 	var mutationErr *task.MutationError
 	var taskErr *task.Error
-	if !errors.As(err, &mutationErr) || !errors.As(err, &taskErr) || taskErr.Code != "github_error" || mutationErr.Task == nil || getCount != 2 {
+	if errors.As(err, &mutationErr) || !errors.As(err, &taskErr) || taskErr.Code != "github_error" || getCount != 2 {
 		t.Fatalf("Mutate() error = %#v", err)
 	}
 }

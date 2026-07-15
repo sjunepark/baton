@@ -158,11 +158,14 @@ func (s *Service) applyChange(ctx context.Context, repository string, number int
 	return nil
 }
 
-func (s *Service) mutationFailure(ctx context.Context, repository string, number int, changes []Change, attempted *Change, cause error) *MutationError {
+func (s *Service) mutationFailure(ctx context.Context, repository string, number int, changes []Change, attempted *Change, cause error) error {
 	issue, finalTask, readErr := s.readFinalState(ctx, repository, number)
 	confirmed := append([]Change(nil), changes...)
 	if readErr == nil && attempted != nil && changeConfirmed(issue, *attempted) {
 		confirmed = append(confirmed, *attempted)
+	}
+	if readErr == nil && len(confirmed) == 0 {
+		return cause
 	}
 	if readErr != nil {
 		cause = errors.Join(cause, fmt.Errorf("reread state after mutation failure: %w", readErr))

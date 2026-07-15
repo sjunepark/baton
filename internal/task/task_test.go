@@ -247,6 +247,36 @@ func TestMutationReportsConfirmedPartialFailureAndFinalReread(t *testing.T) {
 	}
 }
 
+func TestMutationPreservesOriginalErrorWhenNothingChanged(t *testing.T) {
+	t.Parallel()
+	store := &typedFailureStore{MemoryStore: task.NewMemoryStore()}
+	store.PutIssue(repository, task.Issue{
+		Number: 14, State: task.IssueOpen,
+		Labels: []string{task.LabelManaged, "agent:ready-trivial"},
+	})
+	if _, err := store.EnsureLabel(context.Background(), repository, task.LabelDefinition{Name: task.LabelInProgress}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := task.NewService(store).Mutate(
+		context.Background(), repository, 14,
+		task.Mutation{Kind: task.MutationStart}, false,
+	)
+	var taskErr *task.Error
+	var mutationErr *task.MutationError
+	if !errors.As(err, &taskErr) || taskErr.Code != "access_denied" || errors.As(err, &mutationErr) {
+		t.Fatalf("Mutate() error = %#v", err)
+	}
+}
+
+type typedFailureStore struct {
+	*task.MemoryStore
+}
+
+func (*typedFailureStore) AddLabel(context.Context, string, int, string) error {
+	return &task.Error{Code: "access_denied", Message: "repository access denied", Hint: "Check token permissions."}
+}
+
 func TestFailedFacetReplacementPreservesPriorClassification(t *testing.T) {
 	t.Parallel()
 	store := task.NewMemoryStore()
