@@ -417,7 +417,7 @@ git switch &lt;head-ref&gt;
 
         <section class="doc" data-section data-entry id="record">
           <h3 class="sec">Reporting the outcome</h3>
-          <p>Whether you built an issue or followed up a PR, return a short summary and concrete validation evidence to the caller. Coda or the invoking automation owns execution history. GitHub PR and issue state owns semantic work-item completion; Baton does not keep a second local completion ledger.</p>
+          <p>Whether you built an issue or followed up a PR, return a short summary and concrete validation evidence to the caller. The invoking automation owns execution history. GitHub PR and issue state owns semantic work-item completion; Baton does not keep a second local completion ledger.</p>
         </section>
 
         <section class="doc" data-section data-entry id="automate">
@@ -692,7 +692,7 @@ baton snapshot --json --repo owner/name</code></pre>
           <details class="cmd" data-entry>
             <summary><span class="name">baton next</span> <span class="desc">the one recommended action</span> <span class="badge">read-only</span></summary>
             <div class="cmd-body">
-              <p>Return the legacy v3 candidate projection retained for Coda compatibility and read-only inspection. New unattended automation uses <code>snapshot</code> so it can gate on Recommendation Outcome. Use <code>--action issue-investigation</code> only when a human deliberately wants investigation candidates instead of the default priority order.</p>
+              <p>Return the legacy v3 candidate projection for read-only inspection. New unattended automation uses <code>snapshot</code> so it can gate on Recommendation Outcome. Use <code>--action issue-investigation</code> only when a human deliberately wants investigation candidates instead of the default priority order.</p>
 <pre><code>baton next --format toon --repo owner/name
 baton next --action issue-investigation --format toon</code></pre>
               <div class="eyebrow">JSON · nextCandidates (trimmed)</div>
@@ -878,7 +878,7 @@ delivery:
             <h4>Result kinds</h4>
             <dl class="defs">
               <dt>repositorySnapshot</dt><dd>Preferred automation contract: one bounded acquisition plus <code>recommendation.outcome</code>, optional <code>action</code>, typed candidates, reasons, and instructions.</dd>
-              <dt>nextCandidates</dt><dd>Maintained Coda migration projection: <code>selectedAction</code>, <code>reason</code>, <code>selectionReason</code>, <code>selectionRequired</code>, <code>candidates[]</code>, <code>deferredEligibleItems[]</code>, <code>blockedItems[]</code>, <code>instructions[]</code>.</dd>
+              <dt>nextCandidates</dt><dd>Legacy projection: <code>selectedAction</code>, <code>reason</code>, <code>selectionReason</code>, <code>selectionRequired</code>, <code>candidates[]</code>, <code>deferredEligibleItems[]</code>, <code>blockedItems[]</code>, <code>instructions[]</code>.</dd>
               <dt>queueSnapshot</dt><dd><code>counts.eligibleByAction</code>; per issue: <code>eligible</code>, <code>priorityLabel</code>, <code>priorityRank</code>, <code>reasons</code>, <code>linkedPrs</code>; per PR: <code>referencedIssues</code>.</dd>
               <dt>reviewThreads</dt><dd><code>summary.unresolved</code>, <code>summary.humanUnresolved</code>; per thread: <code>isResolved</code>, <code>isOutdated</code>; per comment: <code>authorKind</code> (<code>human</code>, <code>codex</code>, <code>coderabbit</code>, <code>greptile</code>, <code>bot</code>, <code>unknown</code>), <code>bodyTruncated</code>.</dd>
               <dt>issuePolicyDecision · prPolicyDecision</dt><dd>Pure policy results — see the <a href="#commands">issue-policy</a> and <a href="#commands">pr-policy</a> commands.</dd>

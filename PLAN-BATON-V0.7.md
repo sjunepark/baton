@@ -17,35 +17,18 @@ used as v0.7 requirements.
 
 ## Current state
 
-- v0.6 is released and the working tree was clean before this planning-only
-  handoff.
-- The current CLI exposes issue, PR, branch, check, review, adoption, and
-  sealed-delivery orchestration through 20 top-level commands.
-- Target repositories can contain four Baton workflows, `.github/baton.yml`,
-  a label manifest, an issue template, generated guidance, required checks,
-  a staging branch convention, and an optional delivery ledger.
-- The cited adopter failure showed that PR policy can reject project work that
-  the user did not intend Baton to manage.
-- The current `snapshot` -> `queue` -> `workflow` stack is shaped as a
-  dispatcher: it exposes Candidates, Recommendations, action tiers,
-  acquisition windows, completeness, deferred work, and execution
-  instructions that a standalone issue manager does not need.
-- Config and label manifests are the only runtime users of YAML. Removing
-  active repository config allows the v0.7 CLI to drop that dependency.
-- The first M1/M2 implementation slice now exists in `internal/task`: the
-  canonical Task model, fixed-label classification, singular next selection,
-  one lifecycle planner, an issue-store seam, and an in-memory adapter. The
-  legacy CLI/runtime remains active until the later cutover and M3 deletion.
-- Exact v0.6.0 default managed-file bytes/fingerprints and representative
-  adopter inventories are preserved only under `testdata/migration/v0.6` for
-  the later M4 manual decommission guide.
-- The production Task store now uses typed GitHub issue/label endpoints with
-  server-side enrollment filtering, complete pagination, narrow label reads,
-  safe error translation, and no orchestration-fact acquisition.
-- The public CLI is now the setup-free Task surface only. Explicit and ambient
-  repository identities stop local discovery; optional local inference reads
-  only `origin`. Legacy runtime packages still compile but are unreachable and
-  remain for the final M3 deletion slice.
+- M1 through M3 are complete. The public CLI is the setup-free Task surface,
+  backed by the canonical Task module and narrow typed GitHub issue adapter.
+- Only `cmd/baton`, auth, CLI, GitHub transport, repository resolution, and
+  Task packages remain. The orchestration, policy, config, installer, doctor,
+  workflow, branch, PR, delivery, and compatibility runtime is deleted.
+- Old contract fixtures and named downstream integration artifacts are
+  deleted. Exact v0.6 managed-file evidence remains isolated under
+  `testdata/migration/v0.6` for M4.
+- YAML is no longer a dependency. Repository-wide tests, race detection, vet,
+  pinned Staticcheck, CLI boundary checks, and the implementation/diet review
+  pass.
+- M4 adopter decommissioning and M5 skill/docs/release work have not started.
 
 ## Confirmed product decisions
 
@@ -145,13 +128,13 @@ v0.7 does not install or monitor an issue-policy workflow:
 
 ## Milestones
 
-- [ ] **M1 — Freeze the issue-only contract.** Complete the domain, interface,
+- [x] **M1 — Freeze the issue-only contract.** Complete the domain, interface,
   output, fixed-label, and contract-test work in
   `01-product-contract.md`.
-- [ ] **M2 — Deliver the setup-free Task CLI.** Complete the Task module,
+- [x] **M2 — Deliver the setup-free Task CLI.** Complete the Task module,
   adapters, lifecycle commands, and validation in
   `02-task-core-cli.md`.
-- [ ] **M3 — Delete orchestration and old contracts.** Remove the runtime
+- [x] **M3 — Delete orchestration and old contracts.** Remove the runtime
   branch/PR/delivery/body-policy paths and legacy projections after
   preserving the exact v0.6 evidence required by migration fixtures.
 - [ ] **M4 — Decommission v0.6 adopters safely.** Complete the deterministic
@@ -238,3 +221,10 @@ Task module may change without adding public concepts.
   now proves explicit, ambient, and config-free local precedence. Repository-
   wide vet/tests, pinned staticcheck, binary help, and focused race tests pass.
   Next: delete the now-unreachable legacy runtime and fixtures.
+- **2026-07-16 — M3 runtime deletion:** Deleted the legacy orchestration,
+  policy, config, install, workflow, branch, PR, delivery, compatibility, and
+  generic operation-report paths plus their old fixtures. The remaining Task
+  contract has exhaustive fixed-label, next-ordering, and per-mutation
+  execution-state tests. YAML is gone; repository-wide tests, race detection,
+  vet, pinned Staticcheck, CLI boundary checks, v0.6 evidence hashes, and the
+  implementation/diet review pass. M1–M3 are complete; next is M4.

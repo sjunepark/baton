@@ -8,6 +8,22 @@ import (
 	"strconv"
 )
 
+type Issue struct {
+	Number      int
+	Title       string
+	URL         string
+	Body        string
+	Labels      []string
+	State       string
+	PullRequest bool
+}
+
+type Label struct {
+	Name        string `json:"name"`
+	Color       string `json:"color"`
+	Description string `json:"description"`
+}
+
 // ListIssuesByLabelContext retrieves GitHub issues using the server-side label
 // filter. GitHub's issues endpoint also returns pull requests, which are
 // excluded before facts reach the Task adapter.
@@ -50,17 +66,22 @@ type issueListPayload struct {
 
 type issuePayload struct {
 	Number      int       `json:"number"`
-	NodeID      string    `json:"node_id"`
 	Title       string    `json:"title"`
 	HTMLURL     string    `json:"html_url"`
 	Body        string    `json:"body"`
 	State       string    `json:"state"`
-	Locked      bool      `json:"locked"`
-	Comments    int       `json:"comments"`
 	PullRequest *struct{} `json:"pull_request"`
 	Labels      []struct {
 		Name string `json:"name"`
 	} `json:"labels"`
+}
+
+func (c *Client) GetIssueContext(ctx context.Context, repo string, number int) (Issue, error) {
+	var resource issuePayload
+	if err := c.getJSONContext(ctx, fmt.Sprintf("/repos/%s/issues/%d", repo, number), &resource); err != nil {
+		return Issue{}, err
+	}
+	return issueFromPayload(resource), nil
 }
 
 func issueFromPayload(resource issuePayload) Issue {
@@ -69,9 +90,9 @@ func issueFromPayload(resource issuePayload) Issue {
 		labels = append(labels, label.Name)
 	}
 	return Issue{
-		Number: resource.Number, NodeID: resource.NodeID, Title: resource.Title,
+		Number: resource.Number, Title: resource.Title,
 		URL: resource.HTMLURL, Body: resource.Body, Labels: labels, State: resource.State,
-		PullRequest: resource.PullRequest != nil, Locked: resource.Locked, CommentCount: resource.Comments,
+		PullRequest: resource.PullRequest != nil,
 	}
 }
 

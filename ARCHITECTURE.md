@@ -5,8 +5,8 @@
 Baton is a local-first automation coordinator for solo-developer GitHub
 projects. It converts GitHub Issues and PRs into deterministic agent work
 instructions and enforces repository policy. Local execution isolation belongs
-to the caller: a Coda job, Treehouse checkout, Codex background checkout, or
-user-managed worktree provides the working directory before code edits happen.
+to the caller: an isolated automation checkout or user-managed worktree
+provides the working directory before code edits happen.
 
 The system is intentionally split:
 
@@ -168,7 +168,7 @@ GitHub state + repo config
 6. Codex verifies it is already operating in a caller-provided isolated
    checkout before editing.
 7. Codex validates, pushes/comments, and reports the outcome to its caller.
-   Coda or the invoking automation owns execution completion; GitHub owns
+   The invoking automation owns execution completion; GitHub owns
    semantic issue/PR state.
 
 ### Adoption Compatibility

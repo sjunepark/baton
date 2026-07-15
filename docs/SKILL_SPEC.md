@@ -104,8 +104,8 @@ Routing rules:
 7. Implement or investigate exactly the chosen candidate.
 8. Validate with focused checks first.
 9. Push/comment according to the snapshot's `action` and the chosen candidate.
-10. Report the summary and validation evidence to the caller, then stop. Coda
-    or the invoking automation owns execution completion; Baton does not keep
+10. Report the summary and validation evidence to the caller, then stop. The
+    invoking automation owns execution completion; Baton does not keep
     a parallel completion ledger.
 
 ### PR Follow-Up

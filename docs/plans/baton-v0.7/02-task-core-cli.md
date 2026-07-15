@@ -22,8 +22,8 @@ behind compatibility wrappers.
   the typed client with complete pagination and safe typed errors.
 - Setup-free repository resolution and the standalone Task CLI are active; old
   commands return the ordinary unknown-command usage error.
-- Trimming obsolete GitHub methods and deleting the unreachable legacy runtime,
-  packages, tests, and fixtures remain.
+- The obsolete GitHub methods, legacy runtime packages, tests, and fixtures are
+  deleted. Only the Task-facing transport and six Go packages remain.
 
 ## Architecture audit findings
 
@@ -104,7 +104,7 @@ one real adapter and no testing value.
 - [x] Define the minimum issue-store port from real command needs.
 - [x] Add the in-memory adapter first and test list, detail, next, and every
   transition through the Task interface.
-- [ ] Trim the GitHub adapter to server-side queries for open/closed
+- [x] Trim the GitHub adapter to server-side queries for open/closed
   `baton:managed` issues, one-issue detail, label definitions and mutations,
   and close operations.
 - [x] Keep comments out of the Task store. Core list/show/next/mutations never
@@ -121,11 +121,11 @@ one real adapter and no testing value.
 - [x] Stop resolving after the first authoritative source. Do not inspect,
   compare, or reject a broken checkout remote when `--repo` or the environment
   already supplied the repository.
-- [ ] Delete active config loading, `--config`, `.github/baton.yml` discovery,
+- [x] Delete active config loading, `--config`, `.github/baton.yml` discovery,
   legacy decoding, label manifests, and all config precedence/validation.
 - [x] Put the fixed mode, priority, blocker, managed, and activity labels in
   the Task module. Do not add a configurable label-role abstraction.
-- [ ] Remove `gopkg.in/yaml.v3` and run `go mod tidy` after its config,
+- [x] Remove `gopkg.in/yaml.v3` and run `go mod tidy` after its config,
   manifest, and installer consumers are gone.
 - [x] Preserve existing token discovery where useful. Calling `gh auth token`
   as a credential provider remains allowed; do not scrape human-oriented `gh`
@@ -139,7 +139,7 @@ one real adapter and no testing value.
 - [x] Implement the exact fixed mode, priority, and repeatable blocker flags
   from the public contract. Reject an empty `update`, conflicting blocker
   flags, and invalid enum values as usage errors before auth or network work.
-- [ ] Make no-argument Baton print concise help without resolving auth,
+- [x] Make no-argument Baton print concise help without resolving auth,
   repository, config, git, or network state. Delete `home` and `doctor`.
 - [x] Make `next` return one ready Task using priority then issue number across
   all modes, or a definitive null. Delete action tiers, candidate/deferred
@@ -162,49 +162,51 @@ one real adapter and no testing value.
 - [x] Let explicit lifecycle planners lazily create only the missing default
   label needed by that operation so first use does not require setup; do not
   update existing label metadata or create arbitrary project labels.
-- [ ] Do not add setup/readiness commands, a template installer, issue-policy
+- [x] Do not add setup/readiness commands, a template installer, issue-policy
   workflow, workflow pin, drift detector, validator command, or policy-comment
   maintainer.
 - [ ] Keep an optional copyable issue-template example in user guidance only.
   It is not installed, parsed, fingerprinted, or tested as Task authority.
+  This is M5 documentation work; the M2/M3 runtime contains no template path.
 
 ### 6. Delete the old runtime path
 
 - [x] Before deleting installer/doctor code, preserve exact v0.6 managed-file
   fingerprints and representative settings facts required by the bounded
   decommission fixtures.
-- [ ] Remove PR policy, PR transition, PR/check/review inspection, branch
+- [x] Remove PR policy, PR transition, PR/check/review inspection, branch
   planning, staging health, delivery recording/bootstrap, promotion,
   synchronization, and adoption-compatibility commands.
-- [ ] Remove `snapshot` and fold the small amount of retained issue selection
+- [x] Remove `snapshot` and fold the small amount of retained issue selection
   behavior into the Task module. Delete Candidate, Recommendation, Action,
   Outcome, acquisition/completeness, revision identity, deferred-selection,
   and in-band instruction types rather than renaming them.
-- [ ] Remove body parsing, required sections, controlled form mappings, hidden
+- [x] Remove body parsing, required sections, controlled form mappings, hidden
   ownership comments/digests, ownership repair, and issue-event authority.
-- [ ] Remove config/install fields and all v0.6 decoding from the active
+- [x] Remove config/install fields and all v0.6 decoding from the active
   runtime; any exact evidence needed by M4 lives only under a migration-v0.6
   fixture namespace.
-- [ ] Delete generic `internal/operation` reports. Task mutations return only
+- [x] Delete generic `internal/operation` reports. Task mutations return only
   changed/dry-run facts, an ordered Task-specific change list, and the final or
   projected Task.
-- [ ] Delete unused GraphQL/REST queries, fixtures, templates, packages, tests,
+- [x] Delete unused GraphQL/REST queries, fixtures, templates, packages, tests,
   docs hooks, and error paths. Do not leave no-op commands or compatibility
   adapters.
-- [ ] Delete downstream-tool-specific adapters, fixtures, golden contracts,
+- [x] Delete downstream-tool-specific adapters, fixtures, golden contracts,
   and documentation rather than translating them to the new Task contract.
-- [ ] Delete `internal/cli/coda_contract_test.go` and
+- [x] Delete `internal/cli/coda_contract_test.go` and
   `testdata/contracts/coda/`, then remove their testdata index entries.
-- [ ] Delete `docs/GOAL-CODA-INTEGRATION-REDESIGN.md`,
+- [x] Delete `docs/GOAL-CODA-INTEGRATION-REDESIGN.md`,
   `docs/adopter-updates/coda-contract-baseline.md`, and
   `docs/adopter-updates/coda-repository-snapshot-v2.md`, then remove their
   index links. They are compatibility artifacts, not v0.7 history that Baton
   must maintain.
-- [ ] Remove Coda-specific requirements from active product docs, repository
+- [x] Remove Coda-specific requirements from active product docs, repository
   instructions, and bundled skill references. Core Task docs should not define
   checkout, process, Run, dispatcher, or execution ownership.
 - [ ] Preserve immutable release notes and clearly superseded ADRs only as
   history; they must not be linked or tested as active contracts.
+  Superseding and relinking the remaining v0.6 documentation is M5 work.
 
 ## Code areas to inspect first
 
@@ -244,7 +246,7 @@ Keep and simplify modules that continue to earn their interface:
 
 ## Validation
 
-- [ ] Unit-test the Task module exclusively through its external interface;
+- [x] Unit-test the Task module exclusively through its external interface;
   delete shallow tests after replacement coverage exists.
 - [x] Test the production adapter with `httptest` fixtures for pagination,
   errors, redaction, server-side managed-label filtering, label creation,
@@ -253,19 +255,19 @@ Keep and simplify modules that continue to earn their interface:
   settings, commit, or delivery request.
 - [x] Test all commands without config using explicit repo, ambient repo, and
   optional local inference; include an explicit repo beside a broken checkout.
-- [ ] Test every mutation in dry-run/no-op/apply/partial-failure/final-reread
+- [x] Test every mutation in dry-run/no-op/apply/partial-failure/final-reread
   states without asserting atomic claims or stale-plan identities.
-- [ ] Delete all old contract fixtures, including doctor, queue TOON, PR policy,
+- [x] Delete all old contract fixtures, including doctor, queue TOON, PR policy,
   pull request, transition, delivery, event, format/field, rich-error, and
   generic operation-report fixtures and tests. Retain only explicitly named
   v0.6 decommission evidence under `testdata/migration/v0.6`.
-- [ ] Audit named downstream-tool references. Every remaining occurrence must
+- [x] Audit named downstream-tool references. Every remaining occurrence must
   be this bounded removal checklist or immutable, clearly superseded history;
   no active code, test, fixture, spec, skill, or instruction may depend on it.
-- [ ] Run `gofmt`, `go vet ./...`, pinned staticcheck, and `go test ./...`.
-- [ ] Run `go mod tidy` and confirm the YAML dependency and removed-package
+- [x] Run `gofmt`, `go vet ./...`, pinned staticcheck, and `go test ./...`.
+- [x] Run `go mod tidy` and confirm the YAML dependency and removed-package
   imports are absent.
-- [ ] Inspect the final diff with the repository's implementation-review and
+- [x] Inspect the final diff with the repository's implementation-review and
   diet lenses; remove compatibility or abstraction surface that does not earn
   leverage.
 
@@ -310,3 +312,11 @@ Keep and simplify modules that continue to earn their interface:
   help paths, and pre-network rejections are covered. `go vet ./...`,
   `go test ./...`, pinned staticcheck, and focused race tests pass. Next: M3
   deletion of the unreachable v0.6 runtime and contracts.
+- **2026-07-16 — Task-only runtime:** Deleted the unreachable orchestration and
+  policy architecture, old GitHub queries, config/install/YAML path, generic
+  operation reports, downstream contracts, and every old fixture except the
+  isolated v0.6 migration evidence. Exhaustive label, ordering, and mutation
+  execution-state matrices pass. The final review's post-write confirmation
+  finding is resolved by reconciling the attempted change with the reread
+  issue. M2 and M3 are complete; optional guidance and historical-doc relinking
+  remain explicitly assigned to M5.

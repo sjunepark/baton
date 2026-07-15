@@ -111,12 +111,12 @@ func (s *Service) Mutate(ctx context.Context, repository string, number int, mut
 	applied := []Change{}
 	for _, change := range plan.Changes {
 		if err := s.applyChange(ctx, repository, number, change, &applied); err != nil {
-			return MutationResult{}, s.mutationFailure(ctx, repository, number, applied, err)
+			return MutationResult{}, s.mutationFailure(ctx, repository, number, applied, &change, err)
 		}
 	}
 	finalTask, err := s.readFinalTask(ctx, repository, number)
 	if err != nil {
-		return MutationResult{}, s.mutationFailure(ctx, repository, number, applied, fmt.Errorf("reread final task: %w", err))
+		return MutationResult{}, s.mutationFailure(ctx, repository, number, applied, nil, fmt.Errorf("reread final task: %w", err))
 	}
 	return MutationResult{Changed: len(plan.Changes) > 0, Changes: plan.Changes, Task: finalTask}, nil
 }
@@ -153,28 +153,51 @@ func (s *Service) applyChange(ctx context.Context, repository string, number int
 	return nil
 }
 
-func (s *Service) mutationFailure(ctx context.Context, repository string, number int, changes []Change, cause error) *MutationError {
-	finalTask, _ := s.readFinalTask(ctx, repository, number)
+func (s *Service) mutationFailure(ctx context.Context, repository string, number int, changes []Change, attempted *Change, cause error) *MutationError {
+	issue, finalTask, readErr := s.readFinalState(ctx, repository, number)
+	confirmed := append([]Change(nil), changes...)
+	if readErr == nil && attempted != nil && changeConfirmed(issue, *attempted) {
+		confirmed = append(confirmed, *attempted)
+	}
 	return &MutationError{
 		Code: "mutation_failed", Message: fmt.Sprintf("Task mutation for issue #%d failed", number),
 		Hint:    "Inspect the confirmed changes and current task, then retry the command.",
-		Changes: changes, Task: finalTask, Cause: cause,
+		Changes: confirmed, Task: finalTask, Cause: cause,
 	}
 }
 
 func (s *Service) readFinalTask(ctx context.Context, repository string, number int) (*Task, error) {
+	_, finalTask, err := s.readFinalState(ctx, repository, number)
+	return finalTask, err
+}
+
+func (s *Service) readFinalState(ctx context.Context, repository string, number int) (Issue, *Task, error) {
 	issue, err := s.store.GetIssue(ctx, repository, number)
 	if err != nil {
-		return nil, err
+		return Issue{}, nil, err
 	}
 	task, err := Classify(issue)
 	if taskErr, ok := err.(*Error); ok && taskErr.Code == "not_managed" {
-		return nil, nil
+		return issue, nil, nil
 	}
 	if err != nil {
-		return nil, err
+		return Issue{}, nil, err
 	}
-	return &task, nil
+	return issue, &task, nil
+}
+
+func changeConfirmed(issue Issue, change Change) bool {
+	labels := canonicalLabelSet(issue.Labels)
+	switch change.Action {
+	case ChangeAddLabel:
+		return hasLabel(labels, change.Label)
+	case ChangeRemoveLabel:
+		return !hasLabel(labels, change.Label)
+	case ChangeCloseIssue:
+		return issue.State == IssueClosed
+	default:
+		return false
+	}
 }
 
 func detailBody(body string, full bool) (string, bool) {

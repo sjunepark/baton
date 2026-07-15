@@ -21,7 +21,7 @@
     },
     {
       "id": "caller-owned-execution-context",
-      "rule": "Flag attempts to add worktree leasing, pruning, deletion, reset, or cleanup lifecycle back into Baton. Checkout lifecycle belongs to Coda, Treehouse, Codex, or the user.",
+      "rule": "Flag attempts to add worktree leasing, pruning, deletion, reset, or cleanup lifecycle back into Baton. Checkout lifecycle belongs to the invoking environment or user.",
       "scope": ["internal/git/**", "internal/queue/**", "cmd/**", ".github/workflows/**", "skills/**"],
       "severity": "high"
     },

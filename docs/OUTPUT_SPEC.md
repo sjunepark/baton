@@ -18,23 +18,17 @@ output contract for future CLI changes.
 ### Versioning and migration rules
 
 - Adding an optional field is compatible only when existing field meaning,
-  types, and required collection shapes stay unchanged. Collections consumed
-  by Coda remain JSON arrays, including when empty; they do not become `null`.
+  types, and required collection shapes stay unchanged. Collections remain
+  JSON arrays, including when empty; they do not become `null`.
 - Renaming or removing a field, changing its type or meaning, making an
   optional field required, changing a `kind`, or changing an exit code requires
   a schema-version bump and parallel fixtures for the old and new contracts.
-- `nextCandidates` v3, `queueSnapshot` v2, and structured error v1 remain
-  available while the maintained Coda consumer migrates. Their adopter note
-  must define the supported overlap period. Removing them is a breaking public
-  change and therefore requires a Baton major release after that period.
 - `repositorySnapshot` v2 is the preferred observation contract. Its queue,
   branch, pull-request, and Recommendation fields come from one bounded
   acquisition; legacy queue and next results are projections of that model.
 - `pullRequest` v2 replaces v1 in the breaking v0.6 migration because merged
   managed-work references now come from covered staged-work records. The unsafe
   mutable-text diagnostic is not preserved as a compatibility mode.
-- Golden consumer fixtures live in `testdata/contracts/coda/`. Tests there use
-  consumer-style required-field checks and deliberately allow additive fields.
 
 ### Baseline output and exit behavior
 

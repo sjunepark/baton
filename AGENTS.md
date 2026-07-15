@@ -19,8 +19,8 @@
   or platform complexity.
 - Treat repository mutation as unsafe unless the caller has provided an
   isolated checkout for that work.
-- Do not add worktree leasing or cleanup back into Baton; Coda, Treehouse,
-  Codex, or the user owns checkout lifecycle.
+- Do not add worktree leasing or cleanup back into Baton; the invoking
+  environment or user owns checkout lifecycle.
 - Keep commands JSON-first for automation; human text output can wrap the same
   internal result objects.
 

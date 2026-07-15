@@ -8,8 +8,8 @@ URL, one GitHub `owner/name`, and the config's branch policy. If `--repo` or
 `GITHUB_REPOSITORY` disagrees with the configured checkout remote, resolution
 fails before authentication or GitHub requests. The remote host must match the
 default GitHub.com API or the configured GitHub Enterprise API host. Callers
-such as Coda should run Baton with the Project checkout as the working directory
-only when that checkout's configured remote identifies the Project metadata
+should run Baton with the Project checkout as the working directory only when
+that checkout's configured remote identifies the Project metadata
 repository passed as `--repo`. Agreement is a safety precondition;
 cross-repository checkout/metadata invocation is unsupported and must stop with
 the structured config error before authentication or GitHub I/O.
@@ -31,8 +31,8 @@ sequencing, result composition, and mutation ordering.
 
 Baton does not manage worktrees.
 
-Automation isolation is the caller's responsibility. A Coda job, Treehouse
-checkout, Codex background checkout, or manually prepared git worktree should
+Automation isolation is the caller's responsibility. An isolated automation
+checkout or manually prepared git worktree should
 provide the directory where edits happen before Baton-guided implementation
 starts.
 

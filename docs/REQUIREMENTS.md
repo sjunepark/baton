@@ -87,10 +87,10 @@ Baton should extract this workflow into a reusable tool for the user's projects.
 - Baton must not instruct automation to mutate the user's primary checkout.
 - Baton must expose enough branch/ref facts for a caller-provided execution
   context to do one selected unit safely.
-- Baton must work well when invoked from Coda, Treehouse, Codex background
-  checkouts, or manually prepared worktrees.
-- Baton must not maintain a caller-style execution or completion ledger. Coda
-  or the invoking automation owns Runs, provenance, retries, and validation
+- Baton must work well when invoked from isolated automation checkouts or
+  manually prepared worktrees.
+- Baton must not maintain a caller-style execution or completion ledger. The
+  invoking automation owns execution provenance, retries, and validation
   evidence; GitHub owns semantic issue and PR state.
 
 ### GitHub Writes

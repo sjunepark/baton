@@ -10,10 +10,10 @@ compatibility.
 ## Current state
 
 - The contract is represented in the new `internal/task` model and service.
-- Lifecycle precedence, missing/contradictory classification, blockers with
-  activity, closed Tasks, and unenrolled issues have direct external-package
-  tests. CLI JSON/error goldens, empty states, and idempotent lifecycle outcomes
-  are covered; the exhaustive label/next-ordering matrix remains.
+- Lifecycle precedence and every fixed-label combination have direct
+  external-package tests. CLI JSON/error goldens, empty states, idempotent
+  lifecycle outcomes, and singular ordering across every priority and mode
+  are covered.
 
 ## Domain model
 
@@ -228,13 +228,13 @@ There is no installed intake profile in v0.7:
 
 ## Contract tests
 
-- [ ] Table-test every label combination and derived lifecycle outcome.
+- [x] Table-test every label combination and derived lifecycle outcome.
 - [x] Cover contradictory modes, missing mode, multiple priorities, blockers
   with activity, closed tasks, and unenrolled issues.
 - [x] Golden-test the small JSON list/show/next/mutation and error shapes
   without downstream-tool-specific fixtures.
 - [x] Test definitive empty lists and no-next-task results.
-- [ ] Test singular next ordering across priority, unspecified priority, issue
+- [x] Test singular next ordering across priority, unspecified priority, issue
   number, and every mode; mode must not affect ordering.
 - [x] Test idempotent enroll, unenroll, start, stop, and close outcomes.
 - [x] Test explicit repository precedence, including a broken lower-precedence
@@ -266,3 +266,6 @@ There is no installed intake profile in v0.7:
   with canonical list/show/next/mutation/error goldens, definitive empty states,
   exact fixed flags, and the three-exit contract. CLI and resolver tests prove
   explicit, ambient, and local repository precedence without config discovery.
+- **2026-07-16 — Contract freeze:** Added an exhaustive 2,048-case fixed-label
+  lifecycle matrix and singular-next cases covering P0 through P3, implicit
+  and explicit P2, issue-number ties, and every mode. M1 is complete.

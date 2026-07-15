@@ -121,3 +121,22 @@ func parseTaskRemote(remote string) (host, repository string, err error) {
 	repository, err = normalizeTaskRepository(path, "local origin")
 	return host, repository, err
 }
+
+func githubHostCompatible(remoteHost, apiURL string) bool {
+	remoteHost = strings.ToLower(remoteHost)
+	if remoteHost == "ssh.github.com" {
+		remoteHost = "github.com"
+	}
+	apiHost := "api.github.com"
+	if strings.TrimSpace(apiURL) != "" {
+		parsed, err := url.Parse(apiURL)
+		if err != nil || parsed.Hostname() == "" {
+			return false
+		}
+		apiHost = strings.ToLower(parsed.Hostname())
+	}
+	if apiHost == "api.github.com" {
+		return remoteHost == "github.com"
+	}
+	return remoteHost == apiHost || strings.TrimPrefix(apiHost, "api.") == remoteHost
+}
