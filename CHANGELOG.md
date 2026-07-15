@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.6.0](https://github.com/sjunepark/baton/compare/v0.5.1...v0.6.0) (2026-07-15)
+
+
+### ⚠ BREAKING CHANGES
+
+* adopt sealed delivery orchestration ([#23](https://github.com/sjunepark/baton/issues/23))
+
+### Features
+
+* adopt sealed delivery orchestration ([#23](https://github.com/sjunepark/baton/issues/23)) ([0b2b5b9](https://github.com/sjunepark/baton/commit/0b2b5b9cd94478e4ac9d25b58b3e1690667a21c0))
+
 ## [0.5.1](https://github.com/sjunepark/baton/compare/v0.5.0...v0.5.1) (2026-07-14)
 
 
