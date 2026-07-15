@@ -18,9 +18,9 @@ contracts, and your judgment for code changes.
 - Run `baton home --format toon` or `baton doctor --format toon` to establish
   local Baton context.
 - Run `baton snapshot --format toon` before selecting unattended work.
-- Act only when `outcome` is `actionable`, then choose exactly one snapshot
-  candidate per automation run. Human-choice, waiting, blocked, idle, and
-  degraded outcomes are stop/report states.
+- Act only when `recommendation.outcome` is `actionable`, then choose exactly
+  one snapshot candidate per automation run. Human-choice, waiting, blocked,
+  idle, and degraded outcomes are stop/report states.
 - Verify you are in a caller-provided isolated checkout before editing files.
 - Work only inside that isolated checkout.
 - Never mutate the user's primary checkout for automation work.
@@ -114,16 +114,20 @@ argument.
   --body-file <tmp-file> --json`, then create issues with `gh issue create`.
 - `investigate`: inspect the issue through Baton/GitHub, confirm investigation
   scope, run focused diagnostics, and comment findings. Do not edit files.
-- `implement`: confirm the issue has an implementation label and no skip label,
+- `implement`: run `baton snapshot --format toon --repo <repo>` and continue
+  only when `recommendation.outcome` is `actionable`,
+  `recommendation.action` is `issue_implementation`, and
+  `recommendation.candidates` contains the requested issue identity. That
+  selection proves durable ownership and current intake eligibility. Then
   verify the isolated checkout, create a work branch from the staging branch,
   validate, and open/update a PR to the staging branch with `Refs #<issue>`.
 - `follow-up`: run `baton pr <number> --json`, `baton checks <number> --format
   toon`, and `baton review-threads <number> --format toon`; verify the
   isolated checkout, check out the existing PR branch, and push fixes there.
 - `run`: run `baton snapshot --format toon --repo <repo>`. Continue only when
-  `outcome` is `actionable`; choose exactly one returned candidate, handle it
-  according to `action`, validate, report the chosen candidate, and stop. All
-  other outcomes are report-and-stop states.
+  `recommendation.outcome` is `actionable`; choose exactly one returned
+  candidate, handle it according to `recommendation.action`, validate, report
+  the chosen candidate, and stop. All other outcomes are report-and-stop states.
 - `adopt`: run read-only/dry-run setup checks: `baton home --format toon`,
   `baton doctor --repo <repo> --format toon`, `baton init --dry-run --json`,
   `baton migrate-config --dry-run` when a legacy policy exists,
@@ -158,7 +162,10 @@ argument.
 
 ## Issue Intake
 
-- Confirm the issue is implementation-ready and has no skip labels.
+- Confirm `snapshot` selected the requested issue with
+  `recommendation.outcome` equal to `actionable` and `recommendation.action`
+  equal to `issue_implementation`; an implementation label alone is not
+  durable managed ownership.
 - Create work from the configured staging branch in the isolated checkout.
 - Open the work PR to the staging branch with `Refs #<issue>`, not closing
   keywords.
@@ -172,6 +179,8 @@ argument.
 - For creating Baton-ready GitHub issue todos, read
   `references/todo-creation.md`.
 - For commands and common flags, read `references/commands.md`.
+- For reviewed delivery-ledger initialization, migration, and cutover, read
+  `references/delivery-bootstrap.md`.
 - For JSON fields to inspect before acting, read `references/json-contracts.md`.
 - For target-repo setup and scheduled Codex app automations that run Baton, read
   `references/automation-setup.md`.

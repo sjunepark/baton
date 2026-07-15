@@ -90,7 +90,7 @@ New integrations should use `repositorySnapshot` v2. `nextCandidates` v3 and
 - `report`: present after apply, with per-operation `applied`, `unchanged`,
   `refused`, `failed`, or `not_attempted` outcomes.
 
-`deliveryRecordPlan` v2:
+`deliveryRecordPlan` v3:
 
 - `complete` and `applicable`: both must be true before mutation.
 - `append`: exact staged-work record, checkpoint precondition, or committed
@@ -103,13 +103,17 @@ New integrations should use `repositorySnapshot` v2. `nextCandidates` v3 and
   planning. Apply reacquires the rollup after checkpoint commit.
 - `report`: preserves partial ownership, append, checkpoint, and recheck effects.
 - `synchronization`: exact reviewed base-to-staging PR and ancestry-preserving
-  result; apply records evidence but never creates or merges the PR.
+  result plus durable promotion-recheck targets; apply records evidence but
+  never creates or merges the PR. Pending targets are recovered before later
+  delivery work and cleared only after reconciliation.
 
 `deliveryBootstrapPlan` v1 exposes a stable `planId`, every source fact and
 relationship, explicit ambiguities, structured open-promotion shadow
 comparisons, the reviewed genesis boundary, and exact ownership/staged records.
 Apply requires the same `planId`. Initialization
-returns the checkpoint body and exact locator for review into config. Record
+returns the checkpoint body and exact locator for review into config.
+Initialization v2 can also return a drained-ledger rollover with exact
+predecessor/successor commitment. Record
 append and checkpoint update operations are reported independently.
 
 `prPolicyDecision` v4 and transition v4 use one ownership vocabulary:

@@ -70,7 +70,7 @@ Review the `baton init --dry-run --json` plan before applying it. Use
 `agent`, without force-resetting existing branch state.
 
 The delivery recorder is a no-op until repository config pins a reviewed
-locator. When adopting it, follow `docs/DELIVERY_BOOTSTRAP.md`: use
+locator. When adopting it, follow `delivery-bootstrap.md`: use
 `delivery.authority: shadow` during bootstrap and change it to `sealed` only
 after the complete plan and every shadow comparison are reviewed.
 
@@ -89,7 +89,7 @@ autonomous agents should work from the GitHub issue/PR queue:
 
 - Use `$baton` for unattended GitHub issue and PR work.
 - Run `baton snapshot --format toon` before choosing unattended work. Continue
-  only for `outcome: actionable`.
+  only when `recommendation.outcome` is `actionable`.
 - Choose and handle at most one Baton candidate per run.
 - Verify the automation is running in an isolated checkout before editing
   files; do not mutate the primary checkout for automation work.
@@ -195,7 +195,8 @@ After scheduling, inspect the first few automation outputs before trusting the
 cadence. Check that each run:
 
 - loaded `$baton`;
-- ran `baton snapshot` and gated on `outcome: actionable` before selecting work;
+- ran `baton snapshot` and gated on `recommendation.outcome` being `actionable`
+  before selecting work;
 - handled zero or one unit;
 - verified isolated checkout context before edits;
 - worked only in that isolated checkout;

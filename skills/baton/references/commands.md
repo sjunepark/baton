@@ -13,7 +13,8 @@ automation contracts and mutating command results.
 - `$baton todos <notes-or-file>`: split notes into Baton-ready GitHub issues.
 - `$baton investigate <issue>`: investigate/comment without edits.
 - `$baton implement <issue>`: in a caller-provided isolated checkout,
-  implement one ready issue and open/update a staging PR.
+  implement only when `baton snapshot` selects that exact issue as an
+  actionable `issue_implementation` candidate, then open/update a staging PR.
 - `$baton follow-up <pr>`: in a caller-provided isolated checkout, fix PR
   follow-up on the existing branch.
 - `$baton run [repo]`: choose and handle exactly one safe candidate.
@@ -37,7 +38,7 @@ automation contracts and mutating command results.
   investigation candidates when a human intentionally wants that lower-priority
   action.
 - `baton snapshot --format toon`: preferred unattended-work observation. Act
-  only when `outcome` is `actionable`; otherwise report and stop.
+  only when `recommendation.outcome` is `actionable`; otherwise report and stop.
 - `baton queue --format toon`: inspect eligible and skipped issues.
 - `baton prs --format toon`: list open staging PRs.
 - `baton pr <number> --json`: inspect one PR.
@@ -63,8 +64,9 @@ automation contracts and mutating command results.
 - `baton delivery-bootstrap --dry-run|--apply --plan-id <id> --json`: review
   and apply delivery migration. Invoke it through the generated Delivery
   Recorder bootstrap modes so writes are trusted and serialized. Initialization
-  and historical migration must follow `docs/DELIVERY_BOOTSTRAP.md`; unresolved
-  ambiguity is a stop.
+  and historical migration must follow `delivery-bootstrap.md`; when a locator
+  is already pinned, initialization is a drained-ledger rollover into a new
+  locked issue. Unresolved ambiguity is a stop.
 - `baton migrate-config --dry-run|--apply`: convert legacy
   `.github/agent-issue-policy.yml` into `.github/baton.yml`.
 Mutating commands require explicit `--apply`, `--yes`, or user-provided

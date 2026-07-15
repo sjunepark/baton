@@ -34,7 +34,8 @@ The skill must instruct Codex to:
 - Run `baton home --format toon` or `baton doctor --repo owner/name --format toon` when
   repository readiness is uncertain.
 - Run `baton snapshot --format toon` before selecting unattended work. Proceed
-  only when `outcome` is `actionable`; every other outcome is report-and-stop.
+  only when `recommendation.outcome` is `actionable`; every other outcome is
+  report-and-stop.
 - Prefer Baton compact output or JSON over manual GitHub browsing for queue
   state.
 - Create todos as structured GitHub issues with the Agent-readable work item
@@ -93,7 +94,8 @@ Routing rules:
 ### General Automation
 
 1. Run `baton snapshot --format toon`.
-2. Unless `outcome` is `actionable`, report the outcome/reasons and stop.
+2. Unless `recommendation.outcome` is `actionable`, report the outcome/reasons
+   and stop.
 3. Choose exactly one returned candidate and follow the typed `action`.
 4. Verify the current working directory is a caller-provided isolated checkout.
 5. Check out the PR `headRef` for follow-up or create an issue-work branch from
@@ -169,6 +171,8 @@ Stop and report instead of editing when:
 The skill may include:
 
 - `references/commands.md`: compact command reference.
+- `references/delivery-bootstrap.md`: reviewed delivery-ledger initialization,
+  migration, and cutover procedure.
 - `references/json-contracts.md`: key fields Codex should inspect.
 - `references/todo-creation.md`: guidance and prompts for creating
   Baton-ready GitHub issue todos.

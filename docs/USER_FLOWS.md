@@ -118,16 +118,21 @@ recommendation.
 
 ## Implement An Issue
 
-Use when one ready issue has clear acceptance criteria and no skip label.
+Use when one durably managed issue has clear acceptance criteria and `snapshot`
+selects it for implementation.
 
-- Required input: issue number or a repository where `snapshot` reports an
-  `actionable` eligible implementation item.
+- Required input: issue number and a repository where
+  `recommendation.outcome` is `actionable`, `recommendation.action` is
+  `issue_implementation`, and `recommendation.candidates` contains that exact
+  issue identity.
 - Skill command: `$baton implement <issue>` or `$baton run [repo]`.
 - CLI equivalent:
 
   ```sh
   baton snapshot --format toon --repo owner/name
-  # continue only when outcome is actionable
+  # continue only when recommendation.outcome is actionable,
+  # recommendation.action is issue_implementation, and its candidates
+  # contain the requested issue identity
   # in a caller-provided isolated checkout:
   # substitute repository.work_branch_prefix, repository.default_remote,
   # and repository.staging_branch from .github/baton.yml:
