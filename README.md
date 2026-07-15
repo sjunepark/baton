@@ -178,6 +178,25 @@ reads the live repository and blocks workflow, Actions, ownership/delivery,
 required-check, merge-setting, ruleset, or merge-queue incompatibilities. Do
 not finish adoption while its `readyState` is `blocked`.
 
+## Security and Support Boundaries
+
+- Baton does not currently support using selected-action
+  `patterns_allowed` as the only authorization for generated actions in a
+  private enterprise repository. For private repositories, enable GitHub-owned
+  actions explicitly; otherwise `doctor` blocks adoption. Enterprise-aware
+  pattern evaluation is deferred until Baton can acquire enterprise membership
+  authoritatively without making organization-level access a baseline setup
+  requirement.
+- Baton's setup-free ownership provenance trusts `github-actions[bot]` rather
+  than a dedicated Baton App. Every repository workflow granted `issues: write`
+  is therefore inside the trust boundary: another such workflow could mint a
+  syntactically valid ownership record. Grant that permission only to reviewed
+  default-branch workflows, protect workflow-file changes, and never execute
+  pull-request-controlled code in a write-enabled `pull_request_target` job.
+  The record digest detects malformed or inconsistent data; it is not a
+  signature against another trusted workflow. See
+  [Explicit resource ownership](docs/adr/0004-explicit-resource-ownership.md).
+
 ## Project Map
 
 - [docs/index.html](docs/index.html): interactive documentation — concepts, a

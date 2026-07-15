@@ -20,9 +20,14 @@ shape. Go remains authoritative.
 For issues, trusted issue policy writes a dedicated comment containing the
 `baton-managed-issue:v1` record before labels or the policy comment. The record
 is bound to GitHub's stable issue node ID and issue number and includes a
-deterministic integrity digest. Only a comment authored by `github-actions[bot]` with
-GitHub actor type `Bot` is authoritative. The `baton:managed` label is a query
-index, never ownership evidence by itself.
+deterministic integrity digest. Only a comment authored by
+`github-actions[bot]` with GitHub actor type `Bot` is authoritative. This
+setup-free identity is shared by repository Actions: every workflow granted
+`issues: write` is a trusted administrator and can compute a valid record.
+Adopters must restrict that permission to reviewed default-branch workflows
+and protect workflow-file changes. The digest is an integrity check, not a
+signature that distinguishes Baton from another trusted workflow. The
+`baton:managed` label is a query index, never ownership evidence by itself.
 
 Equivalent trusted duplicates remain managed and produce a diagnostic.
 Malformed, identity-mismatched, or otherwise contradictory trusted records
