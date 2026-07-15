@@ -10,7 +10,9 @@ import (
 
 	"github.com/sjunepark/baton/internal/apperror"
 	"github.com/sjunepark/baton/internal/config"
+	"github.com/sjunepark/baton/internal/delivery"
 	"github.com/sjunepark/baton/internal/gh"
+	"github.com/sjunepark/baton/internal/policy"
 	"github.com/sjunepark/baton/internal/queue"
 	"github.com/sjunepark/baton/internal/repository"
 	"github.com/sjunepark/baton/internal/snapshot"
@@ -44,45 +46,53 @@ func (workflow ObservationWorkflow) acquireRecommendationFacts(ctx context.Conte
 	if err != nil {
 		facts.AddWarning(acquisitionWarning("issues", err))
 	} else {
-		facts.Issues = issues
+		managedIssues, warnings := acquireManagedIssueFacts(ctx, client, repositoryContext.Repository, issues, repositoryContext.Config)
+		facts.Issues = managedIssues
+		for _, warning := range warnings {
+			facts.AddWarning(warning)
+		}
 	}
 
 	prs := []gh.PullRequest{}
+	var acquiredDelivery *delivery.Snapshot
 	stagingPRs, err := client.ListOpenPullRequestsContext(ctx, repositoryContext.Repository, repositoryContext.Config.Repository.StagingBranch)
 	if err != nil {
 		facts.AddWarning(acquisitionWarning("pullRequests:"+repositoryContext.Config.Repository.StagingBranch, err))
 	} else {
 		prs = append(prs, stagingPRs...)
 	}
-	closedStagingPRs, err := client.ListClosedPullRequestsContext(ctx, repositoryContext.Repository, repositoryContext.Config.Repository.StagingBranch)
-	if err != nil {
-		facts.AddWarning(acquisitionWarning("mergedWorkPullRequests:"+repositoryContext.Config.Repository.StagingBranch, err))
-	} else {
-		for _, pr := range closedStagingPRs {
-			if pr.Merged {
-				facts.MergedWorkPullRequests = append(facts.MergedWorkPullRequests, pr)
-			}
+	if repositoryContext.Config.Delivery == nil {
+		if repositoryContext.Config.Repository.BaseBranch != repositoryContext.Config.Repository.StagingBranch {
+			facts.AddWarning(snapshot.Warning{Code: "invalid", Scope: "deliveryLedger", Message: "repository policy has no reviewed delivery-ledger locator"})
 		}
+	} else if repositoryContext.Config.Delivery.Authority != config.DeliveryAuthoritySealed {
+		facts.AddWarning(snapshot.Warning{Code: "invalid", Scope: "deliveryLedger", Message: "delivery ledger is in shadow mode; recommendations require reviewed sealed authority"})
+	} else if locator, locatorErr := deliveryLocatorFromConfig(repositoryContext.Config); locatorErr != nil {
+		facts.AddWarning(snapshot.Warning{Code: "invalid", Scope: "deliveryLedger", Message: locatorErr.Error()})
+	} else if store, storeErr := acquireDeliveryStore(ctx, client, repositoryContext.Repository, locator); storeErr != nil {
+		facts.AddWarning(acquisitionWarning("deliveryLedger", storeErr))
+	} else {
+		facts.MergedWorkPullRequests = deliveryQueuePullRequests(store.Snapshot)
+		value := store.Snapshot
+		acquiredDelivery = &value
 	}
 	if repositoryContext.Config.Repository.BaseBranch != "" && repositoryContext.Config.Repository.BaseBranch != repositoryContext.Config.Repository.StagingBranch {
 		promotionPRs, err := client.ListOpenPullRequestsContext(ctx, repositoryContext.Repository, repositoryContext.Config.Repository.BaseBranch)
 		if err != nil {
 			facts.AddWarning(acquisitionWarning("pullRequests:"+repositoryContext.Config.Repository.BaseBranch, err))
 		} else {
-			for _, pr := range promotionPRs {
-				if pr.HeadRef == repositoryContext.Config.Repository.StagingBranch {
-					prs = append(prs, pr)
-				}
-			}
+			prs = append(prs, promotionPRs...)
 		}
+	}
+	var ownershipWarnings []snapshot.Warning
+	prs, ownershipWarnings = managedPullRequests(prs, repositoryContext.Config)
+	for _, warning := range ownershipWarnings {
+		facts.AddWarning(warning)
 	}
 
 	branchNames := map[string]struct{}{
 		repositoryContext.Config.Repository.BaseBranch:    {},
 		repositoryContext.Config.Repository.StagingBranch: {},
-	}
-	for _, pr := range prs {
-		branchNames[pr.BaseRef] = struct{}{}
 	}
 	branches, rules, err := workflow.acquireBranchFacts(ctx, client, repositoryContext.Repository, repositoryContext.Config.Repository.StagingBranch, branchNames)
 	if err != nil {
@@ -92,6 +102,26 @@ func (workflow ObservationWorkflow) acquireRecommendationFacts(ctx context.Conte
 	for _, branch := range branches {
 		for _, warning := range branch.Warnings {
 			facts.AddWarning(warning)
+		}
+	}
+	if acquiredDelivery != nil {
+		baseSHA, stagingSHA := "", ""
+		for _, branch := range branches {
+			switch branch.Branch.Ref {
+			case repositoryContext.Config.Repository.BaseBranch:
+				baseSHA = branch.Branch.SHA
+			case repositoryContext.Config.Repository.StagingBranch:
+				stagingSHA = branch.Branch.SHA
+			}
+		}
+		integration, integrationErr := acquireBaseIntegrationFacts(ctx, client, repositoryContext.Repository, *acquiredDelivery, baseSHA, stagingSHA)
+		if integrationErr != nil {
+			facts.AddWarning(acquisitionWarning("baseIntegration", integrationErr))
+		} else {
+			facts.BaseIntegration = &integration
+			if integration.State == delivery.BaseIntegrationUnknown || integration.State == delivery.BaseIntegrationDiverged {
+				facts.AddWarning(snapshot.Warning{Code: "invalid", Scope: "baseIntegration", Message: integration.Reason})
+			}
 		}
 	}
 
@@ -175,6 +205,7 @@ func mergeBranchRules(ruleset, classic gh.BranchRules) gh.BranchRules {
 	result.StrictRequiredChecks = ruleset.StrictRequiredChecks || classic.StrictRequiredChecks
 	result.DismissStaleReviews = ruleset.DismissStaleReviews || classic.DismissStaleReviews
 	result.RequireLastPushApproval = ruleset.RequireLastPushApproval || classic.RequireLastPushApproval
+	result.RequiredLinearHistory = ruleset.RequiredLinearHistory || classic.RequiredLinearHistory
 	if classic.RequiredApprovingReviewCount > result.RequiredApprovingReviewCount {
 		result.RequiredApprovingReviewCount = classic.RequiredApprovingReviewCount
 	}
@@ -343,5 +374,84 @@ func queueSnapshotFromRecommendationFacts(facts snapshot.Acquisition, cfg config
 			break
 		}
 	}
-	return queue.BuildSnapshotWithLifecycle(facts.Repository, cfg, queueIssues(facts.Issues), queuePullRequests(prs), queuePullRequests(facts.MergedWorkPullRequests), branchHealth)
+	result := queue.BuildSnapshotWithLifecycle(facts.Repository, cfg, queueIssues(facts.Issues), queuePullRequests(prs, cfg), facts.MergedWorkPullRequests, branchHealth)
+	result.BaseIntegration = facts.BaseIntegration
+	return result
+}
+
+func deliveryQueuePullRequests(store delivery.Snapshot) []queue.PullRequest {
+	result := make([]queue.PullRequest, 0, len(store.StagedWork))
+	for _, record := range store.StagedWork {
+		reference, active := deliveryActiveRecordReference(store.Checkpoint, record.Digest)
+		if !active || reference.Kind != delivery.RecordStagedWork || reference.Sequence > store.Checkpoint.Coverage.RecordSequence {
+			continue
+		}
+		issues := make([]int, 0, len(record.Issues))
+		for _, issue := range record.Issues {
+			issues = append(issues, issue.Number)
+		}
+		result = append(result, queue.PullRequest{
+			Number: record.PullRequest.Number, BaseRef: record.StagingBranch, HeadSHA: record.HeadSHA,
+			State: "closed", Merged: true, Ownership: policy.PRFlowWork, ReferencedIssues: issues,
+		})
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Number < result[j].Number })
+	return result
+}
+
+func deliveryActiveRecordReference(checkpoint delivery.DeliveryCheckpoint, digest string) (delivery.RecordReference, bool) {
+	for _, reference := range checkpoint.ActiveRecords {
+		if reference.Digest == digest {
+			return reference, true
+		}
+	}
+	return delivery.RecordReference{}, false
+}
+
+type issueOwnershipGitHub interface {
+	ListIssueCommentsContext(context.Context, string, int) ([]gh.IssueComment, error)
+}
+
+func acquireManagedIssueFacts(ctx context.Context, client issueOwnershipGitHub, repo string, issues []gh.Issue, cfg config.Config) ([]snapshot.IssueFacts, []snapshot.Warning) {
+	result := make([]snapshot.IssueFacts, 0, len(issues))
+	warnings := []snapshot.Warning{}
+	for _, issue := range issues {
+		comments, err := client.ListIssueCommentsContext(ctx, repo, issue.Number)
+		if err != nil {
+			warnings = append(warnings, acquisitionWarning(fmt.Sprintf("issue:%d:ownership", issue.Number), err))
+			continue
+		}
+		ownership := policy.ClassifyIssueOwnership(policy.IssueOwnershipInput{
+			IssueNodeID: issue.NodeID, IssueNumber: issue.Number, Body: issue.Body, Labels: issue.Labels,
+			Comments: issueOwnershipComments(comments), Policy: cfg.IssuePolicy,
+		})
+		switch {
+		case ownership.Managed:
+			result = append(result, snapshot.IssueFacts{Issue: issue, Ownership: ownership})
+		case ownership.Source == policy.IssueOwnershipInvalid:
+			warnings = append(warnings, snapshot.Warning{Code: "invalid", Scope: fmt.Sprintf("issue:%d:ownership", issue.Number), Message: strings.Join(ownership.Errors, "; ")})
+		}
+	}
+	return result, warnings
+}
+
+func managedPullRequests(prs []gh.PullRequest, cfg config.Config) ([]gh.PullRequest, []snapshot.Warning) {
+	result := make([]gh.PullRequest, 0, len(prs))
+	warnings := []snapshot.Warning{}
+	for _, pr := range prs {
+		switch classifyTransportPullRequest(pr, cfg) {
+		case policy.PRFlowWork, policy.PRFlowPromotion:
+			result = append(result, pr)
+		case policy.PRFlowIndeterminate:
+			warnings = append(warnings, snapshot.Warning{Code: "unknown", Scope: fmt.Sprintf("pullRequest:%d:ownership", pr.Number), Message: "pull request ownership is indeterminate"})
+		}
+	}
+	return result, warnings
+}
+
+func classifyTransportPullRequest(pr gh.PullRequest, cfg config.Config) policy.PRFlow {
+	return policy.ClassifyPullRequestFlow(policy.PullRequest{
+		BaseRef: pr.BaseRef, HeadRef: pr.HeadRef,
+		BaseRepositoryFullName: pr.BaseRepositoryFullName, HeadRepositoryFullName: pr.HeadRepositoryFullName,
+	}, cfg)
 }

@@ -43,6 +43,7 @@ func ComputeIssuePolicy(input IssuePolicyInput) IssuePolicyDecision {
 
 	currentLabels := stringSet(input.CurrentLabels)
 	desiredLabels := map[string]struct{}{}
+	desiredLabels[ManagedIssueIndexLabel] = struct{}{}
 	workKind := sectionValue(sections, input.Policy.FormSections["work_kind"])
 	agentMode := sectionValue(sections, input.Policy.FormSections["agent_mode"])
 	priority := sectionValue(sections, input.Policy.FormSections["priority"])
@@ -158,6 +159,10 @@ func hasFormFingerprint(sections map[string]string, issuePolicy config.IssuePoli
 		}
 	}
 	return true
+}
+
+func MatchesIssueFormFingerprint(body string, issuePolicy config.IssuePolicy) bool {
+	return hasFormFingerprint(ParseIssueSections(body), issuePolicy)
 }
 
 func sectionValue(sections map[string]string, heading string) string {

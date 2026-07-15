@@ -100,30 +100,6 @@ func NewClient(baseURL, token string, httpClient *http.Client) *Client {
 	return &Client{baseURL: strings.TrimRight(baseURL, "/"), token: token, httpClient: httpClient}
 }
 
-func (c *Client) FetchIssueLabels(repo string, issueNumbers []int) ([]ReferencedIssue, error) {
-	return c.FetchIssueLabelsContext(context.Background(), repo, issueNumbers)
-}
-
-func (c *Client) FetchIssueLabelsContext(ctx context.Context, repo string, issueNumbers []int) ([]ReferencedIssue, error) {
-	issues := make([]ReferencedIssue, 0, len(issueNumbers))
-	for _, issueNumber := range issueNumbers {
-		var payload struct {
-			Labels []struct {
-				Name string `json:"name"`
-			} `json:"labels"`
-		}
-		if err := c.getJSONContext(ctx, fmt.Sprintf("/repos/%s/issues/%d", repo, issueNumber), &payload); err != nil {
-			return nil, err
-		}
-		names := make([]string, 0, len(payload.Labels))
-		for _, label := range payload.Labels {
-			names = append(names, label.Name)
-		}
-		issues = append(issues, ReferencedIssue{Number: issueNumber, Labels: names})
-	}
-	return issues, nil
-}
-
 func (c *Client) FetchCommitListing(repo string, prNumber int) (CommitListing, error) {
 	return c.FetchCommitListingContext(context.Background(), repo, prNumber)
 }
@@ -173,6 +149,14 @@ func (c *Client) RemoveIssueLabelContext(ctx context.Context, repo string, issue
 	return c.requestNoBodyContext(ctx, http.MethodDelete, path, nil, true)
 }
 
+func (c *Client) CloseIssue(repo string, issueNumber int) error {
+	return c.CloseIssueContext(context.Background(), repo, issueNumber)
+}
+
+func (c *Client) CloseIssueContext(ctx context.Context, repo string, issueNumber int) error {
+	return c.patchJSONContext(ctx, fmt.Sprintf("/repos/%s/issues/%d", repo, issueNumber), map[string]any{"state": "closed"}, nil)
+}
+
 func (c *Client) ListIssueComments(repo string, issueNumber int) ([]IssueComment, error) {
 	return c.ListIssueCommentsContext(context.Background(), repo, issueNumber)
 }
@@ -183,13 +167,17 @@ func (c *Client) ListIssueCommentsContext(ctx context.Context, repo string, issu
 		var batch []struct {
 			ID   int64  `json:"id"`
 			Body string `json:"body"`
+			User struct {
+				Login string `json:"login"`
+				Type  string `json:"type"`
+			} `json:"user"`
 		}
 		path := fmt.Sprintf("/repos/%s/issues/%d/comments?per_page=100&page=%d", repo, issueNumber, page)
 		if err := c.getJSONContext(ctx, path, &batch); err != nil {
 			return nil, err
 		}
 		for _, comment := range batch {
-			comments = append(comments, IssueComment{ID: comment.ID, Body: comment.Body})
+			comments = append(comments, IssueComment{ID: comment.ID, Body: comment.Body, Author: Actor{Login: comment.User.Login, Type: comment.User.Type}})
 		}
 		if len(batch) < 100 {
 			break

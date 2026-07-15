@@ -10,6 +10,7 @@ import (
 	"github.com/sjunepark/baton/internal/apperror"
 	"github.com/sjunepark/baton/internal/auth"
 	"github.com/sjunepark/baton/internal/config"
+	"github.com/sjunepark/baton/internal/delivery"
 	"github.com/sjunepark/baton/internal/gh"
 	"github.com/sjunepark/baton/internal/policy"
 	"github.com/sjunepark/baton/internal/queue"
@@ -70,6 +71,7 @@ type PullRequestGitHub interface {
 	GetCheckRollupContext(context.Context, string, int, string) (gh.CheckRollup, error)
 	GetReviewThreadsContext(context.Context, string, int) (gh.ReviewThreadResult, error)
 	ListOpenIssuesContext(context.Context, string) ([]gh.Issue, error)
+	ListIssueCommentsContext(context.Context, string, int) ([]gh.IssueComment, error)
 }
 
 type PullRequestWorkflow struct {
@@ -106,11 +108,11 @@ func (workflow PullRequestWorkflow) DashboardContext(ctx context.Context, input 
 	if err != nil {
 		return PullRequestDashboard{}, classifyGitHubError(err)
 	}
-	pr := queuePullRequests([]gh.PullRequest{transportPR})[0]
 	cfg := config.DefaultConfig()
 	if session.config != nil {
 		cfg = *session.config
 	}
+	pr := queuePullRequests([]gh.PullRequest{transportPR}, cfg)[0]
 	result := buildPullRequestDashboard(session.repo, pr, cfg)
 	if session.config == nil {
 		result.Warnings = append(result.Warnings, "Baton configuration unavailable: default PR reference policy was used and issue readiness may be incomplete")
@@ -230,7 +232,7 @@ func (workflow PullRequestWorkflow) acquire(ctx context.Context, input PullReque
 func buildPullRequestDashboard(repo string, pr queue.PullRequest, cfg config.Config) PullRequestDashboard {
 	referencedIssues := pullRequestReferencedIssues(pr, cfg.PRPolicy.RequiredReferenceKeyword)
 	return PullRequestDashboard{
-		SchemaVersion: 1, Kind: "pullRequest", Repo: repo, PullRequest: pr,
+		SchemaVersion: 2, Kind: "pullRequest", Repo: repo, PullRequest: pr,
 		ReferencedIssues: referencedIssues,
 		Checks:           PullRequestCheckSummary{State: firstNonBlank(pr.CheckState, "unknown")},
 		ReviewThreads:    PullRequestReviewSummary{},
@@ -239,11 +241,29 @@ func buildPullRequestDashboard(repo string, pr queue.PullRequest, cfg config.Con
 }
 
 func (workflow PullRequestWorkflow) addIssueReadiness(ctx context.Context, result *PullRequestDashboard, session pullRequestSession) {
-	if len(result.ReferencedIssues) == 0 {
+	mergedManagedWork := result.PullRequest.Ownership == policy.PRFlowWork && result.PullRequest.Merged
+	if len(result.ReferencedIssues) == 0 && !mergedManagedWork {
 		return
 	}
 	if session.config == nil {
-		result.Warnings = append(result.Warnings, "issue readiness unavailable: Baton configuration could not be loaded")
+		if mergedManagedWork {
+			result.ReferencedIssues = nil
+			result.Warnings = append(result.Warnings, "merged work readiness unavailable: sealed delivery evidence cannot be verified without Baton configuration")
+		} else {
+			result.Warnings = append(result.Warnings, "issue readiness unavailable: Baton configuration could not be loaded")
+		}
+		return
+	}
+	if mergedManagedWork {
+		references, err := mergedWorkIssueReferences(ctx, session.client, result.Repo, *session.config, result.PullRequest.Number)
+		if err != nil {
+			result.ReferencedIssues = nil
+			result.Warnings = append(result.Warnings, "merged work readiness unavailable: "+err.Error())
+			return
+		}
+		result.ReferencedIssues = references
+	}
+	if len(result.ReferencedIssues) == 0 {
 		return
 	}
 	issues, err := session.client.ListOpenIssuesContext(ctx, result.Repo)
@@ -252,10 +272,7 @@ func (workflow PullRequestWorkflow) addIssueReadiness(ctx context.Context, resul
 		return
 	}
 	linkedWorkPR, mergedWorkPR := 0, 0
-	if policy.ClassifyPullRequestFlow(policy.PullRequest{
-		BaseRef: result.PullRequest.BaseRef,
-		HeadRef: result.PullRequest.HeadRef,
-	}, *session.config) == policy.PRFlowWork {
+	if result.PullRequest.Ownership == policy.PRFlowWork {
 		switch {
 		case result.PullRequest.Merged:
 			mergedWorkPR = result.PullRequest.Number
@@ -263,10 +280,50 @@ func (workflow PullRequestWorkflow) addIssueReadiness(ctx context.Context, resul
 			linkedWorkPR = result.PullRequest.Number
 		}
 	}
-	result.IssueReadiness = buildIssueReadiness(result.ReferencedIssues, queueIssues(issues), *session.config, linkedWorkPR, mergedWorkPR)
+	issueFacts, warnings := acquireManagedIssueFacts(ctx, session.client, result.Repo, issues, *session.config)
+	if len(warnings) > 0 {
+		result.Warnings = append(result.Warnings, "issue readiness incomplete: managed-issue ownership could not be verified")
+	}
+	openIssues := make(map[int]struct{}, len(issues))
+	for _, issue := range issues {
+		openIssues[issue.Number] = struct{}{}
+	}
+	result.IssueReadiness = buildIssueReadinessWithOpenIssues(result.ReferencedIssues, queueIssues(issueFacts), openIssues, *session.config, linkedWorkPR, mergedWorkPR)
+}
+
+func mergedWorkIssueReferences(ctx context.Context, client PullRequestGitHub, repo string, cfg config.Config, pullRequestNumber int) ([]int, error) {
+	if cfg.Delivery == nil || cfg.Delivery.Authority != config.DeliveryAuthoritySealed {
+		return nil, fmt.Errorf("sealed delivery authority is required")
+	}
+	reader, ok := client.(deliveryStoreReader)
+	if !ok {
+		return nil, fmt.Errorf("delivery ledger reader is unavailable")
+	}
+	locator, err := deliveryLocatorFromConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+	store, err := acquireDeliveryStore(ctx, reader, repo, locator)
+	if err != nil {
+		return nil, fmt.Errorf("delivery ledger could not be verified: %w", err)
+	}
+	return mergedWorkIssueReferencesFromStore(store.Snapshot, pullRequestNumber)
+}
+
+func mergedWorkIssueReferencesFromStore(store delivery.Snapshot, pullRequestNumber int) ([]int, error) {
+	for _, pullRequest := range deliveryQueuePullRequests(store) {
+		if pullRequest.Number == pullRequestNumber {
+			return append([]int(nil), pullRequest.ReferencedIssues...), nil
+		}
+	}
+	return nil, fmt.Errorf("no covered active staged-work record exists for PR #%d", pullRequestNumber)
 }
 
 func buildIssueReadiness(referenced []int, issues []queue.Issue, cfg config.Config, linkedWorkPR, mergedWorkPR int) []PullRequestIssueReadiness {
+	return buildIssueReadinessWithOpenIssues(referenced, issues, nil, cfg, linkedWorkPR, mergedWorkPR)
+}
+
+func buildIssueReadinessWithOpenIssues(referenced []int, issues []queue.Issue, openIssues map[int]struct{}, cfg config.Config, linkedWorkPR, mergedWorkPR int) []PullRequestIssueReadiness {
 	issuesByNumber := map[int]queue.Issue{}
 	for _, issue := range issues {
 		issuesByNumber[issue.Number] = issue
@@ -275,6 +332,10 @@ func buildIssueReadiness(referenced []int, issues []queue.Issue, cfg config.Conf
 	for _, number := range referenced {
 		issue, ok := issuesByNumber[number]
 		if !ok {
+			if _, open := openIssues[number]; open {
+				readiness = append(readiness, PullRequestIssueReadiness{Number: number, Found: true, State: workitem.StateBlocked, Reasons: []string{"referenced issue is not Baton-managed"}})
+				continue
+			}
 			readiness = append(readiness, PullRequestIssueReadiness{Number: number, State: workitem.StatePromotedOrClosed, Reasons: []string{"referenced issue is closed"}})
 			continue
 		}

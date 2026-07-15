@@ -1,0 +1,1 @@
+{"schemaVersion":2,"kind":"doctor","readyState":"ready","counts":{"ok":2,"warn":0,"fail":0},"checks":[{"name":"github-auth","status":"ok","message":"authenticated repository read succeeded"},{"name":"workflows-enabled","status":"ok","message":"all required workflows are active"}],"help":["Run `baton queue --json` or `baton next --json` after doctor is ready."]}

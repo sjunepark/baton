@@ -3,31 +3,45 @@ package gh
 import "time"
 
 type Issue struct {
-	Number      int
-	Title       string
-	URL         string
-	Body        string
-	Labels      []string
-	State       string
-	PullRequest bool
+	Number       int
+	NodeID       string
+	Title        string
+	URL          string
+	Body         string
+	Labels       []string
+	State        string
+	PullRequest  bool
+	Locked       bool
+	CommentCount int
 }
 
 type PullRequest struct {
-	Number     int
-	Title      string
-	URL        string
-	Body       string
-	BaseRef    string
-	BaseSHA    string
-	HeadRef    string
-	HeadSHA    string
-	CheckState string
-	Draft      bool
-	Author     Actor
-	Mergeable  string
-	MergeState string
-	State      string
-	Merged     bool
+	Number                 int
+	NodeID                 string
+	Title                  string
+	URL                    string
+	Body                   string
+	BaseRef                string
+	BaseSHA                string
+	HeadRef                string
+	HeadSHA                string
+	BaseRepositoryFullName string
+	HeadRepositoryFullName string
+	CheckState             string
+	Draft                  bool
+	Author                 Actor
+	Mergeable              string
+	MergeState             string
+	State                  string
+	Merged                 bool
+	MergedAt               time.Time
+	MergeRevision          string
+}
+
+type RepositoryIdentity struct {
+	Host     string
+	FullName string
+	NodeID   string
 }
 
 type Actor struct {
@@ -50,35 +64,40 @@ type PullRequestReview struct {
 }
 
 type RequiredCheck struct {
-	Context       string
-	IntegrationID int64
+	Context       string `json:"context"`
+	IntegrationID int64  `json:"integrationId"`
 }
 
 type BranchRules struct {
-	Branch                       string
-	RequiredChecks               []RequiredCheck
-	RequiredApprovingReviewCount int
-	StrictRequiredChecks         bool
-	DismissStaleReviews          bool
-	RequireLastPushApproval      bool
+	Branch                       string          `json:"branch"`
+	RequiredChecks               []RequiredCheck `json:"requiredChecks"`
+	RequiredApprovingReviewCount int             `json:"requiredApprovingReviewCount"`
+	StrictRequiredChecks         bool            `json:"strictRequiredChecks"`
+	DismissStaleReviews          bool            `json:"dismissStaleReviews"`
+	RequireLastPushApproval      bool            `json:"requireLastPushApproval"`
+	RequiredLinearHistory        bool            `json:"requiredLinearHistory"`
+	MergeQueueEnabled            bool            `json:"mergeQueueEnabled"`
+	AllowedMergeMethods          []string        `json:"allowedMergeMethods,omitempty"`
+	AllowedMergeMethodsSet       bool            `json:"allowedMergeMethodsSet"`
+}
+
+type RepositorySettings struct {
+	AllowMergeCommit bool `json:"allowMergeCommit"`
+	AllowSquashMerge bool `json:"allowSquashMerge"`
+	AllowRebaseMerge bool `json:"allowRebaseMerge"`
 }
 
 type Branch struct {
-	Ref                  string
-	SHA                  string
-	Protected            bool
-	LegacyRequiredChecks []RequiredCheck
+	Ref                  string          `json:"ref"`
+	SHA                  string          `json:"sha"`
+	Protected            bool            `json:"protected"`
+	LegacyRequiredChecks []RequiredCheck `json:"legacyRequiredChecks"`
 }
 
 type BranchHealth struct {
 	Ref        string
 	SHA        string
 	CheckState string
-}
-
-type ReferencedIssue struct {
-	Number int
-	Labels []string
 }
 
 type Label struct {
@@ -88,13 +107,39 @@ type Label struct {
 }
 
 type IssueComment struct {
-	ID   int64
-	Body string
+	ID        int64
+	NodeID    string
+	IssueURL  string
+	Body      string
+	Author    Actor
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+type IssueCommentListing struct {
+	Comments []IssueComment
+	// Complete is false when comments older than the newest GitHub page exist.
+	Complete bool
+}
+
+type PullRequestListing struct {
+	PullRequests []PullRequest
+	// Complete is false when the bounded result reached its acquisition cap.
+	Complete bool
+}
+
+type CommitComparison struct {
+	Status       string
+	AheadBy      int
+	BehindBy     int
+	TotalCommits int
+	MergeBaseSHA string
 }
 
 type PullRequestEvent struct {
 	Action                 string
 	Number                 int
+	NodeID                 string
 	Title                  string
 	Body                   string
 	BaseRef                string
@@ -105,6 +150,8 @@ type PullRequestEvent struct {
 	HeadSHA                string
 	State                  string
 	Merged                 bool
+	MergedAt               time.Time
+	MergeRevision          string
 }
 
 type CommitListing struct {
@@ -114,28 +161,4 @@ type CommitListing struct {
 	// GitHub's 250-commit pull-request limit. Baton cancellation, deadlines, and
 	// page failures return an error and no partial listing.
 	GitHubCapReached bool
-}
-
-const (
-	// PromotionCommitCap bounds the number of commits whose pull-request
-	// associations Baton will verify for one promotion. Exceeding the cap is an
-	// incomplete result, never evidence that the promotion is manual-only.
-	PromotionCommitCap = 250
-	// PromotionAssociationCap applies the same fail-closed bound to the pull
-	// requests associated with any one compared commit.
-	PromotionAssociationCap      = 250
-	promotionCommitNodeBatchSize = 50
-)
-
-type PromotionWorkPullRequest struct {
-	Number int
-	Title  string
-	Body   string
-}
-
-type PromotionHistory struct {
-	WorkPullRequests []PromotionWorkPullRequest
-	// Complete means every compared commit and every commit-to-PR association
-	// was observed within the explicit caps.
-	Complete bool
 }

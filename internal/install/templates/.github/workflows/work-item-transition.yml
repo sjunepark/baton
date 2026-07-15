@@ -3,9 +3,6 @@ name: Work Item Transition
 
 on:
   pull_request_target:
-    branches:
-      - agent
-      - main
     types:
       - closed
 
@@ -14,9 +11,14 @@ permissions:
   issues: write
   pull-requests: read
 
+concurrency:
+  group: baton-delivery-${{ github.repository_id }}
+  queue: max
+
 jobs:
   transition-work-items:
-    name: Transition work items
+    name: Transition promoted work items
+    if: __BATON_PR_OWNERSHIP_PREFILTER__
     runs-on: ubuntu-latest
     steps:
       - name: Check out trusted base revision

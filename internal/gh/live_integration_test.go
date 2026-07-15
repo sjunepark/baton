@@ -38,12 +38,12 @@ func TestLiveIssueLabelReadWrite(t *testing.T) {
 	if err := client.AddIssueLabels(repo, issueNumber, []string{labelName}); err != nil {
 		t.Fatal(err)
 	}
-	issues, err := client.FetchIssueLabels(repo, []int{issueNumber})
+	issue, err := client.GetIssueContext(t.Context(), repo, issueNumber)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(issues) != 1 || !hasLabel(issues[0].Labels, labelName) {
-		t.Fatalf("issue labels = %#v, want %q", issues, labelName)
+	if !hasLabel(issue.Labels, labelName) {
+		t.Fatalf("issue labels = %#v, want %q", issue.Labels, labelName)
 	}
 	if err := client.RemoveIssueLabel(repo, issueNumber, labelName); err != nil {
 		t.Fatal(err)

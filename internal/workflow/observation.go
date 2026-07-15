@@ -9,8 +9,10 @@ import (
 
 	"github.com/sjunepark/baton/internal/apperror"
 	"github.com/sjunepark/baton/internal/auth"
+	"github.com/sjunepark/baton/internal/config"
 	"github.com/sjunepark/baton/internal/gh"
 	"github.com/sjunepark/baton/internal/operation"
+	"github.com/sjunepark/baton/internal/policy"
 	"github.com/sjunepark/baton/internal/queue"
 	"github.com/sjunepark/baton/internal/repository"
 	"github.com/sjunepark/baton/internal/snapshot"
@@ -27,9 +29,10 @@ type RepositoryInput struct {
 }
 
 type ObservationGitHub interface {
+	deliveryStoreReader
 	ListOpenIssuesContext(context.Context, string) ([]gh.Issue, error)
+	ListIssueCommentsContext(context.Context, string, int) ([]gh.IssueComment, error)
 	ListOpenPullRequestsContext(context.Context, string, string) ([]gh.PullRequest, error)
-	ListClosedPullRequestsContext(context.Context, string, string) ([]gh.PullRequest, error)
 	GetPullRequestContext(context.Context, string, int) (gh.PullRequest, error)
 	GetCheckRollupContext(context.Context, string, int, string) (gh.CheckRollup, error)
 	GetBranchHealthContext(context.Context, string, string) (*gh.BranchHealth, error)
@@ -39,6 +42,7 @@ type ObservationGitHub interface {
 	GetReviewThreadsContext(context.Context, string, int) (gh.ReviewThreadResult, error)
 	ListPullRequestReviewsContext(context.Context, string, int) ([]gh.PullRequestReview, error)
 	GetRequestedReviewersContext(context.Context, string, int) ([]gh.ReviewRequest, error)
+	CompareCommitsContext(context.Context, string, string, string) (gh.CommitComparison, error)
 }
 
 type ObservationWorkflow struct {
@@ -92,7 +96,7 @@ func (workflow ObservationWorkflow) QueueContext(ctx context.Context, input Repo
 	if repositorySnapshot.Completeness != snapshot.Complete {
 		return queue.Snapshot{}, incompleteWarningsError(repositorySnapshot.Warnings)
 	}
-	return repositorySnapshot.QueueV1(), nil
+	return repositorySnapshot.QueueV2(), nil
 }
 
 func (workflow ObservationWorkflow) PullRequests(input RepositoryInput) (queue.Snapshot, error) {
@@ -131,7 +135,7 @@ func (workflow ObservationWorkflow) NextContext(ctx context.Context, input Repos
 	if repositorySnapshot.Completeness != snapshot.Complete {
 		return queue.NextCandidates{}, incompleteWarningsError(repositorySnapshot.Warnings)
 	}
-	return repositorySnapshot.NextV2(), nil
+	return repositorySnapshot.NextV3(), nil
 }
 
 func (workflow ObservationWorkflow) Snapshot(input RepositoryInput, requestedAction string) (snapshot.RepositorySnapshot, error) {
@@ -184,6 +188,10 @@ func (workflow ObservationWorkflow) acquire(ctx context.Context, input Repositor
 	if err != nil {
 		return queue.Snapshot{}, classifyGitHubError(err)
 	}
+	issueFacts, issueWarnings := acquireManagedIssueFacts(ctx, client, repositoryContext.Repository, issues, repositoryContext.Config)
+	if len(issueWarnings) > 0 {
+		return queue.Snapshot{}, incompleteWarningsError(issueWarnings)
+	}
 	prs, err := client.ListOpenPullRequestsContext(ctx, repositoryContext.Repository, repositoryContext.Config.Repository.StagingBranch)
 	if err != nil {
 		return queue.Snapshot{}, classifyGitHubError(err)
@@ -193,11 +201,11 @@ func (workflow ObservationWorkflow) acquire(ctx context.Context, input Repositor
 		if err != nil {
 			return queue.Snapshot{}, classifyGitHubError(err)
 		}
-		for _, pr := range promotionPRs {
-			if pr.HeadRef == repositoryContext.Config.Repository.StagingBranch {
-				prs = append(prs, pr)
-			}
-		}
+		prs = append(prs, promotionPRs...)
+	}
+	prs, ownershipWarnings := managedPullRequests(prs, repositoryContext.Config)
+	if len(ownershipWarnings) > 0 {
+		return queue.Snapshot{}, incompleteWarningsError(ownershipWarnings)
 	}
 	if includeChecks {
 		if err := workflow.enrichChecks(ctx, client, repositoryContext.Repository, prs); err != nil {
@@ -218,8 +226,8 @@ func (workflow ObservationWorkflow) acquire(ctx context.Context, input Repositor
 	return queue.BuildSnapshotWithBranchHealth(
 		repositoryContext.Repository,
 		repositoryContext.Config,
-		queueIssues(issues),
-		queuePullRequests(prs),
+		queueIssues(issueFacts),
+		queuePullRequests(prs, repositoryContext.Config),
 		queueBranchHealth(branchHealth),
 	), nil
 }
@@ -296,20 +304,25 @@ func operationFailure(category, message string, err error) *operation.Failure {
 	return &operation.Failure{Category: category, Message: message, Retryable: retryable}
 }
 
-func queueIssues(issues []gh.Issue) []queue.Issue {
+func queueIssues(issues []snapshot.IssueFacts) []queue.Issue {
 	result := make([]queue.Issue, 0, len(issues))
-	for _, issue := range issues {
+	for _, facts := range issues {
+		issue := facts.Issue
 		result = append(result, queue.Issue{Number: issue.Number, Title: issue.Title, URL: issue.URL, Body: issue.Body, Labels: issue.Labels})
 	}
 	return result
 }
 
-func queuePullRequests(prs []gh.PullRequest) []queue.PullRequest {
+func queuePullRequests(prs []gh.PullRequest, cfg config.Config) []queue.PullRequest {
 	result := make([]queue.PullRequest, 0, len(prs))
 	for _, pr := range prs {
+		ownership := policy.ClassifyPullRequestFlow(policy.PullRequest{
+			BaseRef: pr.BaseRef, HeadRef: pr.HeadRef,
+			BaseRepositoryFullName: pr.BaseRepositoryFullName, HeadRepositoryFullName: pr.HeadRepositoryFullName,
+		}, cfg)
 		result = append(result, queue.PullRequest{
 			Number: pr.Number, Title: pr.Title, URL: pr.URL, Body: pr.Body,
-			BaseRef: pr.BaseRef, HeadRef: pr.HeadRef, HeadSHA: pr.HeadSHA, CheckState: pr.CheckState, State: pr.State, Merged: pr.Merged,
+			BaseRef: pr.BaseRef, HeadRef: pr.HeadRef, HeadSHA: pr.HeadSHA, CheckState: pr.CheckState, State: pr.State, Merged: pr.Merged, Ownership: ownership,
 		})
 	}
 	return result

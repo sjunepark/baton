@@ -4,7 +4,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/sjunepark/baton/internal/delivery"
 	"github.com/sjunepark/baton/internal/gh"
+	"github.com/sjunepark/baton/internal/policy"
+	"github.com/sjunepark/baton/internal/queue"
 )
 
 type Completeness string
@@ -27,10 +30,16 @@ type Acquisition struct {
 	Repository             string
 	Completeness           Completeness
 	Warnings               []Warning
-	Issues                 []gh.Issue
+	Issues                 []IssueFacts
 	PullRequests           []PullRequestFacts
-	MergedWorkPullRequests []gh.PullRequest
+	MergedWorkPullRequests []queue.PullRequest
 	Branches               []BranchFacts
+	BaseIntegration        *delivery.BaseIntegrationFacts
+}
+
+type IssueFacts struct {
+	Issue     gh.Issue
+	Ownership policy.IssueOwnershipDecision
 }
 
 type BranchFacts struct {

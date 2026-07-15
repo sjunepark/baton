@@ -5,10 +5,12 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/sjunepark/baton/internal/config"
+	"github.com/sjunepark/baton/internal/delivery"
 	"github.com/sjunepark/baton/internal/gh"
 	"github.com/sjunepark/baton/internal/queue"
 	batonsnapshot "github.com/sjunepark/baton/internal/snapshot"
@@ -28,13 +30,14 @@ type codaNextContract struct {
 	Instructions          []string          `json:"instructions"`
 }
 
-func TestCodaNextV2GoldenContracts(t *testing.T) {
+func TestCodaNextV3GoldenContracts(t *testing.T) {
 	fixtures := map[string]string{
-		"issue":           "next-v2-issue.json",
-		"issue-selection": "next-v2-issue-selection.json",
-		"pull-request":    "next-v2-pull-request.json",
-		"branch":          "next-v2-branch.json",
-		"none":            "next-v2-none.json",
+		"issue":           "next-v3-issue.json",
+		"issue-selection": "next-v3-issue-selection.json",
+		"pull-request":    "next-v3-pull-request.json",
+		"branch":          "next-v3-branch.json",
+		"none":            "next-v3-none.json",
+		"sync-staging":    "next-v3-sync-staging.json",
 	}
 	for name, fixture := range fixtures {
 		t.Run(name, func(t *testing.T) {
@@ -48,7 +51,7 @@ func TestCodaNextV2GoldenContracts(t *testing.T) {
 			if err := json.Unmarshal(content, &consumer); err != nil {
 				t.Fatal(err)
 			}
-			if consumer.SchemaVersion != 2 || consumer.Kind != "nextCandidates" || consumer.SelectedAction == "" || consumer.Repo == "" {
+			if consumer.SchemaVersion != 3 || consumer.Kind != "nextCandidates" || consumer.SelectedAction == "" || consumer.Repo == "" {
 				t.Fatalf("unsupported next contract: %+v", consumer)
 			}
 			if consumer.Candidates == nil || consumer.DeferredEligibleItems == nil || consumer.BlockedItems == nil || consumer.Instructions == nil {
@@ -61,8 +64,8 @@ func TestCodaNextV2GoldenContracts(t *testing.T) {
 	}
 }
 
-func TestCodaQueueV1GoldenContract(t *testing.T) {
-	content := readCodaFixture(t, "queue-v1.json")
+func TestCodaQueueV2GoldenContract(t *testing.T) {
+	content := readCodaFixture(t, "queue-v2.json")
 	producerJSON, err := json.Marshal(codaQueueProducer())
 	if err != nil {
 		t.Fatal(err)
@@ -103,7 +106,7 @@ func TestCodaQueueV1GoldenContract(t *testing.T) {
 	if err := json.Unmarshal(content, &consumer); err != nil {
 		t.Fatal(err)
 	}
-	if consumer.SchemaVersion != 1 || consumer.Kind != "queueSnapshot" || consumer.Repo == "" || consumer.Counts == nil {
+	if consumer.SchemaVersion != 2 || consumer.Kind != "queueSnapshot" || consumer.Repo == "" || consumer.Counts == nil {
 		t.Fatalf("unsupported queue contract: %+v", consumer)
 	}
 	for _, field := range []string{"totalIssues", "eligibleIssues", "skippedIssues", "openPullRequests"} {
@@ -152,14 +155,15 @@ func TestCodaStructuredErrorV1GoldenContract(t *testing.T) {
 	assertEquivalentJSON(t, producerJSON, content)
 }
 
-func TestCodaRepositorySnapshotV1GoldenContract(t *testing.T) {
+func TestCodaRepositorySnapshotV2GoldenContract(t *testing.T) {
 	fixtures := map[string]string{
-		"issue":        "repository-snapshot-v1.json",
-		"pull-request": "repository-snapshot-v1-pr.json",
-		"branch":       "repository-snapshot-v1-branch.json",
-		"degraded":     "repository-snapshot-v1-degraded.json",
-		"human-choice": "repository-snapshot-v1-human-choice.json",
-		"ready-pr":     "repository-snapshot-v1-ready-pr.json",
+		"issue":        "repository-snapshot-v2.json",
+		"pull-request": "repository-snapshot-v2-pr.json",
+		"branch":       "repository-snapshot-v2-branch.json",
+		"degraded":     "repository-snapshot-v2-degraded.json",
+		"human-choice": "repository-snapshot-v2-human-choice.json",
+		"ready-pr":     "repository-snapshot-v2-ready-pr.json",
+		"sync-staging": "repository-snapshot-v2-sync-staging.json",
 	}
 	for scenario, fixture := range fixtures {
 		t.Run(scenario, func(t *testing.T) {
@@ -218,7 +222,7 @@ func assertCodaRepositorySnapshotConsumer(t *testing.T, scenario string, content
 	if err := json.Unmarshal(content, &consumer); err != nil {
 		t.Fatal(err)
 	}
-	if consumer.SchemaVersion != 1 || consumer.Kind != "repositorySnapshot" || consumer.Repository == "" || consumer.Acquisition.StartedAt.IsZero() || consumer.Acquisition.CompletedAt.Before(consumer.Acquisition.StartedAt) {
+	if consumer.SchemaVersion != 2 || consumer.Kind != "repositorySnapshot" || consumer.Repository == "" || consumer.Acquisition.StartedAt.IsZero() || consumer.Acquisition.CompletedAt.Before(consumer.Acquisition.StartedAt) {
 		t.Fatalf("unsupported snapshot contract: %+v", consumer)
 	}
 	if consumer.Warnings == nil || consumer.Branches == nil || consumer.PullRequests == nil || consumer.Queue.Kind != "queueSnapshot" || consumer.Queue.Counts == nil || consumer.Queue.Issues == nil {
@@ -255,6 +259,11 @@ func assertCodaRepositorySnapshotConsumer(t *testing.T, scenario string, content
 		if consumer.Recommendation.Outcome != "human_choice_required" || consumer.Recommendation.Action != nil || consumer.Recommendation.SelectionRequired || len(consumer.Recommendation.Candidates) != 1 || identity.BaseSHA == "" || identity.HeadSHA == "" {
 			t.Fatalf("ready-pr snapshot = %+v", consumer.Recommendation)
 		}
+	case "sync-staging":
+		identity := consumer.Recommendation.Candidates[0].Identity
+		if consumer.Recommendation.Outcome != "actionable" || consumer.Recommendation.Action == nil || *consumer.Recommendation.Action != "sync_staging" || len(consumer.Recommendation.Candidates) != 1 || identity.Kind != "repository" || identity.BaseRef == "" || identity.HeadRef == "" || identity.BaseSHA == "" || identity.HeadSHA == "" {
+			t.Fatalf("sync-staging snapshot = %+v", consumer.Recommendation)
+		}
 	}
 }
 
@@ -266,7 +275,7 @@ func codaRepositorySnapshotProducer(t *testing.T, scenario string) batonsnapshot
 	switch scenario {
 	case "issue":
 		issue := gh.Issue{Number: 18, Title: "Implement unified snapshot", URL: "https://github.com/open-creo/creo/issues/18", Labels: []string{"agent:ready-bounded"}}
-		facts.Issues = []gh.Issue{issue}
+		facts.Issues = []batonsnapshot.IssueFacts{{Issue: issue}}
 		queueProjection = queue.BuildSnapshot("open-creo/creo", cfg, []queue.Issue{{Number: issue.Number, Title: issue.Title, URL: issue.URL, Labels: issue.Labels}}, nil)
 	case "pull-request":
 		pr := gh.PullRequest{Number: 42, Title: "Repair checks", URL: "https://github.com/open-creo/creo/pull/42", BaseRef: "agent", BaseSHA: "base-42", HeadRef: "agent-work/42", HeadSHA: "head-42", Mergeable: "mergeable", MergeState: "clean"}
@@ -286,6 +295,14 @@ func codaRepositorySnapshotProducer(t *testing.T, scenario string) batonsnapshot
 	case "human-choice":
 		issues := []queue.Issue{{Number: 18, Title: "First tied issue", URL: "https://github.com/open-creo/creo/issues/18", Labels: []string{"agent:ready-bounded"}}, {Number: 19, Title: "Second tied issue", URL: "https://github.com/open-creo/creo/issues/19", Labels: []string{"agent:ready-bounded"}}}
 		queueProjection = queue.BuildSnapshot("open-creo/creo", cfg, issues, nil)
+	case "sync-staging":
+		integration := delivery.BaseIntegrationFacts{
+			State: delivery.BaseDirectWorkPending, ObservedBaseSHA: "4444444444444444444444444444444444444444", ObservedStagingSHA: "3333333333333333333333333333333333333333",
+			IntegrationRecordDigest: strings.Repeat("a", 64), IntegrationSource: delivery.IntegrationPromotion,
+			IntegratedBaseSHA: "2222222222222222222222222222222222222222", IntegratedStagingSHA: "3333333333333333333333333333333333333333", Reason: "base advanced beyond the acknowledged integration revision",
+		}
+		facts.BaseIntegration = &integration
+		queueProjection.BaseIntegration = &integration
 	default:
 		t.Fatalf("unknown snapshot scenario %q", scenario)
 	}
@@ -332,6 +349,11 @@ func assertCodaCandidate(t *testing.T, raw json.RawMessage) {
 		require("ref")
 		require("sha")
 		require("checkState")
+	case "repository":
+		require("baseRef")
+		require("headRef")
+		require("ref")
+		require("sha")
 	default:
 		t.Fatalf("unsupported Coda candidate type %q", kind)
 	}
@@ -354,6 +376,11 @@ func codaNextProducer(name string) queue.NextCandidates {
 		return queue.RecommendNext(queue.Snapshot{Repo: repo, BranchHealth: &queue.BranchHealth{Ref: "agent", SHA: "0123456789abcdef0123456789abcdef01234567", CheckState: "failure"}})
 	case "none":
 		return queue.RecommendNext(queue.Snapshot{Repo: repo})
+	case "sync-staging":
+		return queue.RecommendNext(queue.Snapshot{
+			Repo: repo, BaseBranch: "main", StagingBranch: "agent",
+			BaseIntegration: &delivery.BaseIntegrationFacts{State: delivery.BaseDirectWorkPending, ObservedBaseSHA: "4444444444444444444444444444444444444444", ObservedStagingSHA: "3333333333333333333333333333333333333333"},
+		})
 	default:
 		panic("unknown Coda next fixture " + name)
 	}

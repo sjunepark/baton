@@ -3,19 +3,28 @@ package gh
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 )
 
 type IssueEvent struct {
-	Number     int      `json:"number"`
-	Body       string   `json:"body"`
-	Labels     []string `json:"labels"`
-	Repository string   `json:"repository"`
+	Action              string   `json:"action"`
+	Number              int      `json:"number"`
+	NodeID              string   `json:"nodeId"`
+	Body                string   `json:"body"`
+	Labels              []string `json:"labels"`
+	Repository          string   `json:"repository"`
+	CommentID           int64    `json:"commentId,omitempty"`
+	CommentBody         string   `json:"commentBody,omitempty"`
+	CommentPreviousBody string   `json:"commentPreviousBody,omitempty"`
+	CommentAuthor       Actor    `json:"commentAuthor,omitempty"`
 }
 
 func ParseIssueEvent(content []byte) (IssueEvent, error) {
 	var event struct {
-		Issue *struct {
+		Action string `json:"action"`
+		Issue  *struct {
 			Number int    `json:"number"`
+			NodeID string `json:"node_id"`
 			Body   string `json:"body"`
 			Labels []struct {
 				Name string `json:"name"`
@@ -24,6 +33,19 @@ func ParseIssueEvent(content []byte) (IssueEvent, error) {
 		Repository *struct {
 			FullName string `json:"full_name"`
 		} `json:"repository"`
+		Comment *struct {
+			ID   int64  `json:"id"`
+			Body string `json:"body"`
+			User struct {
+				Login string `json:"login"`
+				Type  string `json:"type"`
+			} `json:"user"`
+		} `json:"comment"`
+		Changes struct {
+			Body *struct {
+				From string `json:"from"`
+			} `json:"body"`
+		} `json:"changes"`
 	}
 	if err := json.Unmarshal(content, &event); err != nil {
 		return IssueEvent{}, fmt.Errorf("parse issue event: %w", err)
@@ -41,24 +63,31 @@ func ParseIssueEvent(content []byte) (IssueEvent, error) {
 	if event.Repository != nil {
 		repo = event.Repository.FullName
 	}
-	return IssueEvent{
-		Number:     event.Issue.Number,
-		Body:       event.Issue.Body,
-		Labels:     labels,
-		Repository: repo,
-	}, nil
+	result := IssueEvent{Action: event.Action, Number: event.Issue.Number, NodeID: event.Issue.NodeID, Body: event.Issue.Body, Labels: labels, Repository: repo}
+	if event.Comment != nil {
+		result.CommentID = event.Comment.ID
+		result.CommentBody = event.Comment.Body
+		result.CommentAuthor = Actor{Login: event.Comment.User.Login, Type: event.Comment.User.Type}
+	}
+	if event.Changes.Body != nil {
+		result.CommentPreviousBody = event.Changes.Body.From
+	}
+	return result, nil
 }
 
 func ParsePullRequestEvent(content []byte) (PullRequestEvent, error) {
 	var event struct {
 		Action      string `json:"action"`
 		PullRequest *struct {
-			Number int    `json:"number"`
-			Title  string `json:"title"`
-			Body   string `json:"body"`
-			State  string `json:"state"`
-			Merged bool   `json:"merged"`
-			Base   struct {
+			Number        int       `json:"number"`
+			NodeID        string    `json:"node_id"`
+			Title         string    `json:"title"`
+			Body          string    `json:"body"`
+			State         string    `json:"state"`
+			Merged        bool      `json:"merged"`
+			MergedAt      time.Time `json:"merged_at"`
+			MergeRevision string    `json:"merge_commit_sha"`
+			Base          struct {
 				Ref  string `json:"ref"`
 				SHA  string `json:"sha"`
 				Repo *struct {
@@ -96,6 +125,7 @@ func ParsePullRequestEvent(content []byte) (PullRequestEvent, error) {
 	return PullRequestEvent{
 		Action:                 event.Action,
 		Number:                 event.PullRequest.Number,
+		NodeID:                 event.PullRequest.NodeID,
 		Title:                  event.PullRequest.Title,
 		Body:                   event.PullRequest.Body,
 		BaseRef:                event.PullRequest.Base.Ref,
@@ -106,5 +136,7 @@ func ParsePullRequestEvent(content []byte) (PullRequestEvent, error) {
 		HeadSHA:                event.PullRequest.Head.SHA,
 		State:                  event.PullRequest.State,
 		Merged:                 event.PullRequest.Merged,
+		MergedAt:               event.PullRequest.MergedAt,
+		MergeRevision:          event.PullRequest.MergeRevision,
 	}, nil
 }

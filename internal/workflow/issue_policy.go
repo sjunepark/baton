@@ -33,6 +33,7 @@ type IssuePolicyWorkflow struct {
 
 type IssuePolicyResult struct {
 	Decision  policy.IssuePolicyDecision
+	Ownership policy.IssueOwnershipDecision
 	Evaluated bool
 	Report    *operation.Report `json:"report,omitempty"`
 }
@@ -65,6 +66,7 @@ func (workflow IssuePolicyWorkflow) RunContext(ctx context.Context, input IssueP
 	currentLabels := append([]string(nil), input.CurrentLabels...)
 	issueNumber := 0
 	eventRepo := ""
+	var issueEvent gh.IssueEvent
 	if input.EventPath != "" {
 		content, err := os.ReadFile(input.EventPath)
 		if err != nil {
@@ -74,6 +76,7 @@ func (workflow IssuePolicyWorkflow) RunContext(ctx context.Context, input IssueP
 		if err != nil {
 			return IssuePolicyResult{}, apperror.Wrap(apperror.Usage, "issue event could not be parsed", err, "")
 		}
+		issueEvent = event
 		body, currentLabels, issueNumber, eventRepo = event.Body, event.Labels, event.Number, event.Repository
 	} else {
 		content, err := os.ReadFile(input.BodyPath)
@@ -83,7 +86,10 @@ func (workflow IssuePolicyWorkflow) RunContext(ctx context.Context, input IssueP
 		body = string(content)
 	}
 	decision := policy.ComputeIssuePolicy(policy.IssuePolicyInput{Body: body, CurrentLabels: currentLabels, Policy: cfg.IssuePolicy})
-	result := IssuePolicyResult{Decision: decision, Evaluated: true}
+	ownership := policy.ClassifyIssueOwnership(policy.IssueOwnershipInput{
+		IssueNodeID: issueEvent.NodeID, IssueNumber: issueNumber, Body: body, Labels: currentLabels, CommentsUnavailable: input.EventPath != "", Policy: cfg.IssuePolicy,
+	})
+	result := IssuePolicyResult{Decision: decision, Ownership: ownership, Evaluated: true}
 	if !input.Apply {
 		return result, nil
 	}
@@ -124,9 +130,39 @@ func (workflow IssuePolicyWorkflow) RunContext(ctx context.Context, input IssueP
 		stale := apperror.New(apperror.GitHub, "issue policy decision is stale", "Let the newest issue event run, or rerun policy apply from current issue state.")
 		return result, apperror.WithReport(stale, report)
 	}
+	if issueEvent.NodeID != "" && latest.NodeID != issueEvent.NodeID {
+		report := operation.NewReport([]operation.Result{{
+			ID: "issue-policy-state-preflight", Resource: fmt.Sprintf("%s#%d", repo, issueNumber), Action: "verify_issue_identity", Status: operation.StatusRefused,
+			Error: &operation.Failure{Category: "stale", Message: "issue identity changed after the event was captured"},
+		}})
+		result.Report = &report
+		stale := apperror.New(apperror.GitHub, "issue policy decision is stale", "Let the newest issue event run, or rerun policy apply from current issue state.")
+		return result, apperror.WithReport(stale, report)
+	}
 	decision = policy.ComputeIssuePolicy(policy.IssuePolicyInput{Body: latest.Body, CurrentLabels: latest.Labels, Policy: cfg.IssuePolicy})
 	result.Decision = decision
-	report, err := ApplyIssueDecisionWithReportContext(ctx, client, repo, issueNumber, decision, cfg.IssuePolicy.PolicyCommentMarker, policy.QualityGateLabel(cfg.IssuePolicy))
+	repair := ownershipRepairFromEvent(issueEvent)
+	if !decision.IsFormIssue && !repair.Requested {
+		comments, err := client.ListIssueCommentsContext(ctx, repo, latest.Number)
+		if err != nil {
+			classified := classifyGitHubError(err)
+			report := operation.NewReport([]operation.Result{{
+				ID: "issue-ownership-preflight", Resource: fmt.Sprintf("%s#%d:ownership", repo, latest.Number), Action: "list_comments", Status: operation.StatusFailed,
+				Error: operationFailure("github", "managed-issue ownership preflight failed", classified),
+			}})
+			result.Report = &report
+			return result, apperror.WithReport(classified, report)
+		}
+		result.Ownership = policy.ClassifyIssueOwnership(policy.IssueOwnershipInput{
+			IssueNodeID: latest.NodeID, IssueNumber: latest.Number, Body: latest.Body, Labels: latest.Labels,
+			Comments: issueOwnershipComments(comments), Policy: cfg.IssuePolicy,
+		})
+		report := operation.NewReport(nil)
+		result.Report = &report
+		return result, nil
+	}
+	report, ownership, err := applyIssueDecisionWithOwnershipContext(ctx, client, repo, latest, decision, cfg.IssuePolicy.PolicyCommentMarker, policy.QualityGateLabel(cfg.IssuePolicy), repair)
+	result.Ownership = ownership
 	result.Report = &report
 	if err != nil {
 		return result, apperror.WithReport(err, report)
@@ -180,27 +216,56 @@ type IssuePolicyGitHub interface {
 	CreateIssueCommentContext(context.Context, string, int, string) error
 }
 
-func ApplyIssueDecision(client IssuePolicyGitHub, repo string, issueNumber int, decision policy.IssuePolicyDecision, marker, qualityGateLabel string) error {
-	_, err := ApplyIssueDecisionWithReportContext(context.Background(), client, repo, issueNumber, decision, marker, qualityGateLabel)
-	return err
+type ownershipRepair struct {
+	Requested bool
+	CommentID int64
 }
 
-func ApplyIssueDecisionContext(ctx context.Context, client IssuePolicyGitHub, repo string, issueNumber int, decision policy.IssuePolicyDecision, marker, qualityGateLabel string) error {
-	_, err := ApplyIssueDecisionWithReportContext(ctx, client, repo, issueNumber, decision, marker, qualityGateLabel)
-	return err
+func ownershipRepairFromEvent(event gh.IssueEvent) ownershipRepair {
+	trusted := strings.EqualFold(event.CommentAuthor.Login, policy.ManagedIssueTrustedLogin) && strings.EqualFold(event.CommentAuthor.Type, "Bot")
+	ownershipEvidence := strings.Contains(event.CommentBody, "<!-- baton-managed-issue:v1") || strings.Contains(event.CommentPreviousBody, "<!-- baton-managed-issue:v1")
+	return ownershipRepair{Requested: event.CommentID != 0 && trusted && ownershipEvidence && (event.Action == "edited" || event.Action == "deleted"), CommentID: event.CommentID}
 }
 
-func ApplyIssueDecisionWithReportContext(ctx context.Context, client IssuePolicyGitHub, repo string, issueNumber int, decision policy.IssuePolicyDecision, marker, qualityGateLabel string) (operation.Report, error) {
-	if !decision.IsFormIssue {
-		return operation.NewReport(nil), nil
+func applyIssueDecisionWithOwnershipContext(ctx context.Context, client IssuePolicyGitHub, repo string, issue gh.Issue, decision policy.IssuePolicyDecision, marker, qualityGateLabel string, repair ownershipRepair) (operation.Report, policy.IssueOwnershipDecision, error) {
+	if !decision.IsFormIssue && !repair.Requested {
+		return operation.NewReport(nil), policy.ClassifyIssueOwnership(policy.IssueOwnershipInput{IssueNodeID: issue.NodeID, IssueNumber: issue.Number, Body: issue.Body, Labels: issue.Labels}), nil
 	}
-	comments, err := client.ListIssueCommentsContext(ctx, repo, issueNumber)
+	comments, err := client.ListIssueCommentsContext(ctx, repo, issue.Number)
 	if err != nil {
 		classified := classifyGitHubError(err)
 		return operation.NewReport([]operation.Result{{
-			ID: "issue-policy-preflight", Resource: fmt.Sprintf("%s#%d", repo, issueNumber), Action: "list_comments", Status: operation.StatusFailed,
+			ID: "issue-policy-preflight", Resource: fmt.Sprintf("%s#%d", repo, issue.Number), Action: "list_comments", Status: operation.StatusFailed,
 			Error: operationFailure("github", "issue policy preflight failed", classified),
-		}}), classified
+		}}), policy.IssueOwnershipDecision{}, classified
+	}
+	ownershipComments := issueOwnershipComments(comments)
+	ownership := policy.ClassifyIssueOwnership(policy.IssueOwnershipInput{
+		IssueNodeID: issue.NodeID, IssueNumber: issue.Number, Body: issue.Body, Labels: issue.Labels, Comments: ownershipComments,
+	})
+	record := policy.NewManagedIssueRecord(issue.NodeID, issue.Number)
+	repairEditedRecord := false
+	if ownership.Source == policy.IssueOwnershipInvalid && repair.Requested && repair.CommentID != 0 {
+		for index := range comments {
+			if comments[index].ID != repair.CommentID || !strings.EqualFold(comments[index].Author.Login, policy.ManagedIssueTrustedLogin) || !strings.EqualFold(comments[index].Author.Type, "Bot") {
+				continue
+			}
+			comments[index].Body = policy.RenderManagedIssueRecord(record)
+			repairEditedRecord = true
+			break
+		}
+		if repairEditedRecord {
+			ownership = policy.ClassifyIssueOwnership(policy.IssueOwnershipInput{
+				IssueNodeID: issue.NodeID, IssueNumber: issue.Number, Body: issue.Body, Labels: issue.Labels, Comments: issueOwnershipComments(comments),
+			})
+		}
+	}
+	if ownership.Source == policy.IssueOwnershipInvalid && hasTrustedOwnershipMarker(comments) {
+		failure := apperror.New(apperror.Policy, "managed issue ownership record is invalid", "Repair the trusted ownership record before retrying issue policy.")
+		return operation.NewReport([]operation.Result{{
+			ID: "issue-ownership-preflight", Resource: fmt.Sprintf("%s#%d", repo, issue.Number), Action: "verify_ownership_record", Status: operation.StatusRefused,
+			Error: &operation.Failure{Category: "policy", Message: strings.Join(ownership.Errors, "; ")},
+		}}), ownership, failure
 	}
 	var existingID int64
 	for _, comment := range comments {
@@ -214,33 +279,61 @@ func ApplyIssueDecisionWithReportContext(ctx context.Context, client IssuePolicy
 		apply  func() error
 	}
 	mutations := []mutation{}
-	if len(decision.LabelsToAdd) > 0 {
-		labels := append([]string(nil), decision.LabelsToAdd...)
-		mutations = append(mutations, mutation{result: operation.Result{ID: "issue-labels-add", Resource: fmt.Sprintf("%s#%d", repo, issueNumber), Action: "add_labels", Status: operation.StatusNotAttempted}, apply: func() error {
-			return client.AddIssueLabelsContext(ctx, repo, issueNumber, labels)
+	if repairEditedRecord {
+		body := policy.RenderManagedIssueRecord(record)
+		mutations = append(mutations, mutation{result: operation.Result{
+			ID: "issue-ownership-record", Resource: fmt.Sprintf("%s#%d:ownership", repo, issue.Number), Action: "repair_ownership_record", Status: operation.StatusNotAttempted,
+		}, apply: func() error {
+			return client.UpdateIssueCommentContext(ctx, repo, repair.CommentID, body)
 		}})
+	} else if ownership.Source == policy.IssueOwnershipRecord {
+		mutations = append(mutations, mutation{result: operation.Result{
+			ID: "issue-ownership-record", Resource: fmt.Sprintf("%s#%d:ownership", repo, issue.Number), Action: "create_ownership_record", Status: operation.StatusUnchanged,
+		}})
+	} else {
+		body := policy.RenderManagedIssueRecord(record)
+		mutations = append(mutations, mutation{result: operation.Result{
+			ID: "issue-ownership-record", Resource: fmt.Sprintf("%s#%d:ownership", repo, issue.Number), Action: "create_ownership_record", Status: operation.StatusNotAttempted,
+		}, apply: func() error {
+			return client.CreateIssueCommentContext(ctx, repo, issue.Number, body)
+		}})
+	}
+	labelsToAdd := append([]string(nil), decision.LabelsToAdd...)
+	if repair.Requested && !containsLabel(issue.Labels, policy.ManagedIssueIndexLabel) {
+		labelsToAdd = append(labelsToAdd, policy.ManagedIssueIndexLabel)
+	}
+	if len(labelsToAdd) > 0 {
+		labels := labelsToAdd
+		mutations = append(mutations, mutation{result: operation.Result{ID: "issue-labels-add", Resource: fmt.Sprintf("%s#%d", repo, issue.Number), Action: "add_labels", Status: operation.StatusNotAttempted}, apply: func() error {
+			return client.AddIssueLabelsContext(ctx, repo, issue.Number, labels)
+		}})
+	}
+	if !decision.IsFormIssue {
+		decision.LabelsToRemove = nil
+		decision.PolicyCommentBody = nil
+		existingID = 0
 	}
 	for _, label := range decision.LabelsToRemove {
 		label := label
-		mutations = append(mutations, mutation{result: operation.Result{ID: "issue-label-remove-" + label, Resource: fmt.Sprintf("%s#%d:%s", repo, issueNumber, label), Action: "remove_label", Status: operation.StatusNotAttempted}, apply: func() error {
-			return client.RemoveIssueLabelContext(ctx, repo, issueNumber, label)
+		mutations = append(mutations, mutation{result: operation.Result{ID: "issue-label-remove-" + label, Resource: fmt.Sprintf("%s#%d:%s", repo, issue.Number, label), Action: "remove_label", Status: operation.StatusNotAttempted}, apply: func() error {
+			return client.RemoveIssueLabelContext(ctx, repo, issue.Number, label)
 		}})
 	}
 	if decision.PolicyCommentBody == nil {
 		if existingID != 0 {
-			mutations = append(mutations, mutation{result: operation.Result{ID: "issue-policy-comment", Resource: fmt.Sprintf("%s#%d:comment", repo, issueNumber), Action: "clear_comment", Status: operation.StatusNotAttempted}, apply: func() error {
+			mutations = append(mutations, mutation{result: operation.Result{ID: "issue-policy-comment", Resource: fmt.Sprintf("%s#%d:comment", repo, issue.Number), Action: "clear_comment", Status: operation.StatusNotAttempted}, apply: func() error {
 				return client.UpdateIssueCommentContext(ctx, repo, existingID, policy.ClearIssuePolicyComment(marker, qualityGateLabel))
 			}})
 		}
 	} else if existingID != 0 {
 		body := *decision.PolicyCommentBody
-		mutations = append(mutations, mutation{result: operation.Result{ID: "issue-policy-comment", Resource: fmt.Sprintf("%s#%d:comment", repo, issueNumber), Action: "update_comment", Status: operation.StatusNotAttempted}, apply: func() error {
+		mutations = append(mutations, mutation{result: operation.Result{ID: "issue-policy-comment", Resource: fmt.Sprintf("%s#%d:comment", repo, issue.Number), Action: "update_comment", Status: operation.StatusNotAttempted}, apply: func() error {
 			return client.UpdateIssueCommentContext(ctx, repo, existingID, body)
 		}})
 	} else {
 		body := *decision.PolicyCommentBody
-		mutations = append(mutations, mutation{result: operation.Result{ID: "issue-policy-comment", Resource: fmt.Sprintf("%s#%d:comment", repo, issueNumber), Action: "create_comment", Status: operation.StatusNotAttempted}, apply: func() error {
-			return client.CreateIssueCommentContext(ctx, repo, issueNumber, body)
+		mutations = append(mutations, mutation{result: operation.Result{ID: "issue-policy-comment", Resource: fmt.Sprintf("%s#%d:comment", repo, issue.Number), Action: "create_comment", Status: operation.StatusNotAttempted}, apply: func() error {
+			return client.CreateIssueCommentContext(ctx, repo, issue.Number, body)
 		}})
 	}
 	results := make([]operation.Result, len(mutations))
@@ -248,15 +341,46 @@ func ApplyIssueDecisionWithReportContext(ctx context.Context, client IssuePolicy
 		results[index] = mutations[index].result
 	}
 	for index := range mutations {
+		if mutations[index].result.Status == operation.StatusUnchanged {
+			continue
+		}
 		if err := mutations[index].apply(); err != nil {
 			classified := classifyMutationError(err)
 			results[index].Status = operation.StatusFailed
 			results[index].Error = operationFailure("github", "issue policy mutation failed", classified)
-			return operation.NewReport(results), classified
+			return operation.NewReport(results), ownership, classified
 		}
 		results[index].Status = operation.StatusApplied
+		if results[index].ID == "issue-ownership-record" {
+			ownership.Managed = true
+			ownership.Source = policy.IssueOwnershipRecord
+			ownership.Record = &record
+			ownership.Diagnostics = []string{"managed-issue ownership record persisted"}
+			ownership.Errors = []string{}
+		}
 	}
-	return operation.NewReport(results), nil
+	ownership.Managed = true
+	ownership.Source = policy.IssueOwnershipRecord
+	ownership.Record = &record
+	ownership.Errors = []string{}
+	return operation.NewReport(results), ownership, nil
+}
+
+func issueOwnershipComments(comments []gh.IssueComment) []policy.IssueOwnershipComment {
+	result := make([]policy.IssueOwnershipComment, 0, len(comments))
+	for _, comment := range comments {
+		result = append(result, policy.IssueOwnershipComment{ID: comment.ID, Body: comment.Body, AuthorLogin: comment.Author.Login, AuthorType: comment.Author.Type})
+	}
+	return result
+}
+
+func hasTrustedOwnershipMarker(comments []gh.IssueComment) bool {
+	for _, comment := range comments {
+		if strings.EqualFold(comment.Author.Login, policy.ManagedIssueTrustedLogin) && strings.EqualFold(comment.Author.Type, "Bot") && strings.Contains(comment.Body, "<!-- baton-managed-issue:") {
+			return true
+		}
+	}
+	return false
 }
 
 func classifyMutationError(err error) error {

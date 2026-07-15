@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/sjunepark/baton/internal/config"
+	"github.com/sjunepark/baton/internal/delivery"
+	policyengine "github.com/sjunepark/baton/internal/policy"
 	"gopkg.in/yaml.v3"
 )
 
@@ -46,6 +47,10 @@ func RenderManagedFiles(policy config.RepositoryPolicy, options Options) ([]Mana
 	if err != nil {
 		return nil, err
 	}
+	deliveryWorkflow, err := renderedDeliveryWorkflow(policy, options)
+	if err != nil {
+		return nil, err
+	}
 	files := []ManagedFile{
 		{Path: ".github/baton.yml", Content: append([]byte("# Managed by Baton. Edit in this repository when your policy changes.\n"), configContent...), Ownership: "repository-policy"},
 		{Path: policy.Labels.Manifest, Content: labelManifest, Ownership: "repository-policy"},
@@ -54,6 +59,7 @@ func RenderManagedFiles(policy config.RepositoryPolicy, options Options) ([]Mana
 		{Path: ".github/workflows/issue-policy.yml", Content: issueWorkflow, Ownership: "repository-policy"},
 		{Path: ".github/workflows/pr-policy.yml", Content: prWorkflow, Ownership: "repository-policy"},
 		{Path: ".github/workflows/work-item-transition.yml", Content: transitionWorkflow, Ownership: "repository-policy"},
+		{Path: ".github/workflows/delivery-recorder.yml", Content: deliveryWorkflow, Ownership: "repository-policy"},
 	}
 	if err := validateManagedFiles(files); err != nil {
 		return nil, err
@@ -72,6 +78,15 @@ func renderedTransitionWorkflow(policy config.RepositoryPolicy, options Options)
 	return renderedEmbeddedTemplate(".github/workflows/work-item-transition.yml", policy, trusted)
 }
 
+func renderedDeliveryWorkflow(policy config.RepositoryPolicy, options Options) ([]byte, error) {
+	if !exactGoInstallPattern.MatchString(options.GoInstall) {
+		return nil, fmt.Errorf("delivery recorder workflow requires --go-install module@vX.Y.Z")
+	}
+	trusted := options
+	trusted.InstallCommand = "mkdir -p \"$RUNNER_TEMP/baton-bin\"\nGOBIN=\"$RUNNER_TEMP/baton-bin\" go install " + options.GoInstall + "\necho \"$RUNNER_TEMP/baton-bin\" >> \"$GITHUB_PATH\""
+	return renderedEmbeddedTemplate(".github/workflows/delivery-recorder.yml", policy, trusted)
+}
+
 func renderedEmbeddedTemplate(path string, policy config.RepositoryPolicy, options Options) ([]byte, error) {
 	name := "templates/" + path
 	content, err := templatesFS.ReadFile(name)
@@ -81,7 +96,13 @@ func renderedEmbeddedTemplate(path string, policy config.RepositoryPolicy, optio
 	rendered := strings.ReplaceAll(string(content), defaultGoInstall, options.GoInstall)
 	rendered = strings.ReplaceAll(rendered, installCommandPlaceholder, indentInstallCommand(options.InstallCommand))
 	if path == ".github/workflows/pr-policy.yml" || path == ".github/workflows/work-item-transition.yml" {
-		rendered, err = replaceWorkflowBranches(path, rendered, policy)
+		rendered, err = replaceWorkflowOwnershipPrefilter(path, rendered, policy)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if path == ".github/workflows/delivery-recorder.yml" {
+		rendered, err = replaceDeliveryRecorderPrefilter(path, rendered, policy)
 		if err != nil {
 			return nil, err
 		}
@@ -89,14 +110,41 @@ func renderedEmbeddedTemplate(path string, policy config.RepositoryPolicy, optio
 	return []byte(rendered), nil
 }
 
-const workflowBranchPlaceholder = "      - agent\n      - main"
+const workflowOwnershipPrefilterPlaceholder = "__BATON_PR_OWNERSHIP_PREFILTER__"
+const deliveryRecorderPrefilterPlaceholder = "__BATON_WORK_PR_OWNERSHIP_PREFILTER__"
+const deliveryRecorderBaseBranchPlaceholder = "__BATON_BASE_BRANCH__"
 
-func replaceWorkflowBranches(path, rendered string, policy config.RepositoryPolicy) (string, error) {
-	if !strings.Contains(rendered, workflowBranchPlaceholder) {
-		return "", fmt.Errorf("render workflow %s: expected agent/main branch placeholder is missing", path)
+func replaceWorkflowOwnershipPrefilter(path, rendered string, policy config.RepositoryPolicy) (string, error) {
+	if !strings.Contains(rendered, workflowOwnershipPrefilterPlaceholder) {
+		return "", fmt.Errorf("render workflow %s: expected ownership prefilter placeholder is missing", path)
 	}
-	replacement := "      - " + strconv.Quote(policy.Repository.StagingBranch) + "\n      - " + strconv.Quote(policy.Repository.BaseBranch)
-	return strings.Replace(rendered, workflowBranchPlaceholder, replacement, 1), nil
+	quoteExpression := func(value string) string {
+		return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+	}
+	prefix := quoteExpression(policy.Repository.WorkBranchPrefix)
+	staging := quoteExpression(policy.Repository.StagingBranch)
+	base := quoteExpression(policy.Repository.BaseBranch)
+	prefilter := "${{ (!github.event.pull_request.head.repo.full_name || !github.event.pull_request.base.repo.full_name || github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name) && (startsWith(github.event.pull_request.head.ref, " + prefix + ") || (github.event.pull_request.head.ref == " + staging + " && github.event.pull_request.base.ref == " + base + ")) }}"
+	if path == ".github/workflows/work-item-transition.yml" {
+		prefilter = "${{ (!github.event.pull_request.head.repo.full_name || !github.event.pull_request.base.repo.full_name || github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name) && github.event.pull_request.head.ref == " + staging + " && github.event.pull_request.base.ref == " + base + " }}"
+	}
+	return strings.Replace(rendered, workflowOwnershipPrefilterPlaceholder, prefilter, 1), nil
+}
+
+func replaceDeliveryRecorderPrefilter(path, rendered string, policy config.RepositoryPolicy) (string, error) {
+	if !strings.Contains(rendered, deliveryRecorderPrefilterPlaceholder) {
+		return "", fmt.Errorf("render workflow %s: expected work ownership prefilter placeholder is missing", path)
+	}
+	if !strings.Contains(rendered, deliveryRecorderBaseBranchPlaceholder) {
+		return "", fmt.Errorf("render workflow %s: expected base branch placeholder is missing", path)
+	}
+	quote := func(value string) string { return "'" + strings.ReplaceAll(value, "'", "''") + "'" }
+	sameRepository := "(!github.event.pull_request.head.repo.full_name || !github.event.pull_request.base.repo.full_name || github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name)"
+	work := "(startsWith(github.event.pull_request.head.ref, " + quote(policy.Repository.WorkBranchPrefix) + ") && github.event.pull_request.base.ref == " + quote(policy.Repository.StagingBranch) + ")"
+	synchronization := "(github.event.pull_request.head.ref == " + quote(policy.Repository.BaseBranch) + " && github.event.pull_request.base.ref == " + quote(policy.Repository.StagingBranch) + ")"
+	prefilter := "${{ (github.event_name == 'workflow_dispatch' && inputs.mode == 'record') || github.event_name == 'push' || (" + sameRepository + " && (" + work + " || " + synchronization + ")) }}"
+	rendered = strings.Replace(rendered, deliveryRecorderPrefilterPlaceholder, prefilter, 1)
+	return strings.Replace(rendered, deliveryRecorderBaseBranchPlaceholder, policy.Repository.BaseBranch, 1), nil
 }
 
 type issueFormDocument struct {
@@ -238,6 +286,8 @@ type labelManifestEntry struct {
 
 func renderLabelManifest(policy config.RepositoryPolicy) ([]byte, error) {
 	names := map[string]struct{}{}
+	names[policyengine.ManagedIssueIndexLabel] = struct{}{}
+	names[delivery.DeliveryStateLabel] = struct{}{}
 	for _, labels := range policy.IssuePolicy.ControlledLabelGroups {
 		for _, label := range labels {
 			names[label] = struct{}{}
@@ -269,6 +319,8 @@ func labelPresentation(name string) (string, string) {
 		"agent:ready-trivial":    {"0E8A16", "Agent may make a narrow, obvious fix."},
 		"agent:ready-bounded":    {"1D76DB", "Agent may implement within explicit scope and criteria."},
 		"agent:investigate-only": {"5319E7", "Agent may inspect and comment, but not change behavior."},
+		"baton:managed":          {"0052CC", "Index for issues with a trusted Baton ownership record."},
+		"baton:delivery-state":   {"1F6FEB", "Reserved bootstrap index for the pinned Baton delivery ledger."},
 		"needs-info":             {"B60205", "Issue is missing information required by repository policy."},
 		"needs:discussion":       {"FBCA04", "Human decision needed before implementation."},
 		"needs:review":           {"C5DEF5", "Agent work is ready for human review."},
@@ -289,19 +341,24 @@ func renderWorkflowGuidance(policy config.RepositoryPolicy) []byte {
 
 Managed by Baton. Edit repository policy when this workflow changes.
 
-GitHub Issues are the repository work queue. Implementation labels are %s.
-Comment-only labels are %s. Baton skips issues carrying %s.
+GitHub Issues are the repository work queue. A trusted versioned comment records
+Baton ownership; the %s label is an index, not authority.
+Implementation labels are %s. Comment-only labels are %s. Baton skips issues carrying %s.
 Merged work PRs add %s while the issue awaits promotion review.
 
-Ready issues use the configured form headings and required sections. Incomplete
-ready issues receive %s and one updatable policy comment.
+Ready issues use the configured form headings and required sections. Issue policy
+writes ownership before controlled labels. Incomplete ready issues receive %s and
+one updatable policy comment; later body/label edits do not revoke ownership.
+Implementation and skip labels guide intake and recommendations, not work-PR
+merge policy after durable ownership has been established.
 
 Work PRs target %s from branches prefixed with %s and reference issues with
 %s #123. Promotion PRs target %s from %s. Baton derives the included work PRs
 from the promotion revisions and requires closing keywords for every referenced
 work issue. Manual-only promotions need no artificial issue reference; incomplete
-promotion evidence fails policy instead of guessing.
-`, markdownLabels(policy.IssuePolicy.ImplementationLabels), markdownLabels(policy.IssuePolicy.CommentOnlyLabels), markdownLabels(policy.IssuePolicy.SkipLabels), markdownLabels([]string{policy.IssuePolicy.AwaitingReviewLabel}), qualityGate, policy.Repository.StagingBranch, policy.Repository.WorkBranchPrefix, policy.PRPolicy.RequiredReferenceKeyword, policy.Repository.BaseBranch, policy.Repository.StagingBranch))
+promotion evidence fails policy instead of guessing. Ordinary and fork PRs are
+unmanaged. Same-repository use of the reserved prefix on another target fails.
+`, "`baton:managed`", markdownLabels(policy.IssuePolicy.ImplementationLabels), markdownLabels(policy.IssuePolicy.CommentOnlyLabels), markdownLabels(policy.IssuePolicy.SkipLabels), markdownLabels([]string{policy.IssuePolicy.AwaitingReviewLabel}), qualityGate, policy.Repository.StagingBranch, policy.Repository.WorkBranchPrefix, policy.PRPolicy.RequiredReferenceKeyword, policy.Repository.BaseBranch, policy.Repository.StagingBranch))
 }
 
 func markdownLabels(labels []string) string {

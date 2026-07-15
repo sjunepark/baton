@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/sjunepark/baton/internal/config"
+	"github.com/sjunepark/baton/internal/delivery"
 	"github.com/sjunepark/baton/internal/policy"
 	"github.com/sjunepark/baton/internal/workitem"
 )
@@ -21,28 +22,35 @@ type Issue struct {
 }
 
 type PullRequest struct {
-	Number     int    `json:"number"`
-	Title      string `json:"title"`
-	URL        string `json:"url"`
-	Body       string `json:"-"`
-	BaseRef    string `json:"baseRef"`
-	HeadRef    string `json:"headRef"`
-	HeadSHA    string `json:"headSha"`
-	CheckState string `json:"checkState,omitempty"`
-	State      string `json:"-"`
-	Merged     bool   `json:"-"`
+	Number     int           `json:"number"`
+	Title      string        `json:"title"`
+	URL        string        `json:"url"`
+	Body       string        `json:"-"`
+	BaseRef    string        `json:"baseRef"`
+	HeadRef    string        `json:"headRef"`
+	HeadSHA    string        `json:"headSha"`
+	CheckState string        `json:"checkState,omitempty"`
+	State      string        `json:"-"`
+	Merged     bool          `json:"-"`
+	Ownership  policy.PRFlow `json:"-"`
+	// ReferencedIssues is populated from durable delivery records for merged
+	// work. Nil keeps current-title/body parsing for open diagnostic PRs.
+	ReferencedIssues []int `json:"-"`
 }
 
 type Snapshot struct {
-	SchemaVersion    int            `json:"schemaVersion"`
-	Kind             string         `json:"kind"`
-	Repo             string         `json:"repo"`
-	ReferenceKeyword string         `json:"-"`
-	Counts           SnapshotCounts `json:"counts"`
-	BranchHealth     *BranchHealth  `json:"branchHealth,omitempty"`
-	Issues           []IssueState   `json:"issues"`
-	PullRequests     []PullState    `json:"pullRequests"`
-	Help             []string       `json:"help,omitempty"`
+	SchemaVersion    int                            `json:"schemaVersion"`
+	Kind             string                         `json:"kind"`
+	Repo             string                         `json:"repo"`
+	ReferenceKeyword string                         `json:"-"`
+	BaseBranch       string                         `json:"-"`
+	StagingBranch    string                         `json:"-"`
+	Counts           SnapshotCounts                 `json:"counts"`
+	BranchHealth     *BranchHealth                  `json:"branchHealth,omitempty"`
+	BaseIntegration  *delivery.BaseIntegrationFacts `json:"baseIntegration,omitempty"`
+	Issues           []IssueState                   `json:"issues"`
+	PullRequests     []PullState                    `json:"pullRequests"`
+	Help             []string                       `json:"help,omitempty"`
 }
 
 type SnapshotCounts struct {
@@ -118,8 +126,11 @@ func BuildSnapshotWithLifecycle(repo string, cfg config.Config, issues []Issue, 
 	prsByIssue := map[int][]int{}
 	mergedPRsByIssue := map[int][]int{}
 	for _, pr := range prs {
+		if pr.Ownership != "" && pr.Ownership != policy.PRFlowWork && pr.Ownership != policy.PRFlowPromotion {
+			continue
+		}
 		referenced := referencedIssues(pr, cfg.PRPolicy.RequiredReferenceKeyword)
-		if policy.ClassifyPullRequestFlow(policy.PullRequest{BaseRef: pr.BaseRef, HeadRef: pr.HeadRef}, cfg) == policy.PRFlowWork {
+		if pr.Ownership == "" || pr.Ownership == policy.PRFlowWork {
 			for _, issueNumber := range referenced {
 				prsByIssue[issueNumber] = append(prsByIssue[issueNumber], pr.Number)
 			}
@@ -127,7 +138,7 @@ func BuildSnapshotWithLifecycle(repo string, cfg config.Config, issues []Issue, 
 		prStates = append(prStates, PullState{PullRequest: pr, ReferencedIssues: referenced})
 	}
 	for _, pr := range mergedWorkPRs {
-		if !pr.Merged || policy.ClassifyPullRequestFlow(policy.PullRequest{BaseRef: pr.BaseRef, HeadRef: pr.HeadRef}, cfg) != policy.PRFlowWork {
+		if !pr.Merged || (pr.Ownership != "" && pr.Ownership != policy.PRFlowWork) {
 			continue
 		}
 		for _, issueNumber := range referencedIssues(pr, cfg.PRPolicy.RequiredReferenceKeyword) {
@@ -166,15 +177,16 @@ func BuildSnapshotWithLifecycle(repo string, cfg config.Config, issues []Issue, 
 		counts.BranchHealthState = branchHealth.CheckState
 	}
 	return Snapshot{
-		SchemaVersion:    1,
+		SchemaVersion:    2,
 		Kind:             "queueSnapshot",
 		Repo:             repo,
 		ReferenceKeyword: cfg.PRPolicy.RequiredReferenceKeyword,
-		Counts:           counts,
-		BranchHealth:     branchHealth,
-		Issues:           issueStates,
-		PullRequests:     prStates,
-		Help:             snapshotHelp(issueStates, prStates),
+		BaseBranch:       cfg.Repository.BaseBranch, StagingBranch: cfg.Repository.StagingBranch,
+		Counts:       counts,
+		BranchHealth: branchHealth,
+		Issues:       issueStates,
+		PullRequests: prStates,
+		Help:         snapshotHelp(issueStates, prStates),
 	}
 }
 
@@ -189,6 +201,13 @@ func RecommendNext(snapshot Snapshot) NextCandidates {
 			}},
 			deferredEligibleItems(snapshot, "branch-health", snapshot.BranchHealth.CheckState+"-staging-branch"),
 			[]string{"Work in a caller-provided isolated checkout.", "Fix the shared staging branch before starting new issue work.", "Do not open unrelated issue PRs until branch health is clear."},
+		)
+	}
+	if snapshot.BaseIntegration != nil && snapshot.BaseIntegration.State == delivery.BaseDirectWorkPending {
+		return nextCandidates(snapshot.Repo, "sync-staging", "direct-base-work-pending",
+			[]NextCandidate{{Type: "repository", BaseRef: snapshot.StagingBranch, HeadRef: snapshot.BaseBranch, Ref: snapshot.StagingBranch, SHA: snapshot.BaseIntegration.ObservedStagingSHA}},
+			deferredEligibleItems(snapshot, "sync-staging", "direct-base-work-pending"),
+			[]string{"Open a normal human-reviewed pull request from the configured base branch into staging.", "Merge it with a merge commit so both histories remain ancestors of the result.", "Do not push, merge, rebase, squash, or rewrite staging automatically."},
 		)
 	}
 
@@ -385,7 +404,7 @@ func selectionReason(action, reason string, candidates, deferred []NextCandidate
 
 func nextCandidates(repo, action, reason string, candidates, deferred []NextCandidate, instructions []string) NextCandidates {
 	return NextCandidates{
-		SchemaVersion:         2,
+		SchemaVersion:         3,
 		Kind:                  "nextCandidates",
 		SelectedAction:        action,
 		Repo:                  repo,
@@ -488,6 +507,18 @@ func issuePriority(issuePolicy config.IssuePolicy, labels map[string]struct{}) (
 }
 
 func referencedIssues(pr PullRequest, keyword string) []int {
+	if pr.ReferencedIssues != nil {
+		values := append([]int(nil), pr.ReferencedIssues...)
+		sort.Ints(values)
+		out := values[:0]
+		for _, value := range values {
+			if value <= 0 || (len(out) > 0 && out[len(out)-1] == value) {
+				continue
+			}
+			out = append(out, value)
+		}
+		return out
+	}
 	values := append(policy.ExtractReferenceIssueNumbersForPolicy(pr.Title, keyword), policy.ExtractReferenceIssueNumbersForPolicy(pr.Body, keyword)...)
 	seen := map[int]struct{}{}
 	out := make([]int, 0, len(values))

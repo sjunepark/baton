@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -165,41 +166,90 @@ func TestMarshalYAMLUsesBatonShape(t *testing.T) {
 	}
 }
 
-func TestLoadPreservesExplicitFalsePRPolicyBooleans(t *testing.T) {
-	content, err := MarshalYAML(DefaultConfig())
+func TestDeliveryLocatorRoundTripsAndIsOptional(t *testing.T) {
+	cfg := DefaultConfig()
+	content, err := MarshalYAML(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := strings.ReplaceAll(string(content), "allow_direct_base_branch_prs: true", "allow_direct_base_branch_prs: false")
-	text = strings.ReplaceAll(text, "reject_all_trivial_multi_issue_prs: true", "reject_all_trivial_multi_issue_prs: false")
-	text = strings.ReplaceAll(text, "fail_when_commit_listing_reaches_cap: true", "fail_when_commit_listing_reaches_cap: false")
+	if strings.Contains(string(content), "delivery:") {
+		t.Fatalf("default config unexpectedly enables delivery:\n%s", content)
+	}
+	cfg.Delivery = &DeliveryConfig{
+		Authority:  DeliveryAuthorityShadow,
+		Host:       "github.com",
+		Repository: DeliveryRepository{FullName: "example/repo", NodeID: "R_1"},
+		Issue:      DeliveryResource{Number: 900, NodeID: "I_900"},
+		Checkpoint: DeliveryComment{DatabaseID: 100, NodeID: "IC_100"},
+	}
+	content, err = MarshalYAML(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
 	path := filepath.Join(t.TempDir(), "baton.yml")
-	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+	if err := os.WriteFile(path, content, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := Load(path)
+	got, err := Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.PRPolicy.AllowDirectBaseBranchPRs {
-		t.Fatal("allow_direct_base_branch_prs explicit false was defaulted to true")
-	}
-	if cfg.PRPolicy.RejectAllTrivialMultiIssuePRs {
-		t.Fatal("reject_all_trivial_multi_issue_prs explicit false was defaulted to true")
-	}
-	if cfg.PRPolicy.FailWhenCommitListingReachesCap {
-		t.Fatal("fail_when_commit_listing_reaches_cap explicit false was defaulted to true")
+	if got.Delivery == nil || *got.Delivery != *cfg.Delivery {
+		t.Fatalf("delivery = %+v, want %+v", got.Delivery, cfg.Delivery)
 	}
 }
 
-func TestLoadDefaultsDirectBaseBranchPRsToAllowed(t *testing.T) {
+func TestDeliveryLocatorMustBeComplete(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Delivery = &DeliveryConfig{Authority: DeliveryAuthorityShadow, Host: "github.com"}
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "delivery.repository") {
+		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
+func TestDeliveryAuthorityMustBeExplicit(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Delivery = &DeliveryConfig{
+		Host: "github.com", Repository: DeliveryRepository{FullName: "example/repo", NodeID: "R_1"},
+		Issue: DeliveryResource{Number: 900, NodeID: "I_900"}, Checkpoint: DeliveryComment{DatabaseID: 100, NodeID: "IC_100"},
+	}
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "delivery.authority") {
+		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
+func TestLoadAcceptsRetiredPRPolicyOptionsAndPreservesCurrentBooleans(t *testing.T) {
+	for _, retiredValue := range []string{"true", "false"} {
+		t.Run(retiredValue, func(t *testing.T) {
+			content, err := MarshalYAML(DefaultConfig())
+			if err != nil {
+				t.Fatal(err)
+			}
+			retired := "    allow_direct_base_branch_prs: " + retiredValue + "\n    reject_all_trivial_multi_issue_prs: " + retiredValue + "\n"
+			text := strings.Replace(string(content), "pr_policy:\n", "pr_policy:\n"+retired, 1)
+			text = strings.ReplaceAll(text, "fail_when_commit_listing_reaches_cap: true", "fail_when_commit_listing_reaches_cap: false")
+			path := filepath.Join(t.TempDir(), "baton.yml")
+			if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := Load(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.PRPolicy.FailWhenCommitListingReachesCap {
+				t.Fatal("fail_when_commit_listing_reaches_cap explicit false was defaulted to true")
+			}
+		})
+	}
+}
+
+func TestMarshalOmitsRetiredPRPolicyOptions(t *testing.T) {
 	content, err := MarshalYAML(DefaultConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := strings.ReplaceAll(string(content), "reject_all_trivial_multi_issue_prs: true", "reject_all_trivial_multi_issue_prs: false")
+	text := strings.Replace(string(content), "pr_policy:\n", "pr_policy:\n    allow_direct_base_branch_prs: true\n    reject_all_trivial_multi_issue_prs: true\n", 1)
 	text = strings.ReplaceAll(text, "fail_when_commit_listing_reaches_cap: true", "fail_when_commit_listing_reaches_cap: false")
-	text = strings.ReplaceAll(text, "    allow_direct_base_branch_prs: true\n", "")
 	path := filepath.Join(t.TempDir(), "baton.yml")
 	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
 		t.Fatal(err)
@@ -208,8 +258,22 @@ func TestLoadDefaultsDirectBaseBranchPRsToAllowed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !cfg.PRPolicy.AllowDirectBaseBranchPRs {
-		t.Fatal("allow_direct_base_branch_prs should default to true")
+	encoded, err := MarshalYAML(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "allow_direct_base_branch_prs") || strings.Contains(string(encoded), "reject_all_trivial_multi_issue_prs") {
+		t.Fatalf("retired option was emitted:\n%s", encoded)
+	}
+}
+
+func TestCompiledPolicyJSONOmitsRetiredPRPolicyOptions(t *testing.T) {
+	content, err := json.Marshal(DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(content), "allowDirectBaseBranchPRs") || strings.Contains(string(content), "rejectAllTrivialMultiIssuePRs") {
+		t.Fatalf("compiled policy contains retired option: %s", content)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sjunepark/baton/internal/delivery"
 	"github.com/sjunepark/baton/internal/queue"
 )
 
@@ -27,6 +28,7 @@ const (
 	ActionIssueInvestigation  Action = "issue_investigation"
 	ActionPullRequestFollowUp Action = "pull_request_follow_up"
 	ActionBranchHealth        Action = "branch_health"
+	ActionSyncStaging         Action = "sync_staging"
 )
 
 type CandidateKind string
@@ -35,20 +37,22 @@ const (
 	CandidateIssue       CandidateKind = "issue"
 	CandidatePullRequest CandidateKind = "pull_request"
 	CandidateBranch      CandidateKind = "branch"
+	CandidateRepository  CandidateKind = "repository"
 )
 
 type RepositorySnapshot struct {
-	SchemaVersion  int                      `json:"schemaVersion"`
-	Kind           string                   `json:"kind"`
-	Repository     string                   `json:"repository"`
-	Acquisition    AcquisitionWindow        `json:"acquisition"`
-	Completeness   Completeness             `json:"completeness"`
-	Warnings       []Warning                `json:"warnings"`
-	Queue          queue.Snapshot           `json:"queue"`
-	Branches       []BranchObservation      `json:"branches"`
-	PullRequests   []PullRequestObservation `json:"pullRequests"`
-	Recommendation Recommendation           `json:"recommendation"`
-	legacyNext     queue.NextCandidates
+	SchemaVersion   int                            `json:"schemaVersion"`
+	Kind            string                         `json:"kind"`
+	Repository      string                         `json:"repository"`
+	Acquisition     AcquisitionWindow              `json:"acquisition"`
+	Completeness    Completeness                   `json:"completeness"`
+	Warnings        []Warning                      `json:"warnings"`
+	Queue           queue.Snapshot                 `json:"queue"`
+	Branches        []BranchObservation            `json:"branches"`
+	PullRequests    []PullRequestObservation       `json:"pullRequests"`
+	Recommendation  Recommendation                 `json:"recommendation"`
+	BaseIntegration *delivery.BaseIntegrationFacts `json:"baseIntegration,omitempty"`
+	legacyNext      queue.NextCandidates
 }
 
 type AcquisitionWindow struct {
@@ -154,7 +158,7 @@ func Build(input BuildInput) (RepositorySnapshot, error) {
 	if strings.TrimSpace(input.Facts.Repository) == "" {
 		return RepositorySnapshot{}, fmt.Errorf("repository snapshot requires a repository identity")
 	}
-	if input.Queue.Repo != input.Facts.Repository || input.Queue.Kind != "queueSnapshot" || input.Queue.SchemaVersion != 1 {
+	if input.Queue.Repo != input.Facts.Repository || input.Queue.Kind != "queueSnapshot" || input.Queue.SchemaVersion != 2 {
 		return RepositorySnapshot{}, fmt.Errorf("repository snapshot queue projection does not match its repository facts")
 	}
 	if input.StartedAt.IsZero() || input.CompletedAt.IsZero() || input.CompletedAt.Before(input.StartedAt) {
@@ -189,16 +193,17 @@ func Build(input BuildInput) (RepositorySnapshot, error) {
 	}
 
 	result := RepositorySnapshot{
-		SchemaVersion: 1,
-		Kind:          "repositorySnapshot",
-		Repository:    input.Facts.Repository,
-		Acquisition:   AcquisitionWindow{StartedAt: input.StartedAt, CompletedAt: input.CompletedAt},
-		Completeness:  completeness,
-		Warnings:      warnings,
-		Queue:         input.Queue,
-		Branches:      branchObservations(input.Facts),
-		PullRequests:  pullRequestObservations(input.Facts),
-		legacyNext:    legacyRecommendation(input.Queue, input.RequestedAction),
+		SchemaVersion:   2,
+		Kind:            "repositorySnapshot",
+		Repository:      input.Facts.Repository,
+		Acquisition:     AcquisitionWindow{StartedAt: input.StartedAt, CompletedAt: input.CompletedAt},
+		Completeness:    completeness,
+		Warnings:        warnings,
+		Queue:           input.Queue,
+		Branches:        branchObservations(input.Facts),
+		PullRequests:    pullRequestObservations(input.Facts),
+		BaseIntegration: input.Facts.BaseIntegration,
+		legacyNext:      legacyRecommendation(input.Queue, input.RequestedAction),
 	}
 	result.Recommendation = recommend(result, input.RequestedAction)
 	normalizeRecommendation(&result.Recommendation)
@@ -249,11 +254,11 @@ func validateRecommendation(recommendation Recommendation, completeness Complete
 	return nil
 }
 
-func (result RepositorySnapshot) QueueV1() queue.Snapshot {
+func (result RepositorySnapshot) QueueV2() queue.Snapshot {
 	return result.Queue
 }
 
-func (result RepositorySnapshot) NextV2() queue.NextCandidates {
+func (result RepositorySnapshot) NextV3() queue.NextCandidates {
 	return result.legacyNext
 }
 

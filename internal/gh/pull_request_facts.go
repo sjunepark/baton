@@ -131,6 +131,9 @@ func (c *Client) GetClassicBranchRulesContext(ctx context.Context, repo, branch 
 			RequireLastPushApproval bool `json:"require_last_push_approval"`
 			RequiredApprovals       int  `json:"required_approving_review_count"`
 		} `json:"required_pull_request_reviews"`
+		RequiredLinearHistory *struct {
+			Enabled bool `json:"enabled"`
+		} `json:"required_linear_history"`
 	}
 	path := fmt.Sprintf("/repos/%s/branches/%s/protection", repo, url.PathEscape(branch))
 	if err := c.getJSONContext(ctx, path, &payload); err != nil {
@@ -159,6 +162,9 @@ func (c *Client) GetClassicBranchRulesContext(ctx context.Context, repo, branch 
 		rules.RequireLastPushApproval = reviews.RequireLastPushApproval
 		rules.RequiredApprovingReviewCount = reviews.RequiredApprovals
 	}
+	if linear := payload.RequiredLinearHistory; linear != nil {
+		rules.RequiredLinearHistory = linear.Enabled
+	}
 	return rules, nil
 }
 
@@ -166,9 +172,10 @@ func (c *Client) GetEffectiveBranchRulesContext(ctx context.Context, repo, branc
 	type branchRulePayload struct {
 		Type       string `json:"type"`
 		Parameters struct {
-			StrictRequiredChecks    bool `json:"strict_required_status_checks_policy"`
-			DismissStaleReviews     bool `json:"dismiss_stale_reviews_on_push"`
-			RequireLastPushApproval bool `json:"require_last_push_approval"`
+			StrictRequiredChecks    bool     `json:"strict_required_status_checks_policy"`
+			DismissStaleReviews     bool     `json:"dismiss_stale_reviews_on_push"`
+			RequireLastPushApproval bool     `json:"require_last_push_approval"`
+			AllowedMergeMethods     []string `json:"allowed_merge_methods"`
 			RequiredChecks          []struct {
 				Context       string `json:"context"`
 				IntegrationID int64  `json:"integration_id"`
@@ -205,7 +212,32 @@ func (c *Client) GetEffectiveBranchRulesContext(ctx context.Context, repo, branc
 			if rule.Parameters.RequiredApprovingReviewCount > result.RequiredApprovingReviewCount {
 				result.RequiredApprovingReviewCount = rule.Parameters.RequiredApprovingReviewCount
 			}
+			if len(rule.Parameters.AllowedMergeMethods) > 0 {
+				result.AllowedMergeMethods = intersectMergeMethods(result.AllowedMergeMethods, rule.Parameters.AllowedMergeMethods, result.AllowedMergeMethodsSet)
+				result.AllowedMergeMethodsSet = true
+			}
+		case "required_linear_history":
+			result.RequiredLinearHistory = true
+		case "merge_queue":
+			result.MergeQueueEnabled = true
 		}
 	}
 	return result, nil
+}
+
+func intersectMergeMethods(current, next []string, currentSet bool) []string {
+	if !currentSet {
+		return append([]string(nil), next...)
+	}
+	allowed := make(map[string]struct{}, len(next))
+	for _, method := range next {
+		allowed[strings.ToLower(strings.TrimSpace(method))] = struct{}{}
+	}
+	result := make([]string, 0, len(current))
+	for _, method := range current {
+		if _, ok := allowed[strings.ToLower(strings.TrimSpace(method))]; ok {
+			result = append(result, method)
+		}
+	}
+	return result
 }

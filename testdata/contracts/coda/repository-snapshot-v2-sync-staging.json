@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 2,
+  "kind": "repositorySnapshot",
+  "repository": "open-creo/creo",
+  "acquisition": {
+    "startedAt": "2026-07-13T00:00:00Z",
+    "completedAt": "2026-07-13T00:00:01Z"
+  },
+  "completeness": "complete",
+  "warnings": [],
+  "queue": {
+    "schemaVersion": 2,
+    "kind": "queueSnapshot",
+    "repo": "open-creo/creo",
+    "counts": {
+      "totalIssues": 0,
+      "eligibleIssues": 0,
+      "skippedIssues": 0,
+      "openPullRequests": 0
+    },
+    "baseIntegration": {
+      "state": "direct-base-work-pending",
+      "observedBaseSha": "4444444444444444444444444444444444444444",
+      "observedStagingSha": "3333333333333333333333333333333333333333",
+      "integrationRecordDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "integrationSource": "promotion",
+      "integratedBaseSha": "2222222222222222222222222222222222222222",
+      "integratedStagingSha": "3333333333333333333333333333333333333333",
+      "reason": "base advanced beyond the acknowledged integration revision"
+    },
+    "issues": [],
+    "pullRequests": [],
+    "help": [
+      "Run `baton next --json`.",
+      "Run `baton doctor --json` if no eligible work appears."
+    ]
+  },
+  "branches": [],
+  "pullRequests": [],
+  "recommendation": {
+    "outcome": "actionable",
+    "action": "sync_staging",
+    "reasons": ["direct_base_work_pending"],
+    "selectionRequired": false,
+    "candidates": [
+      {
+        "identity": {
+          "repository": "open-creo/creo",
+          "kind": "repository",
+          "baseRef": "agent",
+          "headRef": "main",
+          "baseSha": "3333333333333333333333333333333333333333",
+          "headSha": "4444444444444444444444444444444444444444"
+        },
+        "state": "direct_base_work_pending",
+        "reasons": ["direct_base_work_pending"]
+      }
+    ],
+    "deferredCandidates": [],
+    "instructions": [
+      "Open a normal human-reviewed pull request from the configured base branch into staging.",
+      "Merge it with a merge commit so both histories remain ancestors of the result.",
+      "Do not push, merge, rebase, squash, or rewrite staging automatically."
+    ]
+  },
+  "baseIntegration": {
+    "state": "direct-base-work-pending",
+    "observedBaseSha": "4444444444444444444444444444444444444444",
+    "observedStagingSha": "3333333333333333333333333333333333333333",
+    "integrationRecordDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "integrationSource": "promotion",
+    "integratedBaseSha": "2222222222222222222222222222222222222222",
+    "integratedStagingSha": "3333333333333333333333333333333333333333",
+    "reason": "base advanced beyond the acknowledged integration revision"
+  }
+}

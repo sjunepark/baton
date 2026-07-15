@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strconv"
 	"testing"
 )
@@ -17,7 +18,7 @@ func TestGetPullRequestIncludesRevisionAndMergeability(t *testing.T) {
 		if r.URL.Path != "/repos/example/repo/pulls/7" {
 			t.Fatalf("path = %s", r.URL.String())
 		}
-		w.Write([]byte(`{"number":7,"draft":true,"mergeable":false,"mergeable_state":"dirty","user":{"login":"octo","type":"User"},"base":{"ref":"main","sha":"base-sha"},"head":{"ref":"work","sha":"head-sha"}}`))
+		w.Write([]byte(`{"number":7,"node_id":"PR_7","draft":true,"mergeable":false,"mergeable_state":"dirty","merged_at":"2026-07-15T01:02:03Z","merge_commit_sha":"merge-sha","user":{"login":"octo","type":"User"},"base":{"ref":"main","sha":"base-sha"},"head":{"ref":"work","sha":"head-sha"}}`))
 	}))
 	defer server.Close()
 
@@ -25,7 +26,7 @@ func TestGetPullRequestIncludesRevisionAndMergeability(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pullRequest.BaseSHA != "base-sha" || pullRequest.HeadSHA != "head-sha" || !pullRequest.Draft || pullRequest.Mergeable != "conflicting" || pullRequest.MergeState != "dirty" || pullRequest.Author != (Actor{Login: "octo", Type: "User"}) {
+	if pullRequest.NodeID != "PR_7" || pullRequest.BaseSHA != "base-sha" || pullRequest.HeadSHA != "head-sha" || !pullRequest.Draft || pullRequest.Mergeable != "conflicting" || pullRequest.MergeState != "dirty" || pullRequest.Author != (Actor{Login: "octo", Type: "User"}) || !pullRequest.Merged || pullRequest.MergeRevision != "merge-sha" {
 		t.Fatalf("pull request = %+v", pullRequest)
 	}
 }
@@ -78,7 +79,7 @@ func TestGetBranchAndEffectiveRulesPreserveRequiredCheckIdentity(t *testing.T) {
 		case "/repos/example/repo/branches/main":
 			w.Write([]byte(`{"name":"main","protected":true,"commit":{"sha":"base"},"protection":{"required_status_checks":{"contexts":["legacy"]}}}`))
 		case "/repos/example/repo/rules/branches/main":
-			w.Write([]byte(`[{"type":"required_status_checks","parameters":{"strict_required_status_checks_policy":true,"required_status_checks":[{"context":"test","integration_id":42}]}},{"type":"pull_request","parameters":{"dismiss_stale_reviews_on_push":true,"require_last_push_approval":true,"required_approving_review_count":2}}]`))
+			w.Write([]byte(`[{"type":"required_status_checks","parameters":{"strict_required_status_checks_policy":true,"required_status_checks":[{"context":"test","integration_id":42}]}},{"type":"pull_request","parameters":{"dismiss_stale_reviews_on_push":true,"require_last_push_approval":true,"required_approving_review_count":2,"allowed_merge_methods":["merge","squash"]}},{"type":"pull_request","parameters":{"allowed_merge_methods":["merge","rebase"]}},{"type":"required_linear_history"},{"type":"merge_queue"}]`))
 		default:
 			t.Fatalf("path = %s", r.URL.String())
 		}
@@ -94,7 +95,7 @@ func TestGetBranchAndEffectiveRulesPreserveRequiredCheckIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !branch.Protected || branch.SHA != "base" || len(branch.LegacyRequiredChecks) != 1 || len(rules.RequiredChecks) != 1 || rules.RequiredChecks[0].IntegrationID != 42 || !rules.StrictRequiredChecks || !rules.DismissStaleReviews || !rules.RequireLastPushApproval || rules.RequiredApprovingReviewCount != 2 {
+	if !branch.Protected || branch.SHA != "base" || len(branch.LegacyRequiredChecks) != 1 || len(rules.RequiredChecks) != 1 || rules.RequiredChecks[0].IntegrationID != 42 || !rules.StrictRequiredChecks || !rules.DismissStaleReviews || !rules.RequireLastPushApproval || !rules.RequiredLinearHistory || !rules.MergeQueueEnabled || !rules.AllowedMergeMethodsSet || !reflect.DeepEqual(rules.AllowedMergeMethods, []string{"merge"}) || rules.RequiredApprovingReviewCount != 2 {
 		t.Fatalf("branch=%+v rules=%+v", branch, rules)
 	}
 }
@@ -130,7 +131,7 @@ func TestGetClassicBranchRulesPreservesReviewAndStrictCheckPolicy(t *testing.T) 
 		if r.URL.Path != "/repos/example/repo/branches/main/protection" {
 			t.Fatalf("path = %s", r.URL.String())
 		}
-		w.Write([]byte(`{"required_status_checks":{"strict":true,"contexts":["test","legacy"],"checks":[{"context":"test","app_id":42}]},"required_pull_request_reviews":{"dismiss_stale_reviews":true,"require_last_push_approval":true,"required_approving_review_count":2}}`))
+		w.Write([]byte(`{"required_status_checks":{"strict":true,"contexts":["test","legacy"],"checks":[{"context":"test","app_id":42}]},"required_pull_request_reviews":{"dismiss_stale_reviews":true,"require_last_push_approval":true,"required_approving_review_count":2},"required_linear_history":{"enabled":true}}`))
 	}))
 	defer server.Close()
 
@@ -138,8 +139,24 @@ func TestGetClassicBranchRulesPreservesReviewAndStrictCheckPolicy(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !rules.StrictRequiredChecks || !rules.DismissStaleReviews || !rules.RequireLastPushApproval || rules.RequiredApprovingReviewCount != 2 || len(rules.RequiredChecks) != 2 || rules.RequiredChecks[0].IntegrationID != 42 || rules.RequiredChecks[1].Context != "legacy" {
+	if !rules.StrictRequiredChecks || !rules.DismissStaleReviews || !rules.RequireLastPushApproval || !rules.RequiredLinearHistory || rules.RequiredApprovingReviewCount != 2 || len(rules.RequiredChecks) != 2 || rules.RequiredChecks[0].IntegrationID != 42 || rules.RequiredChecks[1].Context != "legacy" {
 		t.Fatalf("rules = %+v", rules)
+	}
+}
+
+func TestGetClassicBranchRulesReportsUnprotectedBranchAsNotFound(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/example/repo/branches/agent/protection" {
+			t.Fatalf("path = %s", r.URL.String())
+		}
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"message": "Branch not protected"})
+	}))
+	defer server.Close()
+
+	_, err := NewClient(server.URL, "token", server.Client()).GetClassicBranchRules("example/repo", "agent")
+	if !IsNotFound(err) {
+		t.Fatalf("error = %T %v, want not found", err, err)
 	}
 }
 

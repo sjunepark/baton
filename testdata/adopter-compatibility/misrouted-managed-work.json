@@ -1,0 +1,13 @@
+{
+  "action": "opened",
+  "repository": {"full_name": "example/repo"},
+  "pull_request": {
+    "number": 107,
+    "title": "Misrouted Baton work",
+    "body": "Refs #7",
+    "state": "open",
+    "merged": false,
+    "base": {"ref": "release", "sha": "base-107", "repo": {"full_name": "example/repo"}},
+    "head": {"ref": "agent-work/7-misrouted", "sha": "head-107", "repo": {"full_name": "example/repo"}}
+  }
+}

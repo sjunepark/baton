@@ -15,7 +15,7 @@ func TestPreviewPlansTemplateCreation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Changes) != 7 {
+	if len(plan.Changes) != 8 {
 		t.Fatalf("changes = %#v", plan.Changes)
 	}
 	for _, change := range plan.Changes {
@@ -76,7 +76,8 @@ func TestApplyWritesTemplatesAndRefusesOverwrite(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, ".github", "baton.yml")); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, ".github", "baton.yml"), []byte("custom\n"), 0o600); err != nil {
+	guidancePath := filepath.Join(root, ".github", "ISSUE_WORKFLOW.md")
+	if err := os.WriteFile(guidancePath, []byte("custom\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Apply(root, false); err == nil {
@@ -126,7 +127,7 @@ func TestPreviewIncludesStableIdentityPreconditionsContentAndDiff(t *testing.T) 
 			t.Fatalf("change = %+v", change)
 		}
 	}
-	path := filepath.Join(root, ".github", "baton.yml")
+	path := filepath.Join(root, ".github", "ISSUE_WORKFLOW.md")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +138,14 @@ func TestPreviewIncludesStableIdentityPreconditionsContentAndDiff(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if changed.PlanID == first.PlanID || changed.Changes[0].Precondition.SHA256 == "" || !changed.Changes[0].Conflict || changed.Changes[0].Ownership != "unmanaged" {
+	var guidanceChange *FileChange
+	for index := range changed.Changes {
+		if changed.Changes[index].Path == ".github/ISSUE_WORKFLOW.md" {
+			guidanceChange = &changed.Changes[index]
+			break
+		}
+	}
+	if changed.PlanID == first.PlanID || guidanceChange == nil || guidanceChange.Precondition.SHA256 == "" || !guidanceChange.Conflict || guidanceChange.Ownership != "unmanaged" {
 		t.Fatalf("changed plan = %+v", changed)
 	}
 }
@@ -220,12 +228,33 @@ func TestApplyWithOptionsRendersInstallCommand(t *testing.T) {
 	if !strings.Contains(text, "curl -fsSL https://example.invalid/baton.sh | sh\n          baton version") {
 		t.Fatalf("workflow did not render install command with indentation:\n%s", text)
 	}
+	if !strings.Contains(text, "group: baton-delivery-${{ github.repository_id }}") || !strings.Contains(text, "queue: max") {
+		t.Fatalf("PR policy workflow does not share delivery concurrency:\n%s", text)
+	}
+	if !strings.Contains(text, "checks: write") || !strings.Contains(text, "issues: write") {
+		t.Fatalf("PR policy workflow cannot seal plans or invalidate overlapping promotions:\n%s", text)
+	}
 	transition, err := os.ReadFile(filepath.Join(root, ".github", "workflows", "work-item-transition.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(transition), "curl -fsSL") || !strings.Contains(string(transition), defaultGoInstall) {
 		t.Fatalf("trusted transition workflow used arbitrary install command:\n%s", transition)
+	}
+	recorder, err := os.ReadFile(filepath.Join(root, ".github", "workflows", "delivery-recorder.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(recorder), "curl -fsSL") || !strings.Contains(string(recorder), defaultGoInstall) {
+		t.Fatalf("trusted delivery workflow used arbitrary install command:\n%s", recorder)
+	}
+	for _, fragment := range []string{
+		"checks: write", "issues: write", "baton-delivery-${{ github.repository_id }}", "queue: max", "delivery-record --event",
+		"inputs.mode == 'record'", "plan-bootstrap:", "apply-bootstrap:", "environment: baton-delivery-bootstrap", "--observed-at \"$OBSERVED_AT\"", "--plan-id \"$PLAN_ID\"",
+	} {
+		if !strings.Contains(string(recorder), fragment) {
+			t.Fatalf("trusted delivery workflow missing %q:\n%s", fragment, recorder)
+		}
 	}
 }
 
@@ -235,6 +264,74 @@ func TestRenderManagedFilesRequiresPinnedTransitionBinary(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "module@vX.Y.Z") {
 			t.Fatalf("RenderManagedFiles(%q) error = %v, want exact version rejection", target, err)
 		}
+	}
+}
+
+func TestRenderedDeliveryRecorderRoutesSynchronizationAndBasePushWithoutOwningPolicy(t *testing.T) {
+	cfg := config.DefaultConfig()
+	content, err := templateContent(".github/workflows/delivery-recorder.yml", Options{}.withDefaults())
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	for _, fragment := range []string{
+		"push:", "- " + cfg.Repository.BaseBranch,
+		"github.event.pull_request.head.ref == '" + cfg.Repository.BaseBranch + "'",
+		"github.event.pull_request.base.ref == '" + cfg.Repository.StagingBranch + "'",
+		"github.event_name == 'push'", `github.event_name }}" == "pull_request_target"`,
+	} {
+		if !strings.Contains(text, fragment) {
+			t.Fatalf("delivery recorder missing %q:\n%s", fragment, text)
+		}
+	}
+	policyWorkflow, err := templateContent(".github/workflows/pr-policy.yml", Options{}.withDefaults())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(policyWorkflow), "head.ref == '"+cfg.Repository.BaseBranch+"' && github.event.pull_request.base.ref == '"+cfg.Repository.StagingBranch+"'") {
+		t.Fatalf("PR policy prefilter must not own base-to-staging synchronization:\n%s", policyWorkflow)
+	}
+}
+
+func TestRenderedIssuePolicyRepairsTrustedOwnershipCommentEvents(t *testing.T) {
+	content, err := templateContent(".github/workflows/issue-policy.yml", Options{}.withDefaults())
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	for _, fragment := range []string{"issue_comment:", "- edited", "- deleted", "github-actions[bot]", "ref: ${{ github.event.repository.default_branch }}", "persist-credentials: false"} {
+		if !strings.Contains(text, fragment) {
+			t.Fatalf("issue workflow missing %q:\n%s", fragment, text)
+		}
+	}
+}
+
+func TestRenderedWorkflowsPinEveryCheckoutAndDisableCredentialPersistence(t *testing.T) {
+	for path, test := range map[string]struct {
+		ref       string
+		checkouts int
+	}{
+		".github/workflows/issue-policy.yml":         {ref: "ref: ${{ github.event.repository.default_branch }}", checkouts: 1},
+		".github/workflows/pr-policy.yml":            {ref: "ref: ${{ github.event.pull_request.base.sha }}", checkouts: 1},
+		".github/workflows/work-item-transition.yml": {ref: "ref: ${{ github.event.pull_request.base.sha }}", checkouts: 1},
+		".github/workflows/delivery-recorder.yml":    {ref: "ref: ${{ github.event.repository.default_branch }}", checkouts: 3},
+	} {
+		t.Run(path, func(t *testing.T) {
+			content, err := templateContent(path, Options{}.withDefaults())
+			if err != nil {
+				t.Fatal(err)
+			}
+			text := string(content)
+			if got := strings.Count(text, "uses: actions/checkout@v4"); got != test.checkouts {
+				t.Fatalf("checkout count = %d, want %d:\n%s", got, test.checkouts, text)
+			}
+			if got := strings.Count(text, test.ref); got != test.checkouts {
+				t.Fatalf("trusted ref count = %d, want %d:\n%s", got, test.checkouts, text)
+			}
+			if got := strings.Count(text, "persist-credentials: false"); got != test.checkouts {
+				t.Fatalf("credential hardening count = %d, want %d:\n%s", got, test.checkouts, text)
+			}
+		})
 	}
 }
 
@@ -348,6 +445,9 @@ func TestPinnedConfigTemplateSemanticallyMatchesCompiledDefaults(t *testing.T) {
 	if string(got) != string(want) {
 		t.Fatalf("pinned config template drifted from compiled defaults:\ngot:\n%s\nwant:\n%s", got, want)
 	}
+	if strings.Contains(string(content), "allow_direct_base_branch_prs") || strings.Contains(string(content), "reject_all_trivial_multi_issue_prs") {
+		t.Fatalf("pinned config template contains retired PR policy option:\n%s", content)
+	}
 }
 
 func TestRenderManagedFilesPropagatesCustomRepositoryPolicy(t *testing.T) {
@@ -378,11 +478,11 @@ func TestRenderManagedFilesPropagatesCustomRepositoryPolicy(t *testing.T) {
 	}
 	for path, fragments := range map[string][]string{
 		".github/baton.yml":                          {"default_remote: upstream", "base_branch: stable", "staging_branch: integration", "work_branch_prefix: bot-work/", "manifest: .config/project-labels.yml"},
-		".github/workflows/pr-policy.yml":            {"      - \"integration\"", "      - \"stable\""},
-		".github/workflows/work-item-transition.yml": {"      - \"integration\"", "      - \"stable\"", "issues: write"},
+		".github/workflows/pr-policy.yml":            {"startsWith(github.event.pull_request.head.ref, 'bot-work/')", "head.ref == 'integration'", "base.ref == 'stable'"},
+		".github/workflows/work-item-transition.yml": {"head.ref == 'integration'", "base.ref == 'stable'", "issues: write", "queue: max"},
 		".github/ISSUE_TEMPLATE/agent-work.yml":      {"label: Requested outcome", "- Defect", "- Ship it", "- Research"},
 		".github/ISSUE_WORKFLOW.md":                  {"`workflow:ready`", "`workflow:blocked`", "target integration", "prefixed with bot-work/", "target stable"},
-		".config/project-labels.yml":                 {"name: kind:defect", "name: workflow:ready", "name: workflow:research", "name: workflow:blocked"},
+		".config/project-labels.yml":                 {"name: baton:managed", "name: kind:defect", "name: workflow:ready", "name: workflow:research", "name: workflow:blocked"},
 	} {
 		content, exists := byPath[path]
 		if !exists {
@@ -414,6 +514,48 @@ func TestRenderManagedFilesPropagatesCustomRepositoryPolicy(t *testing.T) {
 	}
 }
 
+func TestRepositoryReconciliationDetectsOwnershipPrefilterDriftInBothPRWorkflows(t *testing.T) {
+	root := t.TempDir()
+	initial := config.DefaultConfig()
+	initial.Repository.WorkBranchPrefix = "first-work/"
+	files, err := RenderManagedFiles(initial, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ApplyManagedFiles(root, files, true); err != nil {
+		t.Fatal(err)
+	}
+
+	updated := initial
+	updated.Repository.WorkBranchPrefix = "second-work/"
+	updated.Repository.StagingBranch = "integration"
+	updated.Repository.BaseBranch = "stable"
+	desired, err := RenderManagedFiles(updated, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := PreviewManagedFiles(root, desired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{
+		".github/workflows/pr-policy.yml":            false,
+		".github/workflows/work-item-transition.yml": false,
+	}
+	for _, change := range plan.Changes {
+		if _, tracked := want[change.Path]; tracked && change.Conflict && strings.Contains(change.DesiredContent, "integration") && strings.Contains(change.DesiredContent, "stable") {
+			if change.Path != ".github/workflows/pr-policy.yml" || strings.Contains(change.DesiredContent, "second-work/") {
+				want[change.Path] = true
+			}
+		}
+	}
+	for path, detected := range want {
+		if !detected {
+			t.Fatalf("ownership prefilter drift was not detected for %s: %+v", path, plan.Changes)
+		}
+	}
+}
+
 func TestRenderManagedFilesQuotesYAMLSensitiveBranchNames(t *testing.T) {
 	policy := config.DefaultConfig()
 	policy.Repository.StagingBranch = "#release"
@@ -425,8 +567,8 @@ func TestRenderManagedFilesQuotesYAMLSensitiveBranchNames(t *testing.T) {
 		if file.Path != ".github/workflows/pr-policy.yml" {
 			continue
 		}
-		if !strings.Contains(string(file.Content), `      - "#release"`) {
-			t.Fatalf("workflow branch was not quoted:\n%s", file.Content)
+		if !strings.Contains(string(file.Content), `head.ref == '#release'`) {
+			t.Fatalf("workflow expression value was not quoted:\n%s", file.Content)
 		}
 		var document any
 		if err := yaml.Unmarshal(file.Content, &document); err != nil {
@@ -437,8 +579,8 @@ func TestRenderManagedFilesQuotesYAMLSensitiveBranchNames(t *testing.T) {
 	t.Fatal("PR policy workflow not rendered")
 }
 
-func TestReplaceWorkflowBranchesRequiresPinnedPlaceholder(t *testing.T) {
-	_, err := replaceWorkflowBranches(".github/workflows/pr-policy.yml", "branches: [custom]", config.DefaultConfig())
+func TestReplaceWorkflowOwnershipPrefilterRequiresPinnedPlaceholder(t *testing.T) {
+	_, err := replaceWorkflowOwnershipPrefilter(".github/workflows/pr-policy.yml", "branches: [custom]", config.DefaultConfig())
 	if err == nil || !strings.Contains(err.Error(), ".github/workflows/pr-policy.yml") || !strings.Contains(err.Error(), "placeholder") {
 		t.Fatalf("error = %v", err)
 	}

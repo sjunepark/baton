@@ -3,9 +3,6 @@ name: PR Policy
 
 on:
   pull_request_target:
-    branches:
-      - agent
-      - main
     types:
       - opened
       - edited
@@ -14,13 +11,19 @@ on:
       - ready_for_review
 
 permissions:
+  checks: write
   contents: read
-  issues: read
+  issues: write
   pull-requests: read
+
+concurrency:
+  group: baton-delivery-${{ github.repository_id }}
+  queue: max
 
 jobs:
   check-pr-policy:
     name: Check PR policy
+    if: __BATON_PR_OWNERSHIP_PREFILTER__
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository

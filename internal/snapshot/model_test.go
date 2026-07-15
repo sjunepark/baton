@@ -162,7 +162,7 @@ func TestBuildRepositorySnapshotRequestedInvestigation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Recommendation.Outcome != OutcomeActionable || result.Recommendation.Action == nil || *result.Recommendation.Action != ActionIssueInvestigation || result.NextV2().SelectedAction != "issue-investigation" {
+	if result.Recommendation.Outcome != OutcomeActionable || result.Recommendation.Action == nil || *result.Recommendation.Action != ActionIssueInvestigation || result.NextV3().SelectedAction != "issue-investigation" {
 		t.Fatalf("snapshot = %+v", result)
 	}
 }
@@ -183,7 +183,7 @@ func TestBuildRepositorySnapshotUsesConfiguredReferenceKeyword(t *testing.T) {
 	}
 	for name, instructions := range map[string][]string{
 		"recommendation": result.Recommendation.Instructions,
-		"legacy next":    result.NextV2().Instructions,
+		"legacy next":    result.NextV3().Instructions,
 	} {
 		joined := strings.Join(instructions, " ")
 		if !strings.Contains(joined, "Tracks #<issue-number>") || strings.Contains(joined, "Refs #<issue-number>") {

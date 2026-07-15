@@ -27,6 +27,7 @@ type RepositoryPolicy struct {
 	IssuePolicy   IssuePolicy      `json:"issuePolicy" yaml:"issue_policy"`
 	PRPolicy      PRPolicy         `json:"prPolicy" yaml:"pr_policy"`
 	Labels        LabelsConfig     `json:"labels" yaml:"labels"`
+	Delivery      *DeliveryConfig  `json:"delivery,omitempty" yaml:"delivery,omitempty"`
 }
 
 // Config remains an alias during the internal migration to RepositoryPolicy.
@@ -60,14 +61,45 @@ type IssuePolicy struct {
 type PRPolicy struct {
 	RequiredReferenceKeyword        string   `json:"requiredReferenceKeyword" yaml:"required_reference_keyword"`
 	ForbiddenClosingKeywords        []string `json:"forbiddenClosingKeywords" yaml:"forbidden_closing_keywords"`
-	AllowDirectBaseBranchPRs        bool     `json:"allowDirectBaseBranchPRs" yaml:"allow_direct_base_branch_prs"`
-	RejectAllTrivialMultiIssuePRs   bool     `json:"rejectAllTrivialMultiIssuePRs" yaml:"reject_all_trivial_multi_issue_prs"`
 	NoisyCommitSubjects             []string `json:"noisyCommitSubjects" yaml:"noisy_commit_subjects"`
 	FailWhenCommitListingReachesCap bool     `json:"failWhenCommitListingReachesCap" yaml:"fail_when_commit_listing_reaches_cap"`
 }
 
 type LabelsConfig struct {
 	Manifest string `json:"manifest" yaml:"manifest"`
+}
+
+type DeliveryAuthority string
+
+const (
+	DeliveryAuthorityShadow DeliveryAuthority = "shadow"
+	DeliveryAuthoritySealed DeliveryAuthority = "sealed"
+)
+
+// DeliveryConfig pins the repository-owned GitHub resources used by the
+// delivery ledger. Shadow permits reviewed bootstrap/recording; sealed enables
+// policy, transition, and recommendation authority.
+type DeliveryConfig struct {
+	Authority  DeliveryAuthority  `json:"authority" yaml:"authority"`
+	Host       string             `json:"host" yaml:"host"`
+	Repository DeliveryRepository `json:"repository" yaml:"repository"`
+	Issue      DeliveryResource   `json:"issue" yaml:"issue"`
+	Checkpoint DeliveryComment    `json:"checkpoint" yaml:"checkpoint"`
+}
+
+type DeliveryRepository struct {
+	FullName string `json:"fullName" yaml:"full_name"`
+	NodeID   string `json:"nodeId" yaml:"node_id"`
+}
+
+type DeliveryResource struct {
+	Number int    `json:"number" yaml:"number"`
+	NodeID string `json:"nodeId" yaml:"node_id"`
+}
+
+type DeliveryComment struct {
+	DatabaseID int64  `json:"databaseId" yaml:"database_id"`
+	NodeID     string `json:"nodeId" yaml:"node_id"`
 }
 
 type currentWireConfig struct {
@@ -77,6 +109,7 @@ type currentWireConfig struct {
 	IssuePolicy currentWireIssuePolicy `yaml:"issue_policy"`
 	PRPolicy    currentWirePR          `yaml:"pr_policy"`
 	Labels      currentWireLabels      `yaml:"labels"`
+	Delivery    *DeliveryConfig        `yaml:"delivery,omitempty"`
 	Automation  *legacyAutomationWire  `yaml:"automation,omitempty"`
 }
 
@@ -86,10 +119,12 @@ type currentWireIssuePolicy IssuePolicy
 type currentWireLabels LabelsConfig
 
 type currentWirePR struct {
-	RequiredReferenceKeyword        string   `yaml:"required_reference_keyword"`
-	ForbiddenClosingKeywords        []string `yaml:"forbidden_closing_keywords"`
-	AllowDirectBaseBranchPRs        *bool    `yaml:"allow_direct_base_branch_prs"`
-	RejectAllTrivialMultiIssuePRs   *bool    `yaml:"reject_all_trivial_multi_issue_prs"`
+	RequiredReferenceKeyword string   `yaml:"required_reference_keyword"`
+	ForbiddenClosingKeywords []string `yaml:"forbidden_closing_keywords"`
+	// Retired options remain decode-only for the v0.6 adopter window and are
+	// removed with the next config-schema major.
+	AllowDirectBaseBranchPRs        *bool    `yaml:"allow_direct_base_branch_prs,omitempty"`
+	RejectAllTrivialMultiIssuePRs   *bool    `yaml:"reject_all_trivial_multi_issue_prs,omitempty"`
 	NoisyCommitSubjects             []string `yaml:"noisy_commit_subjects"`
 	FailWhenCommitListingReachesCap *bool    `yaml:"fail_when_commit_listing_reaches_cap"`
 }
@@ -212,24 +247,21 @@ func compileCurrent(wire currentWireConfig) RepositoryPolicy {
 		PRPolicy: PRPolicy{
 			RequiredReferenceKeyword:        wire.PRPolicy.RequiredReferenceKeyword,
 			ForbiddenClosingKeywords:        wire.PRPolicy.ForbiddenClosingKeywords,
-			AllowDirectBaseBranchPRs:        boolValue(wire.PRPolicy.AllowDirectBaseBranchPRs, true),
-			RejectAllTrivialMultiIssuePRs:   boolValue(wire.PRPolicy.RejectAllTrivialMultiIssuePRs, true),
 			NoisyCommitSubjects:             wire.PRPolicy.NoisyCommitSubjects,
 			FailWhenCommitListingReachesCap: boolValue(wire.PRPolicy.FailWhenCommitListingReachesCap, true),
 		},
-		Labels: LabelsConfig(wire.Labels),
+		Labels:   LabelsConfig(wire.Labels),
+		Delivery: wire.Delivery,
 	}
 }
 
 func wireFromPolicy(cfg RepositoryPolicy) currentWireConfig {
 	return currentWireConfig{
 		Version: cfg.Version, Setup: currentWireSetup(cfg.Setup), Repository: currentWireRepository(cfg.Repository),
-		IssuePolicy: currentWireIssuePolicy(cfg.IssuePolicy), Labels: currentWireLabels(cfg.Labels),
+		IssuePolicy: currentWireIssuePolicy(cfg.IssuePolicy), Labels: currentWireLabels(cfg.Labels), Delivery: cfg.Delivery,
 		PRPolicy: currentWirePR{
 			RequiredReferenceKeyword:        cfg.PRPolicy.RequiredReferenceKeyword,
 			ForbiddenClosingKeywords:        cfg.PRPolicy.ForbiddenClosingKeywords,
-			AllowDirectBaseBranchPRs:        boolPointer(cfg.PRPolicy.AllowDirectBaseBranchPRs),
-			RejectAllTrivialMultiIssuePRs:   boolPointer(cfg.PRPolicy.RejectAllTrivialMultiIssuePRs),
 			NoisyCommitSubjects:             cfg.PRPolicy.NoisyCommitSubjects,
 			FailWhenCommitListingReachesCap: boolPointer(cfg.PRPolicy.FailWhenCommitListingReachesCap),
 		},
@@ -403,6 +435,34 @@ func (cfg Config) Validate() error {
 	if filepath.IsAbs(cleanManifest) || cleanManifest == ".." || strings.HasPrefix(cleanManifest, ".."+string(filepath.Separator)) {
 		return errors.New("labels.manifest must be a repository-relative path")
 	}
+	if cfg.Delivery != nil {
+		if err := validateDeliveryConfig(*cfg.Delivery); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateDeliveryConfig(delivery DeliveryConfig) error {
+	if delivery.Authority != DeliveryAuthorityShadow && delivery.Authority != DeliveryAuthoritySealed {
+		return errors.New("delivery.authority must be shadow or sealed")
+	}
+	if strings.TrimSpace(delivery.Host) == "" {
+		return errors.New("delivery.host is required")
+	}
+	if strings.TrimSpace(delivery.Repository.FullName) == "" || strings.TrimSpace(delivery.Repository.NodeID) == "" {
+		return errors.New("delivery.repository full_name and node_id are required")
+	}
+	parts := strings.Split(delivery.Repository.FullName, "/")
+	if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
+		return errors.New("delivery.repository.full_name must be owner/name")
+	}
+	if delivery.Issue.Number <= 0 || strings.TrimSpace(delivery.Issue.NodeID) == "" {
+		return errors.New("delivery.issue number and node_id are required")
+	}
+	if delivery.Checkpoint.DatabaseID <= 0 || strings.TrimSpace(delivery.Checkpoint.NodeID) == "" {
+		return errors.New("delivery.checkpoint database_id and node_id are required")
+	}
 	return nil
 }
 
@@ -503,8 +563,6 @@ func DefaultConfig() Config {
 		PRPolicy: PRPolicy{
 			RequiredReferenceKeyword:        "Refs",
 			ForbiddenClosingKeywords:        []string{"Closes", "Fixes", "Resolves"},
-			AllowDirectBaseBranchPRs:        true,
-			RejectAllTrivialMultiIssuePRs:   true,
 			NoisyCommitSubjects:             defaultNoisyCommitSubjects(),
 			FailWhenCommitListingReachesCap: true,
 		},
