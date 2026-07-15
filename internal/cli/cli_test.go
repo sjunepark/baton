@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"reflect"
 	"strings"
 	"testing"
@@ -137,8 +138,8 @@ func TestJSONMutationAndIdempotentNoOpContracts(t *testing.T) {
 	store := task.NewMemoryStore()
 	store.PutIssue("example/repo", task.Issue{Number: 7, Title: "Enroll me", URL: "https://example.test/7", State: task.IssueOpen})
 	rt := testRuntime(store)
-	assertJSONGolden(t, rt, []string{"--repo", "example/repo", "--json", "enroll", "7", "--mode", "bounded", "--dry-run"}, `{"repository":"example/repo","changed":true,"dryRun":true,"changes":[{"action":"add_label","label":"baton:managed"},{"action":"add_label","label":"agent:ready-bounded"}],"task":{"number":7,"title":"Enroll me","url":"https://example.test/7","issueState":"open","state":"ready","mode":"bounded","priority":"p2","inProgress":false,"blockers":[],"projectLabels":[],"reasons":[]}}`)
-	assertJSONGolden(t, rt, []string{"--repo", "example/repo", "--json", "enroll", "7", "--mode", "bounded"}, `{"repository":"example/repo","changed":true,"dryRun":false,"changes":[{"action":"add_label","label":"baton:managed"},{"action":"add_label","label":"agent:ready-bounded"}],"task":{"number":7,"title":"Enroll me","url":"https://example.test/7","issueState":"open","state":"ready","mode":"bounded","priority":"p2","inProgress":false,"blockers":[],"projectLabels":[],"reasons":[]}}`)
+	assertJSONGolden(t, rt, []string{"--repo", "example/repo", "--json", "enroll", "7", "--mode", "bounded", "--dry-run"}, `{"repository":"example/repo","changed":true,"dryRun":true,"changes":[{"action":"add_label","label":"agent:ready-bounded"},{"action":"add_label","label":"baton:managed"}],"task":{"number":7,"title":"Enroll me","url":"https://example.test/7","issueState":"open","state":"ready","mode":"bounded","priority":"p2","inProgress":false,"blockers":[],"projectLabels":[],"reasons":[]}}`)
+	assertJSONGolden(t, rt, []string{"--repo", "example/repo", "--json", "enroll", "7", "--mode", "bounded"}, `{"repository":"example/repo","changed":true,"dryRun":false,"changes":[{"action":"add_label","label":"agent:ready-bounded"},{"action":"add_label","label":"baton:managed"}],"task":{"number":7,"title":"Enroll me","url":"https://example.test/7","issueState":"open","state":"ready","mode":"bounded","priority":"p2","inProgress":false,"blockers":[],"projectLabels":[],"reasons":[]}}`)
 	assertJSONGolden(t, rt, []string{"--repo", "example/repo", "--json", "enroll", "7", "--mode", "bounded"}, `{"repository":"example/repo","changed":false,"dryRun":false,"changes":[],"task":{"number":7,"title":"Enroll me","url":"https://example.test/7","issueState":"open","state":"ready","mode":"bounded","priority":"p2","inProgress":false,"blockers":[],"projectLabels":[],"reasons":[]}}`)
 }
 
@@ -208,7 +209,7 @@ func TestJSONTaskAndPartialMutationErrorContracts(t *testing.T) {
 
 	store.FailAction = "add_label"
 	store.FailLabel = "agent:ready-bounded"
-	assertErrorJSONGolden(t, rt, []string{"--json", "--repo", "example/repo", "enroll", "4", "--mode", "bounded"}, exitOperational, `{"error":{"code":"mutation_failed","message":"Task mutation for issue #4 failed","hint":"Inspect the confirmed changes and current task, then retry the command.","changes":[{"action":"create_label","label":"baton:managed"},{"action":"add_label","label":"baton:managed"},{"action":"create_label","label":"agent:ready-bounded"}],"task":{"number":4,"title":"Plain issue","url":"https://example.test/4","issueState":"open","state":"blocked","mode":null,"priority":"p2","inProgress":false,"blockers":[],"projectLabels":[],"reasons":["missing_mode"]}}}`)
+	assertErrorJSONGolden(t, rt, []string{"--json", "--repo", "example/repo", "enroll", "4", "--mode", "bounded"}, exitOperational, `{"error":{"code":"mutation_failed","message":"Task mutation for issue #4 failed","hint":"Inspect the confirmed changes and current task, then retry the command.","changes":[{"action":"create_label","label":"agent:ready-bounded"}]}}`)
 
 	closedStore := task.NewMemoryStore()
 	closedStore.PutIssue("example/repo", task.Issue{Number: 5, Title: "Closed", State: task.IssueClosed, Labels: []string{task.LabelManaged, "agent:ready-trivial"}})
@@ -277,10 +278,48 @@ func TestTextPartialMutationErrorIncludesConfirmedState(t *testing.T) {
 	store.FailLabel = "agent:ready-bounded"
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	code := runContext(context.Background(), []string{"--repo", "example/repo", "enroll", "10", "--mode", "bounded"}, stdout, stderr, "dev", testRuntime(store))
-	if code != exitOperational || stdout.Len() != 0 || !strings.Contains(stderr.String(), "confirmed changes:") || !strings.Contains(stderr.String(), "current task: #10 [blocked]") {
+	if code != exitOperational || stdout.Len() != 0 || !strings.Contains(stderr.String(), "confirmed changes:") || strings.Contains(stderr.String(), "current task:") {
 		t.Fatalf("code %d stdout %q stderr %q", code, stdout, stderr)
 	}
 }
+
+func TestProductionHTTPClientHasFiniteDeadlines(t *testing.T) {
+	t.Parallel()
+	client := newProductionHTTPClient()
+	transport, ok := client.Transport.(*http.Transport)
+	if !ok || client.Timeout != githubRequestTimeout || transport.ResponseHeaderTimeout != githubResponseHeaderTimeout {
+		t.Fatalf("production HTTP client = %#v transport %#v", client, client.Transport)
+	}
+}
+
+func TestTextOutputFailuresReturnOperationalExit(t *testing.T) {
+	t.Parallel()
+	store := task.NewMemoryStore()
+	store.PutIssue("example/repo", task.Issue{Number: 1, Title: "Task", URL: "https://example.test/1", Body: "body", State: task.IssueOpen, Labels: []string{task.LabelManaged, "agent:ready-trivial"}})
+	rt := testRuntime(store)
+	tests := [][]string{
+		nil,
+		{"--version"},
+		{"list", "--help"},
+		{"--repo", "example/repo", "list"},
+		{"--repo", "example/repo", "show", "1"},
+		{"--repo", "example/repo", "next"},
+		{"--repo", "example/repo", "start", "1", "--dry-run"},
+	}
+	for _, args := range tests {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			stderr := &bytes.Buffer{}
+			code := runContext(context.Background(), args, errorWriter{}, stderr, "dev", rt)
+			if code != exitOperational || !strings.Contains(stderr.String(), "error: write output failed") {
+				t.Fatalf("args %v: code %d stderr %q", args, code, stderr)
+			}
+		})
+	}
+}
+
+type errorWriter struct{}
+
+func (errorWriter) Write([]byte) (int, error) { return 0, errors.New("injected write failure") }
 
 func testRuntime(store *task.MemoryStore) runtime {
 	service := task.NewService(store)

@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/sjunepark/baton/internal/auth"
 	"github.com/sjunepark/baton/internal/gh"
@@ -21,6 +23,10 @@ const (
 	exitOK          = 0
 	exitOperational = 1
 	exitUsage       = 2
+
+	githubRequestTimeout        = 30 * time.Second
+	githubResponseHeaderTimeout = 15 * time.Second
+	githubConnectTimeout        = 10 * time.Second
 )
 
 var commandOrder = []string{"list", "show", "next", "enroll", "update", "unenroll", "start", "stop", "close"}
@@ -43,10 +49,17 @@ func defaultRuntime() runtime {
 			if err != nil {
 				return nil, err
 			}
-			client := gh.NewClientWithCredentials(getenv("GITHUB_API_URL"), credentials, http.DefaultClient)
+			client := gh.NewClientWithCredentials(getenv("GITHUB_API_URL"), credentials, newProductionHTTPClient())
 			return task.NewService(task.NewGitHubStore(client)), nil
 		},
 	}
+}
+
+func newProductionHTTPClient() *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DialContext = (&net.Dialer{Timeout: githubConnectTimeout, KeepAlive: 30 * time.Second}).DialContext
+	transport.ResponseHeaderTimeout = githubResponseHeaderTimeout
+	return &http.Client{Transport: transport, Timeout: githubRequestTimeout}
 }
 
 func Run(args []string, stdout, stderr io.Writer, version string) int {
@@ -73,17 +86,23 @@ func runContext(ctx context.Context, args []string, stdout, stderr io.Writer, ve
 	}
 	switch root.action {
 	case "help":
-		printHelp(stdout)
+		if err := printHelp(stdout); err != nil {
+			return out.outputError(err)
+		}
 		return exitOK
 	case "version":
-		fmt.Fprintln(stdout, version)
+		if _, err := fmt.Fprintln(stdout, version); err != nil {
+			return out.outputError(err)
+		}
 		return exitOK
 	}
 	if _, valid := commandHelp[root.command]; !valid {
 		return out.usage(fmt.Sprintf("unknown command %q", root.command), "Valid commands: "+strings.Join(commandOrder, ", ")+".")
 	}
 	if len(root.args) == 1 && (root.args[0] == "--help" || root.args[0] == "-h") {
-		printCommandHelp(stdout, root.command)
+		if err := printCommandHelp(stdout, root.command); err != nil {
+			return out.outputError(err)
+		}
 		return exitOK
 	}
 	request, err := parseCommand(root.command, root.args)
@@ -426,11 +445,15 @@ func execute(ctx context.Context, out renderer, service *task.Service, repositor
 			return out.write(listResult{Repository: repositoryName, Tasks: tasks})
 		}
 		if len(tasks) == 0 {
-			fmt.Fprintln(out.stdout, "No tasks.")
+			if _, err := fmt.Fprintln(out.stdout, "No tasks."); err != nil {
+				return out.outputError(err)
+			}
 			return exitOK
 		}
 		for _, value := range tasks {
-			fmt.Fprintln(out.stdout, taskLine(value))
+			if _, err := fmt.Fprintln(out.stdout, taskLine(value)); err != nil {
+				return out.outputError(err)
+			}
 		}
 		return exitOK
 	case "show":
@@ -441,7 +464,9 @@ func execute(ctx context.Context, out renderer, service *task.Service, repositor
 		if out.json {
 			return out.write(taskResult{Repository: repositoryName, Task: &value})
 		}
-		writeTaskDetail(out.stdout, value)
+		if err := writeTaskDetail(out.stdout, value); err != nil {
+			return out.outputError(err)
+		}
 		return exitOK
 	case "next":
 		value, err := service.Next(ctx, repositoryName)
@@ -452,9 +477,13 @@ func execute(ctx context.Context, out renderer, service *task.Service, repositor
 			return out.write(taskResult{Repository: repositoryName, Task: value})
 		}
 		if value == nil {
-			fmt.Fprintln(out.stdout, "No ready task.")
+			if _, err := fmt.Fprintln(out.stdout, "No ready task."); err != nil {
+				return out.outputError(err)
+			}
 		} else {
-			fmt.Fprintln(out.stdout, taskLine(*value))
+			if _, err := fmt.Fprintln(out.stdout, taskLine(*value)); err != nil {
+				return out.outputError(err)
+			}
 		}
 		return exitOK
 	default:
@@ -469,7 +498,9 @@ func execute(ctx context.Context, out renderer, service *task.Service, repositor
 		if out.json {
 			return out.write(public)
 		}
-		writeMutation(out.stdout, command, request.number, public)
+		if err := writeMutation(out.stdout, command, request.number, public); err != nil {
+			return out.outputError(err)
+		}
 		return exitOK
 	}
 }
@@ -516,38 +547,64 @@ func (r renderer) operational(err error) int {
 	return r.writeError(body, exitOperational)
 }
 
+func (r renderer) outputError(_ error) int {
+	return r.writeError(errorBody{
+		Code: "output_error", Message: "write output failed",
+		Hint: "Retry with a writable output stream.",
+	}, exitOperational)
+}
+
 func (r renderer) writeError(body errorBody, code int) int {
 	if !r.json {
-		fmt.Fprintf(r.stderr, "error: %s\n", body.Message)
-		if body.Hint != "" {
-			fmt.Fprintf(r.stderr, "hint: %s\n", body.Hint)
-		}
-		if len(body.Changes) > 0 {
-			fmt.Fprintln(r.stderr, "confirmed changes:")
-			for _, change := range body.Changes {
-				if change.Label == "" {
-					fmt.Fprintf(r.stderr, "  %s\n", change.Action)
-				} else {
-					fmt.Fprintf(r.stderr, "  %s %s\n", change.Action, change.Label)
-				}
-			}
-		}
-		if body.Task != nil {
-			fmt.Fprintf(r.stderr, "current task: %s\n", taskLine(*body.Task))
+		if err := writeTextError(r.stderr, body); err != nil {
+			return exitOperational
 		}
 		return code
 	}
 	if err := writeJSON(r.stderr, errorEnvelope{Error: body}); err != nil {
-		fmt.Fprintf(r.stderr, "encode JSON error: %v\n", err)
+		if _, fallbackErr := fmt.Fprintf(r.stderr, "encode JSON error: %v\n", err); fallbackErr != nil {
+			return exitOperational
+		}
 	}
 	return code
 }
 
 func (r renderer) write(value any) int {
 	if err := writeJSON(r.stdout, value); err != nil {
-		return r.writeError(errorBody{Code: "output_error", Message: "encode JSON output failed", Hint: "Retry with a writable output stream."}, exitOperational)
+		return r.outputError(err)
 	}
 	return exitOK
+}
+
+func writeTextError(writer io.Writer, body errorBody) error {
+	if _, err := fmt.Fprintf(writer, "error: %s\n", body.Message); err != nil {
+		return err
+	}
+	if body.Hint != "" {
+		if _, err := fmt.Fprintf(writer, "hint: %s\n", body.Hint); err != nil {
+			return err
+		}
+	}
+	if len(body.Changes) > 0 {
+		if _, err := fmt.Fprintln(writer, "confirmed changes:"); err != nil {
+			return err
+		}
+		for _, change := range body.Changes {
+			if change.Label == "" {
+				if _, err := fmt.Fprintf(writer, "  %s\n", change.Action); err != nil {
+					return err
+				}
+			} else if _, err := fmt.Fprintf(writer, "  %s %s\n", change.Action, change.Label); err != nil {
+				return err
+			}
+		}
+	}
+	if body.Task != nil {
+		if _, err := fmt.Fprintf(writer, "current task: %s\n", taskLine(*body.Task)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func writeJSON(writer io.Writer, value any) error {
@@ -567,45 +624,75 @@ func taskLine(value task.Task) string {
 	return fmt.Sprintf("#%d [%s] [%s] [%s] %s", value.Number, value.State, priority, mode, oneLine(value.Title))
 }
 
-func writeTaskDetail(writer io.Writer, value task.Task) {
-	fmt.Fprintln(writer, taskLine(value))
-	fmt.Fprintf(writer, "%s\nissue: %s; in progress: %t\n", value.URL, value.IssueState, value.InProgress)
+func writeTaskDetail(writer io.Writer, value task.Task) error {
+	if _, err := fmt.Fprintln(writer, taskLine(value)); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(writer, "%s\nissue: %s; in progress: %t\n", value.URL, value.IssueState, value.InProgress); err != nil {
+		return err
+	}
 	if len(value.Blockers) > 0 {
-		fmt.Fprintf(writer, "blockers: %s\n", strings.Join(value.Blockers, ", "))
-	}
-	if len(value.ProjectLabels) > 0 {
-		fmt.Fprintf(writer, "labels: %s\n", strings.Join(value.ProjectLabels, ", "))
-	}
-	if len(value.Reasons) > 0 {
-		fmt.Fprintf(writer, "reasons: %s\n", strings.Join(value.Reasons, ", "))
-	}
-	if value.Body != nil {
-		fmt.Fprintln(writer, "\nBody:")
-		fmt.Fprintln(writer, *value.Body)
-		if value.BodyTruncated != nil && *value.BodyTruncated {
-			fmt.Fprintln(writer, "\n[truncated; rerun with --full]")
+		if _, err := fmt.Fprintf(writer, "blockers: %s\n", strings.Join(value.Blockers, ", ")); err != nil {
+			return err
 		}
 	}
+	if len(value.ProjectLabels) > 0 {
+		if _, err := fmt.Fprintf(writer, "labels: %s\n", strings.Join(value.ProjectLabels, ", ")); err != nil {
+			return err
+		}
+	}
+	if len(value.Reasons) > 0 {
+		if _, err := fmt.Fprintf(writer, "reasons: %s\n", strings.Join(value.Reasons, ", ")); err != nil {
+			return err
+		}
+	}
+	if value.Body != nil {
+		if _, err := fmt.Fprintln(writer, "\nBody:"); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintln(writer, *value.Body); err != nil {
+			return err
+		}
+		if value.BodyTruncated != nil && *value.BodyTruncated {
+			if _, err := fmt.Fprintln(writer, "\n[truncated; rerun with --full]"); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
-func writeMutation(writer io.Writer, command string, number int, result mutationResult) {
+func writeMutation(writer io.Writer, command string, number int, result mutationResult) error {
 	if !result.Changed {
-		fmt.Fprintln(writer, "No changes.")
+		if _, err := fmt.Fprintln(writer, "No changes."); err != nil {
+			return err
+		}
 	} else if result.DryRun {
-		fmt.Fprintf(writer, "Would %s issue #%d:\n", command, number)
+		if _, err := fmt.Fprintf(writer, "Would %s issue #%d:\n", command, number); err != nil {
+			return err
+		}
 	} else {
-		fmt.Fprintf(writer, "%s issue #%d:\n", titleVerb(command), number)
+		if _, err := fmt.Fprintf(writer, "%s issue #%d:\n", titleVerb(command), number); err != nil {
+			return err
+		}
 	}
 	for _, change := range result.Changes {
 		if change.Label == "" {
-			fmt.Fprintf(writer, "  %s\n", change.Action)
+			if _, err := fmt.Fprintf(writer, "  %s\n", change.Action); err != nil {
+				return err
+			}
 		} else {
-			fmt.Fprintf(writer, "  %s %s\n", change.Action, change.Label)
+			if _, err := fmt.Fprintf(writer, "  %s %s\n", change.Action, change.Label); err != nil {
+				return err
+			}
 		}
 	}
 	if result.Task != nil {
-		fmt.Fprintln(writer, taskLine(*result.Task))
+		if _, err := fmt.Fprintln(writer, taskLine(*result.Task)); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 func oneLine(value string) string { return strings.Join(strings.Fields(value), " ") }
@@ -634,18 +721,32 @@ var commandHelp = map[string]helpEntry{
 	"close":    {"Explicitly close a Task.", "baton [--repo owner/name] [--json] close ISSUE [--dry-run]"},
 }
 
-func printHelp(writer io.Writer) {
-	fmt.Fprintln(writer, "Baton manages explicitly enrolled GitHub issue Tasks.")
-	fmt.Fprintln(writer, "\nUsage:")
-	fmt.Fprintln(writer, "  baton [--repo owner/name] [--json] COMMAND [ARGS]")
-	fmt.Fprintln(writer, "  baton --version")
-	fmt.Fprintln(writer, "\nCommands:")
-	for _, command := range commandOrder {
-		fmt.Fprintf(writer, "  %-8s %s\n", command, commandHelp[command].purpose)
+func printHelp(writer io.Writer) error {
+	if _, err := fmt.Fprintln(writer, "Baton manages explicitly enrolled GitHub issue Tasks."); err != nil {
+		return err
 	}
+	if _, err := fmt.Fprintln(writer, "\nUsage:"); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(writer, "  baton [--repo owner/name] [--json] COMMAND [ARGS]"); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(writer, "  baton --version"); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(writer, "\nCommands:"); err != nil {
+		return err
+	}
+	for _, command := range commandOrder {
+		if _, err := fmt.Fprintf(writer, "  %-8s %s\n", command, commandHelp[command].purpose); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-func printCommandHelp(writer io.Writer, command string) {
+func printCommandHelp(writer io.Writer, command string) error {
 	entry := commandHelp[command]
-	fmt.Fprintf(writer, "baton %s\n\n%s\n\nUsage:\n  %s\n", command, entry.purpose, entry.usage)
+	_, err := fmt.Fprintf(writer, "baton %s\n\n%s\n\nUsage:\n  %s\n", command, entry.purpose, entry.usage)
+	return err
 }
