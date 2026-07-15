@@ -36,6 +36,9 @@ func NewGenesisCheckpoint(input GenesisCheckpointInput) (DeliveryCheckpoint, err
 	if !validSHA(input.StagingSHA) {
 		return DeliveryCheckpoint{}, errors.New("genesis staging revision is invalid")
 	}
+	if !validSHA(input.BaseSHA) {
+		return DeliveryCheckpoint{}, errors.New("genesis base revision is invalid")
+	}
 	if strings.TrimSpace(input.Writer.Workflow) == "" || input.Writer.RunID <= 0 {
 		return DeliveryCheckpoint{}, errors.New("genesis writer provenance is incomplete")
 	}
@@ -191,6 +194,9 @@ func PlanStagedWorkAppend(snapshot Snapshot, input StagedWorkAppendInput) (Stage
 	if err := validateCheckpoint(checkpoint, snapshot.Locator); err != nil {
 		return StagedWorkAppendPlan{}, fmt.Errorf("staged-work append checkpoint: %w", err)
 	}
+	if checkpoint.PendingRechecks != nil {
+		return StagedWorkAppendPlan{}, errors.New("pending promotion rechecks must be cleared before staged work is appended")
+	}
 	precondition := checkpointPrecondition(checkpoint)
 	basePlan := StagedWorkAppendPlan{
 		SchemaVersion: SchemaVersion, Kind: "stagedWorkAppendPlan", Applicable: true,
@@ -217,8 +223,8 @@ func PlanStagedWorkAppend(snapshot Snapshot, input StagedWorkAppendInput) (Stage
 		basePlan.Existing = existing
 		return basePlan, nil
 	}
-	if len(checkpoint.ActiveRecords) >= MaxActiveRecords {
-		return StagedWorkAppendPlan{}, fmt.Errorf("delivery checkpoint active-record cap reached: %d", MaxActiveRecords)
+	if len(checkpoint.ActiveRecords) >= MaxOperationalRecords {
+		return StagedWorkAppendPlan{}, fmt.Errorf("delivery checkpoint operational-record cap reached: %d; synchronization and promotion-seal slots are reserved", MaxOperationalRecords)
 	}
 
 	next := stagedWorkCheckpointTemplate(checkpoint, record)
@@ -355,6 +361,9 @@ func PlanCoverageAdvance(snapshot Snapshot, input CoverageAdvanceInput) (Coverag
 	checkpoint := snapshot.Checkpoint
 	if err := validateCheckpoint(checkpoint, snapshot.Locator); err != nil {
 		return CoverageAdvancePlan{}, fmt.Errorf("coverage advance checkpoint: %w", err)
+	}
+	if checkpoint.PendingRechecks != nil {
+		return CoverageAdvancePlan{}, errors.New("pending promotion rechecks must be cleared before coverage advances")
 	}
 	plan := CoverageAdvancePlan{
 		SchemaVersion: SchemaVersion,
@@ -499,6 +508,9 @@ func PlanPromotionSeal(snapshot Snapshot, input PromotionSealInput) (PromotionSe
 	checkpoint := snapshot.Checkpoint
 	if err := validateCheckpoint(checkpoint, snapshot.Locator); err != nil {
 		return PromotionSealPlan{}, fmt.Errorf("promotion seal checkpoint: %w", err)
+	}
+	if checkpoint.PendingRechecks != nil {
+		return PromotionSealPlan{}, errors.New("pending promotion rechecks must be cleared before a promotion is sealed")
 	}
 	if err := validatePromotionRevision(input.Revision, checkpoint.Repository.NodeID); err != nil {
 		return PromotionSealPlan{}, err
@@ -795,6 +807,9 @@ func PlanPromotionConsumption(snapshot Snapshot, input PromotionConsumptionInput
 	if err := validateCheckpoint(checkpoint, snapshot.Locator); err != nil {
 		return PromotionConsumptionPlan{}, fmt.Errorf("promotion consumption checkpoint: %w", err)
 	}
+	if checkpoint.PendingRechecks != nil {
+		return PromotionConsumptionPlan{}, errors.New("pending promotion rechecks must be cleared before promotion consumption")
+	}
 	if err := validatePromotionRevision(input.Revision, checkpoint.Repository.NodeID); err != nil {
 		return PromotionConsumptionPlan{}, err
 	}
@@ -1071,9 +1086,10 @@ type BootstrapStagedWork struct {
 }
 
 type PlannedBootstrapStagedWork struct {
-	Order         uint64           `json:"order"`
-	SourceFactIDs []string         `json:"sourceFactIds"`
-	Record        StagedWorkRecord `json:"record"`
+	Order           uint64           `json:"order"`
+	SourceFactIDs   []string         `json:"sourceFactIds"`
+	Record          StagedWorkRecord `json:"record"`
+	ExistingComment *CommentIdentity `json:"existingComment,omitempty"`
 }
 
 type BootstrapPlanInput struct {
@@ -1084,6 +1100,7 @@ type BootstrapPlanInput struct {
 	GenesisBoundary   *BootstrapGenesisBoundary
 	OwnershipRecords  []BootstrapOwnershipRecord
 	StagedWork        []BootstrapStagedWork
+	RetryComments     []StoredComment
 	ShadowComparisons []BootstrapShadowComparison
 }
 
@@ -1180,7 +1197,7 @@ func PlanBootstrap(input BootstrapPlanInput) (BootstrapPlan, error) {
 			return BootstrapPlan{}, err
 		}
 	}
-	planned, err := planBootstrapStagedWork(genesis, input.StagedWork, factIDs)
+	planned, err := planBootstrapStagedWork(genesis, input.StagedWork, input.RetryComments, factIDs)
 	if err != nil {
 		return BootstrapPlan{}, err
 	}
@@ -1207,9 +1224,9 @@ func cloneBootstrapShadowComparisons(values []BootstrapShadowComparison) []Boots
 	return result
 }
 
-func planBootstrapStagedWork(genesis DeliveryCheckpoint, values []BootstrapStagedWork, factIDs map[string]struct{}) ([]PlannedBootstrapStagedWork, error) {
-	if len(values) > MaxActiveRecords {
-		return nil, fmt.Errorf("bootstrap staged-work cap exceeded: %d > %d", len(values), MaxActiveRecords)
+func planBootstrapStagedWork(genesis DeliveryCheckpoint, values []BootstrapStagedWork, retryComments []StoredComment, factIDs map[string]struct{}) ([]PlannedBootstrapStagedWork, error) {
+	if len(values) > MaxOperationalRecords {
+		return nil, fmt.Errorf("bootstrap staged-work cap exceeded: %d > %d with synchronization and promotion-seal slots reserved", len(values), MaxOperationalRecords)
 	}
 	cloned := make([]BootstrapStagedWork, len(values))
 	copy(cloned, values)
@@ -1240,7 +1257,20 @@ func planBootstrapStagedWork(genesis DeliveryCheckpoint, values []BootstrapStage
 		if err := validateStagedWork(record); err != nil {
 			return nil, fmt.Errorf("bootstrap staged-work order %d: %w", value.Order, err)
 		}
-		result = append(result, PlannedBootstrapStagedWork{Order: value.Order, SourceFactIDs: value.SourceFactIDs, Record: record})
+		var existingComment *CommentIdentity
+		match, err := FindStagedWorkRetry(retryComments, record.RetryID)
+		if err != nil {
+			return nil, fmt.Errorf("bootstrap staged-work order %d retry: %w", value.Order, err)
+		}
+		if match != nil {
+			if match.Record.LedgerID != genesis.LedgerID || match.Record.Repository != genesis.Repository || match.Record.Sequence != sequence+1 || match.Record.PreviousDigest != previous || match.Record.ObservedCursorDigest != genesis.Cursor.Digest {
+				return nil, fmt.Errorf("bootstrap staged-work order %d retry does not extend the reviewed chain", value.Order)
+			}
+			record = match.Record
+			identity := match.Comment
+			existingComment = &identity
+		}
+		result = append(result, PlannedBootstrapStagedWork{Order: value.Order, SourceFactIDs: value.SourceFactIDs, Record: record, ExistingComment: existingComment})
 		sequence, previous = record.Sequence, record.Digest
 	}
 	return result, nil

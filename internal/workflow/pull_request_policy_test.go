@@ -58,6 +58,7 @@ func policyClientForEvent(t *testing.T, raw string, client *pullRequestPolicyGit
 		Number: event.Number, NodeID: event.NodeID, Title: event.Title, Body: event.Body,
 		BaseRef: event.BaseRef, HeadRef: event.HeadRef, BaseSHA: event.BaseSHA, HeadSHA: event.HeadSHA,
 		BaseRepositoryFullName: event.BaseRepositoryFullName, HeadRepositoryFullName: event.HeadRepositoryFullName,
+		State: event.State,
 	}
 	return client
 }
@@ -254,6 +255,60 @@ func TestPullRequestPolicyFetchesOnlyReferencedIssues(t *testing.T) {
 	}
 	if !reflect.DeepEqual(client.issueNumbers, []int{7}) || !strings.Contains(strings.Join(decision.Errors, "\n"), "not closing keywords") {
 		t.Fatalf("issues=%v decision=%+v", client.issueNumbers, decision)
+	}
+}
+
+func TestPullRequestPolicyPersistsAndInvalidatesManagedWorkEvidence(t *testing.T) {
+	dir := t.TempDir()
+	cfg, locator, _ := deliveryWorkflowFixture(t)
+	cfg.Delivery.Authority = config.DeliveryAuthoritySealed
+	cfg.PRPolicy.FailWhenCommitListingReachesCap = false
+	configContent, err := config.MarshalYAML(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(dir, "baton.yml")
+	if err := os.WriteFile(configPath, configContent, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	baseSHA, headSHA := strings.Repeat("a", 40), strings.Repeat("b", 40)
+	eventPath := filepath.Join(dir, "event.json")
+	writeEvent := func(body string) string {
+		t.Helper()
+		event := fmt.Sprintf(`{"action":"edited","pull_request":{"number":20,"node_id":"PR_20","title":"Work","body":%q,"state":"open","base":{"ref":"%s","sha":"%s","repo":{"full_name":"example/repo"}},"head":{"ref":"%s7-work","sha":"%s","repo":{"full_name":"example/repo"}}}}`, body, cfg.Repository.StagingBranch, baseSHA, cfg.Repository.WorkBranchPrefix, headSHA)
+		if err := os.WriteFile(eventPath, []byte(event), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return event
+	}
+	ownership := policy.NewManagedIssueRecord("I_7", 7)
+	transport := &deliveryRecordGitHubStub{
+		repository: gh.RepositoryIdentity{Host: locator.Repository.Host, FullName: locator.Repository.FullName, NodeID: locator.Repository.NodeID},
+		issues:     map[int]gh.Issue{7: {Number: 7, NodeID: "I_7"}},
+		comments: map[int][]gh.IssueComment{7: {{
+			ID: 7, Body: policy.RenderManagedIssueRecord(ownership), Author: gh.Actor{Login: policy.ManagedIssueTrustedLogin, Type: "Bot"},
+		}}},
+		records: map[int64]gh.IssueComment{}, pull: map[int]gh.PullRequest{},
+	}
+	client := policyClientForEvent(t, writeEvent("Refs #7"), &pullRequestPolicyGitHub{deliveryRecordGitHubStub: transport})
+	workflow := PullRequestPolicyWorkflow{newClient: func(context.Context, PullRequestPolicyInput) (PullRequestPolicyGitHub, error) { return client, nil }}
+	decision, err := workflow.Run(PullRequestPolicyInput{EventPath: eventPath, ConfigPath: configPath, EnvironmentRepo: "example/repo", WorkflowName: "PR Policy", RunID: 99})
+	if err != nil || len(decision.Errors) != 0 || len(transport.created) != 1 {
+		t.Fatalf("decision=%+v err=%v created=%d", decision, err, len(transport.created))
+	}
+	match, err := policy.FindTrustedManagedWorkPolicyEvidence(managedWorkEvidenceComments(transport.comments[20]))
+	if err != nil || match == nil || !match.Evidence.Allowed || len(match.Evidence.Issues) != 1 || match.Evidence.Issues[0].OwnershipDigest != ownership.Digest {
+		t.Fatalf("evidence=%+v err=%v", match, err)
+	}
+	client.current.Body = "No managed reference"
+	writeEvent(client.current.Body)
+	decision, err = workflow.Run(PullRequestPolicyInput{EventPath: eventPath, ConfigPath: configPath, EnvironmentRepo: "example/repo", WorkflowName: "PR Policy", RunID: 100})
+	if err != nil || len(decision.Errors) == 0 || len(transport.created) != 2 || len(transport.updated) != 0 {
+		t.Fatalf("decision=%+v err=%v created=%d updated=%d", decision, err, len(transport.created), len(transport.updated))
+	}
+	match, err = policy.FindTrustedManagedWorkPolicyEvidence(managedWorkEvidenceComments(transport.comments[20]))
+	if err != nil || match == nil || match.Evidence.Allowed || len(match.Evidence.Issues) != 0 {
+		t.Fatalf("invalidated evidence=%+v err=%v", match, err)
 	}
 }
 

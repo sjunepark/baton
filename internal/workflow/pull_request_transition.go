@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/sjunepark/baton/internal/apperror"
 	"github.com/sjunepark/baton/internal/auth"
@@ -41,6 +42,7 @@ type PullRequestTransitionGitHub interface {
 	GetIssueContext(context.Context, string, int) (gh.Issue, error)
 	ListIssueCommentsContext(context.Context, string, int) ([]gh.IssueComment, error)
 	ListNewestIssueCommentsContext(context.Context, string, int) (gh.IssueCommentListing, error)
+	ListIssueCommentsAfterContext(context.Context, string, int, time.Time) (gh.IssueCommentListing, error)
 	AddIssueLabelsContext(context.Context, string, int, []string) error
 	RemoveIssueLabelContext(context.Context, string, int, string) error
 	CloseIssueContext(context.Context, string, int) error
@@ -392,7 +394,7 @@ func runPromotionTransition(
 	if err != nil {
 		return fail(recordIndex, "promotion base-integration record could not be encoded", err)
 	}
-	comment, err := findTrustedBaseIntegrationRetry(ctx, client, repo, store.LedgerIssue.Number, consumption.Record.RetryID)
+	comment, err := findTrustedBaseIntegrationRetry(ctx, client, repo, store.LedgerIssue.Number, store.CheckpointComment.UpdatedAt, consumption.Record.RetryID)
 	if err != nil {
 		return fail(recordIndex, "promotion base-integration retry lookup failed", err)
 	}
@@ -400,7 +402,7 @@ func runPromotionTransition(
 	if comment == nil {
 		created, createErr := client.CreateIssueCommentReturningContext(ctx, repo, store.LedgerIssue.Number, body)
 		if createErr != nil {
-			comment, err = findTrustedBaseIntegrationRetry(ctx, client, repo, store.LedgerIssue.Number, consumption.Record.RetryID)
+			comment, err = findTrustedBaseIntegrationRetry(ctx, client, repo, store.LedgerIssue.Number, store.CheckpointComment.UpdatedAt, consumption.Record.RetryID)
 			if err != nil {
 				return fail(recordIndex, "promotion base-integration append was ambiguous", err)
 			}
@@ -481,14 +483,17 @@ func promotionTransitionFacts(plan delivery.PromotionConsumptionPlan) *workitem.
 }
 
 type baseIntegrationRetryReader interface {
-	ListNewestIssueCommentsContext(context.Context, string, int) (gh.IssueCommentListing, error)
+	ListIssueCommentsAfterContext(context.Context, string, int, time.Time) (gh.IssueCommentListing, error)
 	GetIssueCommentContext(context.Context, string, int64) (gh.IssueComment, error)
 }
 
-func findTrustedBaseIntegrationRetry(ctx context.Context, client baseIntegrationRetryReader, repo string, issueNumber int, retryID string) (*gh.IssueComment, error) {
-	listing, err := client.ListNewestIssueCommentsContext(ctx, repo, issueNumber)
+func findTrustedBaseIntegrationRetry(ctx context.Context, client baseIntegrationRetryReader, repo string, issueNumber int, after time.Time, retryID string) (*gh.IssueComment, error) {
+	listing, err := client.ListIssueCommentsAfterContext(ctx, repo, issueNumber, after)
 	if err != nil {
 		return nil, err
+	}
+	if !listing.Complete {
+		return nil, fmt.Errorf("base-integration retry lookup did not reach the checkpoint boundary")
 	}
 	stored := make([]delivery.StoredComment, 0, len(listing.Comments))
 	for _, comment := range listing.Comments {

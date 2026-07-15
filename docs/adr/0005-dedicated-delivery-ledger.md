@@ -43,17 +43,20 @@ The repository policy will pin a `DeliveryStoreLocator` containing GitHub host,
 repository node ID, ledger issue number and node ID, and checkpoint comment
 database and node IDs. Normal reads fetch the issue and checkpoint directly, then fetch only
 the record comments referenced by the checkpoint or its active sealed plan.
-The checkpoint may reference at most 250 active records. Missing references,
-an exceeded cap, or ambiguous locator identity make delivery incomplete and
+The checkpoint may reference at most 252 active records: 250 routine records,
+one synchronization reserve, and one promotion-seal reserve that drains the
+window. Missing references, an exceeded cap, or ambiguous locator identity make delivery incomplete and
 fail managed promotion closed. Unmanaged pull requests do not read the store.
 
 Bootstrap may discover candidates with the reserved `baton:delivery-state`
 label and a versioned issue marker, but it must enumerate at most two matches
 and require exactly one reviewed choice before pinning it. Discovery is never a
-runtime authority. Append retries and repair may inspect at most the newest
-100 ledger comments for a retry identity; reaching that bound is incomplete,
-not proof that no record exists. No active decision scans all closed staging
-pull requests or all historical ledger comments.
+runtime authority. Append retries and repair walk comments backward to the last
+checkpoint update and stop after 1,000 comments; failing to reach that boundary
+is incomplete, not proof that no record exists. Reconciliation walks closed
+pull requests in descending update order to the committed coverage observation
+time, also with a 1,000-item ceiling. No active decision scans all closed
+staging pull requests or all historical ledger comments.
 
 The checkpoint marker is `baton-delivery-checkpoint:v1`; immutable record
 comments use `baton-delivery-record:v1`. Every document carries a schema
@@ -83,6 +86,12 @@ commits ordering and detects alteration inside the retained active window; it
 is not a tamper-proof archival system for a malicious trusted administrator.
 
 ## Delivery contracts
+
+Before merge, PR Policy appends versioned evidence for the exact PR node,
+base/work branches, base/head revisions, prose digest, policy schema, durable
+issue references, decision, writer, and digest. A later rejected result is a
+new record rather than an edit. Delivery accepts only the latest trusted
+pre-merge evidence and rechecks the PR revision and merge event against it.
 
 `StagedWorkRecord` snapshots the repository full name and node ID, work pull
 request number and node ID, exact staging base/head and observed merge revision,
@@ -150,6 +159,12 @@ Synchronization is accepted only for an exact same-repository merged PR from
 base into staging. Both its pre-merge staging revision and base head must be
 ancestors of the result. Squash/rebase synchronization therefore fails closed;
 merge commits must be enabled and staging must not require linear history.
+
+Synchronization also commits an ordered pending promotion-recheck batch bound
+to its exact base-integration record. The recorder drains that batch before any
+later delivery mutation and clears it with a second checkpoint update only
+after every target is closed or superseded, already running, or successfully
+re-requested. A process failure therefore cannot silently lose rechecks.
 
 `ExclusionRecord` is the only way to omit staged work that was reverted before
 promotion. The future `baton delivery-exclude` apply path is owned by a manual,
@@ -225,6 +240,13 @@ migration. After cutover, corrupt,
 missing, truncated, duplicate, stale, or over-cap state fails only managed
 promotion and delivery paths closed. Slice 6 removed the ancestry reader after
 the documented migration gate rather than retaining a second authority.
+
+After an active window is fully consumed and no recheck batch is pending, a
+reviewed rollover may create a genesis checkpoint in a different locked issue.
+The successor binds the predecessor locator and digest; after successor
+creation, the predecessor is frozen with the exact successor locator and
+digest. Runtime writers reject frozen checkpoints until config is reviewed and
+repinned.
 
 ## Rejected alternatives
 

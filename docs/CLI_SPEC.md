@@ -274,7 +274,13 @@ JSON result:
     "source": "sealedDeliveryPlan",
     "planDigest": "sha256:...",
     "cursorDigest": "sha256:...",
-    "coverageDigest": "sha256:..."
+    "coverageDigest": "sha256:...",
+    "baseIntegration": {
+      "state": "integrated",
+      "observedBaseSha": "base-sha",
+      "observedStagingSha": "staging-sha",
+      "reason": "recorded"
+    }
   }
 }
 ```
@@ -348,19 +354,21 @@ baton delivery-record --apply --json # reconcile missed/coalesced events
 ```
 
 Apply re-reads the PR and checkpoint, backfills legacy ownership first,
-appends an immutable record, and commits the checkpoint last. A complete scan
-with no missing managed record advances coverage to its exact observed staging
-head. Retry recovery
-reads only the newest 100 ledger comments. An unconfigured repository is a
+appends an immutable record derived from the latest trusted pre-merge PR-policy
+evidence, and commits the checkpoint last. A complete scan with no missing
+managed record advances coverage to its exact observed staging head. Closed-PR
+repair scans newest updates backward to the committed coverage timestamp;
+retry recovery scans ledger comments backward to the last checkpoint update,
+with a 1,000-comment safety ceiling. An unconfigured repository is a
 successful no-op. A new or repaired record re-requests successful PR-policy
 checks on open promotion heads that contain the work revision. Shadow mode
 permits recording/bootstrap but keeps policy, transition, and recommendation
 readers disabled; changing config to `delivery.authority: sealed` is the
 reviewed cutover.
-The check rollup is acquired again after checkpoint commit. A still-running,
-missing, ambiguous, or incomplete policy check makes the mutation report
-partial instead of allowing a later stale success; a subsequent recorder
-dispatch repairs it once the check is complete.
+For synchronization, exact promotion recheck targets are committed in the same
+checkpoint update as the integration record. A failed or ambiguous re-request
+leaves that batch pending; the next recorder dispatch drains it before any new
+delivery work and clears it in a separate checkpoint update.
 
 For an exact merged base-to-staging PR, the command records synchronization
 only when both pre-merge histories are ancestors of the result. It preserves
@@ -379,11 +387,20 @@ baton delivery-bootstrap --initialize --ledger-issue 900 --ledger-id delivery-v1
   --genesis-staging-sha "$STAGING_SHA" --observed-at "$OBSERVED_AT" --apply --plan-id "$PLAN_ID" --repo owner/repo --json
 ```
 
+When config already pins a delivery locator, the same `--initialize` shape is
+a reviewed rollover into a different locked issue. The ledger ID and committed
+staging coverage must match, the predecessor active window and pending recheck
+batch must be empty, and apply creates or adopts the successor checkpoint before
+freezing the predecessor. Repin the returned successor locator through normal
+review before routine recording resumes.
+
 After the locator is reviewed, preview historical migration with either
 `--genesis-promotion` or `--genesis-staging-sha`. Output shows every source
 fact, inferred issue/PR relationship, ambiguity, exact ownership/staged record,
 and stable `planId`. Apply requires that exact ID and refuses changed facts or
-unresolved ambiguity. Direct local invocation is rejected because persisted
+unresolved ambiguity. If the reviewed promotion corrects the initialized base
+boundary, apply commits that exact genesis checkpoint before ownership and
+staged-record writes. Direct local invocation is rejected because persisted
 comments must have trusted GitHub Actions authorship and share recorder
 concurrency. Configure required reviewers on the workflow's
 `baton-delivery-bootstrap` environment. See

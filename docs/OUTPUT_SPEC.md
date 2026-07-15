@@ -54,9 +54,9 @@ The workflow seam preserves the following maintained public behavior:
 | evaluated unsafe policy | decision text/JSON | policy decision, not error v1 | command-specific | 1 |
 | `pr-transition --dry-run` | planned operation count | `workItemTransitionPlan` v4 | not supported | 0 |
 | `pr-transition --apply` | applied operation count | transition plan v4 plus `operationReport` v1 | not supported | 0 or matching error |
-| `delivery-record --dry-run` | planned ledger operation count | `deliveryRecordPlan` v2 | not supported | 0 |
-| `delivery-record --apply` | applied ledger operation count | `deliveryRecordPlan` v2 plus `operationReport` v1 | not supported | 0 or matching error |
-| `delivery-bootstrap --dry-run` | reviewed bootstrap summary | bootstrap initialization/plan v1 | not supported | 0 |
+| `delivery-record --dry-run` | planned ledger operation count | `deliveryRecordPlan` v3 | not supported | 0 |
+| `delivery-record --apply` | applied ledger operation count | `deliveryRecordPlan` v3 plus `operationReport` v1 | not supported | 0 or matching error |
+| `delivery-bootstrap --dry-run` | reviewed bootstrap summary | bootstrap initialization v1/v2 or plan v1 | not supported | 0 |
 | `delivery-bootstrap --apply` | applied bootstrap summary | bootstrap result plus `operationReport` v1 | not supported | 0 or matching error |
 
 Flag-parser failures that occur before a renderer is selected, unknown
@@ -248,18 +248,23 @@ Repository and queue schema v2 add revision-bound `baseIntegration` evidence.
 `sync_staging` (legacy `sync-staging`) is selected only for pending direct-base
 work, after incomplete-fact repair and before PR or issue work.
 
-`deliveryRecordPlan` v2 exposes completeness, applicability, candidate PR
+`deliveryRecordPlan` v3 exposes completeness, applicability, candidate PR
 identities, ownership backfills, the exact staged append/checkpoint
 precondition, optional exact coverage-only checkpoint, promotion rechecks,
 their planning-time check status/conclusion, operations, and warnings.
 The optional `synchronization` plan binds the exact sync PR, pre-merge staging,
-base head, merge result, cursor, retry identity, and checkpoint precondition.
+base head, merge result, cursor, retry identity, checkpoint precondition, and
+durable promotion-recheck targets. A committed pending batch is drained before
+any later delivery work and cleared only after every target is reconciled.
 `deliveryBootstrapPlan` v1 adds a stable `planId`, source facts and observed
 digests, relationships, ambiguities, the explicit genesis boundary, exact
 ownership records, and exact chained staged-work records. Initialization
 returns the canonical checkpoint body and, after apply, the exact locator to
-review into config. Bootstrap output also binds promotion rechecks to the last
-staged append, and reports each record append and checkpoint update separately.
+review into config. Initialization schema v2 also represents drained-ledger
+rollover with exact predecessor/successor links. Migration reports any reviewed genesis-boundary checkpoint
+update separately and commits it before historical records. Bootstrap output
+also binds promotion rechecks to the last staged append, and reports each record
+append and checkpoint update separately.
 
 ## Truncation
 

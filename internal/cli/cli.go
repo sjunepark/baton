@@ -399,9 +399,9 @@ var commandHelps = map[string]commandHelp{
 		Related:  []string{"baton delivery-bootstrap --dry-run --json", "baton pr-policy --event <path> --json"},
 	},
 	"delivery-bootstrap": {
-		Purpose:  "Plan or apply reviewed migration facts into a pinned delivery ledger.",
+		Purpose:  "Plan or apply reviewed delivery-ledger initialization, migration, or drained rollover.",
 		Usage:    "baton delivery-bootstrap --dry-run|--apply [--plan-id <sha256>] [--initialize --ledger-issue <number> --ledger-id <id> --genesis-staging-sha <sha> --observed-at <rfc3339>|--genesis-promotion <number>] [--repo owner/name] [--config <path>] [--json]",
-		Flags:    []string{"--dry-run: emit the complete reviewed bootstrap plan", "--apply: apply an unchanged reviewed plan", "--plan-id: exact reviewed plan identity required by apply", "--initialize: create the first checkpoint in an existing locked ledger issue", "--ledger-issue: existing locked ledger issue number", "--ledger-id: stable delivery ledger identity", "--observed-at: fixed RFC3339 genesis observation time", "--genesis-promotion: last acknowledged promotion pull request", "--genesis-staging-sha: explicit acknowledged staging boundary", "--repo: GitHub repository owner/name", "--config: repository policy path; migration requires a pinned delivery locator", "--json: emit structured JSON"},
+		Flags:    []string{"--dry-run: emit the complete reviewed bootstrap plan", "--apply: apply an unchanged reviewed plan", "--plan-id: exact reviewed plan identity required by apply", "--initialize: create the first checkpoint, or roll a drained configured ledger into a different locked issue", "--ledger-issue: existing locked ledger issue number", "--ledger-id: stable delivery ledger identity", "--observed-at: fixed RFC3339 genesis observation time", "--genesis-promotion: last acknowledged promotion pull request", "--genesis-staging-sha: explicit acknowledged staging boundary", "--repo: GitHub repository owner/name", "--config: repository policy path; migration and rollover use the pinned delivery locator", "--json: emit structured JSON"},
 		Examples: []string{"gh workflow run delivery-recorder.yml -f mode=bootstrap-migrate -f genesis_promotion=42", "gh workflow run delivery-recorder.yml -f mode=bootstrap-initialize -f ledger_issue=900 -f ledger_id=delivery-v1 -f genesis_staging_sha=<sha> -f observed_at=<rfc3339>"},
 		Related:  []string{"baton delivery-record --dry-run --json", "baton doctor --json"},
 	},
@@ -839,7 +839,7 @@ func runDeliveryBootstrap(ctx context.Context, args []string, stdout, stderr io.
 	configPath := fs.String("config", "", "policy config path")
 	genesisPromotion := fs.Int("genesis-promotion", 0, "last acknowledged promotion pull request")
 	genesisStagingSHA := fs.String("genesis-staging-sha", "", "explicit acknowledged staging boundary")
-	initialize := fs.Bool("initialize", false, "create the first checkpoint in an existing locked ledger issue")
+	initialize := fs.Bool("initialize", false, "create the first checkpoint or roll a drained configured ledger into another locked issue")
 	ledgerIssue := fs.Int("ledger-issue", 0, "existing locked ledger issue number")
 	ledgerID := fs.String("ledger-id", "", "stable delivery ledger identity")
 	observedAt := fs.String("observed-at", "", "fixed RFC3339 genesis observation time")

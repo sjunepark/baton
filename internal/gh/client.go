@@ -165,9 +165,13 @@ func (c *Client) ListIssueCommentsContext(ctx context.Context, repo string, issu
 	comments := []IssueComment{}
 	for page := 1; ; page++ {
 		var batch []struct {
-			ID   int64  `json:"id"`
-			Body string `json:"body"`
-			User struct {
+			ID        int64     `json:"id"`
+			NodeID    string    `json:"node_id"`
+			IssueURL  string    `json:"issue_url"`
+			Body      string    `json:"body"`
+			CreatedAt time.Time `json:"created_at"`
+			UpdatedAt time.Time `json:"updated_at"`
+			User      struct {
 				Login string `json:"login"`
 				Type  string `json:"type"`
 			} `json:"user"`
@@ -177,7 +181,10 @@ func (c *Client) ListIssueCommentsContext(ctx context.Context, repo string, issu
 			return nil, err
 		}
 		for _, comment := range batch {
-			comments = append(comments, IssueComment{ID: comment.ID, Body: comment.Body, Author: Actor{Login: comment.User.Login, Type: comment.User.Type}})
+			comments = append(comments, IssueComment{
+				ID: comment.ID, NodeID: comment.NodeID, IssueURL: comment.IssueURL, Body: comment.Body,
+				Author: Actor{Login: comment.User.Login, Type: comment.User.Type}, CreatedAt: comment.CreatedAt, UpdatedAt: comment.UpdatedAt,
+			})
 		}
 		if len(batch) < 100 {
 			break

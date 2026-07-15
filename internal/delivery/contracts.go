@@ -10,14 +10,18 @@ import (
 )
 
 const (
-	SchemaVersion      = 1
-	MaxActiveRecords   = 250
-	MaxRetryComments   = 100
-	TrustedAuthorLogin = "github-actions[bot]"
-	TrustedAuthorType  = "Bot"
-	CheckpointMarkerV1 = "baton-delivery-checkpoint:v1"
-	RecordMarkerV1     = "baton-delivery-record:v1"
-	DeliveryStateLabel = "baton:delivery-state"
+	SchemaVersion = 1
+	// The active window carries at most 250 routine records plus one reserved
+	// synchronization record and one promotion seal needed to drain it.
+	MaxActiveRecords          = 252
+	MaxOperationalRecords     = MaxActiveRecords - 2
+	MaxSynchronizationRecords = MaxActiveRecords - 1
+	MaxRetryComments          = 1000
+	TrustedAuthorLogin        = "github-actions[bot]"
+	TrustedAuthorType         = "Bot"
+	CheckpointMarkerV1        = "baton-delivery-checkpoint:v1"
+	RecordMarkerV1            = "baton-delivery-record:v1"
+	DeliveryStateLabel        = "baton:delivery-state"
 )
 
 type RecordKind string
@@ -183,26 +187,47 @@ type StagingCoverage struct {
 	Digest         string             `json:"digest"`
 }
 
+type PromotionRecheckTarget struct {
+	PullRequest ResourceIdentity `json:"pullRequest"`
+	HeadSHA     string           `json:"headSha"`
+}
+
+type PendingPromotionRechecks struct {
+	Cause   RecordReference          `json:"cause"`
+	Targets []PromotionRecheckTarget `json:"targets"`
+}
+
+// CheckpointLink binds an epoch boundary to an exact checkpoint in another
+// locked ledger issue. It makes rollover auditable without carrying old record
+// references into the successor's active window.
+type CheckpointLink struct {
+	Locator DeliveryStoreLocator `json:"locator"`
+	Digest  string               `json:"digest"`
+}
+
 type DeliveryCheckpoint struct {
-	Version              int                `json:"version"`
-	Kind                 string             `json:"kind"`
-	LedgerID             string             `json:"ledgerId"`
-	Repository           RepositoryIdentity `json:"repository"`
-	Issue                ResourceIdentity   `json:"issue"`
-	Generation           uint64             `json:"generation"`
-	GenesisBaseSHA       string             `json:"genesisBaseSha,omitempty"`
-	WindowSequence       uint64             `json:"windowSequence"`
-	WindowDigest         string             `json:"windowDigest"`
-	HeadSequence         uint64             `json:"headSequence"`
-	HeadDigest           string             `json:"headDigest"`
-	Cursor               PromotionCursor    `json:"cursor"`
-	Coverage             StagingCoverage    `json:"coverage"`
-	CursorBoundary       *RecordReference   `json:"cursorBoundary,omitempty"`
-	ActiveRecords        []RecordReference  `json:"activeRecords"`
-	ActivePlan           *RecordReference   `json:"activePlan,omitempty"`
-	BaseIntegration      *RecordReference   `json:"baseIntegration,omitempty"`
-	PromotionIntegration *RecordReference   `json:"promotionIntegration,omitempty"`
-	Digest               string             `json:"digest"`
+	Version              int                       `json:"version"`
+	Kind                 string                    `json:"kind"`
+	LedgerID             string                    `json:"ledgerId"`
+	Repository           RepositoryIdentity        `json:"repository"`
+	Issue                ResourceIdentity          `json:"issue"`
+	Generation           uint64                    `json:"generation"`
+	GenesisBaseSHA       string                    `json:"genesisBaseSha,omitempty"`
+	WindowSequence       uint64                    `json:"windowSequence"`
+	WindowDigest         string                    `json:"windowDigest"`
+	HeadSequence         uint64                    `json:"headSequence"`
+	HeadDigest           string                    `json:"headDigest"`
+	Cursor               PromotionCursor           `json:"cursor"`
+	Coverage             StagingCoverage           `json:"coverage"`
+	CursorBoundary       *RecordReference          `json:"cursorBoundary,omitempty"`
+	ActiveRecords        []RecordReference         `json:"activeRecords"`
+	ActivePlan           *RecordReference          `json:"activePlan,omitempty"`
+	BaseIntegration      *RecordReference          `json:"baseIntegration,omitempty"`
+	PromotionIntegration *RecordReference          `json:"promotionIntegration,omitempty"`
+	PendingRechecks      *PendingPromotionRechecks `json:"pendingPromotionRechecks,omitempty"`
+	Predecessor          *CheckpointLink           `json:"predecessor,omitempty"`
+	Successor            *CheckpointLink           `json:"successor,omitempty"`
+	Digest               string                    `json:"digest"`
 }
 
 type StoredComment struct {

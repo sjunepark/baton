@@ -143,3 +143,40 @@ func TestSynchronizationPreservesActiveWorkAndCursor(t *testing.T) {
 		t.Fatalf("stale finalization error = %v", err)
 	}
 }
+
+func TestSynchronizationHasASeparateReserveBeforePromotionSeal(t *testing.T) {
+	checkpoint, locator := plannerGenesis(t)
+	checkpoint.ActiveRecords = make([]RecordReference, MaxOperationalRecords)
+	for index := range checkpoint.ActiveRecords {
+		checkpoint.ActiveRecords[index] = RecordReference{
+			Comment: CommentIdentity{DatabaseID: int64(1000 + index), NodeID: "IC_" + strings.Repeat("x", index+1)},
+			Kind:    RecordStagedWork, Sequence: uint64(index + 1), Digest: fixtureDigest("record-" + strings.Repeat("x", index+1)), RetryID: fixtureDigest("retry-" + strings.Repeat("x", index+1)),
+		}
+	}
+	checkpoint.HeadSequence = uint64(len(checkpoint.ActiveRecords))
+	checkpoint.HeadDigest = checkpoint.ActiveRecords[len(checkpoint.ActiveRecords)-1].Digest
+	checkpoint = finalizeCheckpoint(checkpoint)
+	snapshot := Snapshot{Locator: locator, Checkpoint: checkpoint}
+	input := SynchronizationInput{
+		PullRequest: ResourceIdentity{Number: 30, NodeID: "PR_30"}, PriorStagingSHA: strings.Repeat("1", 40),
+		BaseSHA: strings.Repeat("2", 40), StagingSHA: strings.Repeat("3", 40), Writer: fixtureWriter(), RecordedAt: "2026-07-15T01:00:00Z",
+	}
+	plan, err := PlanSynchronization(snapshot, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commit, err := FinalizeSynchronization(plan, checkpoint, CommentIdentity{DatabaseID: 2000, NodeID: "IC_2000"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commit.Checkpoint.ActiveRecords) != MaxSynchronizationRecords || len(commit.Checkpoint.ActiveRecords) >= MaxActiveRecords {
+		t.Fatalf("synchronization reserve = %d active records", len(commit.Checkpoint.ActiveRecords))
+	}
+	snapshot.Checkpoint = commit.Checkpoint
+	snapshot.BaseIntegrations = append(snapshot.BaseIntegrations, commit.Record)
+	input.PullRequest = ResourceIdentity{Number: 31, NodeID: "PR_31"}
+	input.PriorStagingSHA, input.BaseSHA, input.StagingSHA = input.StagingSHA, strings.Repeat("4", 40), strings.Repeat("5", 40)
+	if _, err := PlanSynchronization(snapshot, input); err == nil || !strings.Contains(err.Error(), "one slot is reserved") {
+		t.Fatalf("second synchronization at reserve error = %v", err)
+	}
+}

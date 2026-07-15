@@ -10,7 +10,10 @@ import (
 	"github.com/sjunepark/baton/internal/delivery"
 )
 
-const PRCommitListingCap = 250
+const (
+	PRCommitListingCap    = 250
+	PRPolicySchemaVersion = 4
+)
 
 type PullRequest struct {
 	Number                 int    `json:"number"`
@@ -107,7 +110,7 @@ func ComputePullRequestPolicy(input PRPolicyInput) PRPolicyDecision {
 	}
 
 	return PRPolicyDecision{
-		SchemaVersion:           4,
+		SchemaVersion:           PRPolicySchemaVersion,
 		Kind:                    "prPolicyDecision",
 		Flow:                    flow,
 		Errors:                  errors,

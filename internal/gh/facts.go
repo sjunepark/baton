@@ -34,6 +34,8 @@ type PullRequest struct {
 	MergeState             string
 	State                  string
 	Merged                 bool
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
 	MergedAt               time.Time
 	MergeRevision          string
 }
@@ -118,7 +120,8 @@ type IssueComment struct {
 
 type IssueCommentListing struct {
 	Comments []IssueComment
-	// Complete is false when comments older than the newest GitHub page exist.
+	// Complete is false when the requested bounded comment window was not fully
+	// acquired.
 	Complete bool
 }
 

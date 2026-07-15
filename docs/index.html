@@ -496,7 +496,7 @@ baton init --apply --go-install github.com/sjunepark/baton/cmd/baton@v0.5.1</cod
           <details class="cmd" data-entry>
             <summary><span class="name">baton delivery-record / delivery-bootstrap</span> <span class="desc">delivery ledger</span> <span class="badge">reviewed · explicit apply</span></summary>
             <div class="cmd-body">
-              <p>Initialize and pin a locked repository ledger through the generated Delivery Recorder workflow with <code>delivery.authority: shadow</code>. Review historical facts, relationships, and promotion comparisons; change authority to <code>sealed</code> only after the complete bootstrap passes.</p>
+              <p>Initialize and pin a locked repository ledger through the generated Delivery Recorder workflow with <code>delivery.authority: shadow</code>. Review historical facts, relationships, and promotion comparisons; change authority to <code>sealed</code> only after the complete bootstrap passes. Reusing initialization with an existing locator performs a reviewed rollover from a drained predecessor into a different locked issue.</p>
 <pre><code>workflow_dispatch: mode=bootstrap-initialize, ledger_issue=900, observed_at=...
 workflow_dispatch: mode=record</code></pre>
               <p>The plan and apply jobs share one run and an environment approval gate. See <a href="DELIVERY_BOOTSTRAP.md">delivery bootstrap</a>.</p>
@@ -573,7 +573,15 @@ baton issue-policy --body-file issue.md --labels "bug,agent:ready-trivial" --jso
   "labelsToAdd": ["agent:ready-trivial"],
   "labelsToRemove": ["needs-info"],
   "missingRequiredSections": [],
-  "policyCommentBody": null
+  "policyCommentBody": null,
+  "ownership": {
+    "schemaVersion": 1,
+    "kind": "managedIssueOwnership",
+    "managed": true,
+    "source": "recordV1",
+    "diagnostics": [],
+    "errors": []
+  }
 }</code></pre>
               <p><b>Flags:</b> <code>--event &lt;path&gt;</code>, <code>--apply</code>, <code>--body-file &lt;path&gt;</code>, <code>--labels "a,b"</code>, <code>--json</code>.</p>
             </div>
@@ -838,7 +846,7 @@ delivery:
           <div data-entry>
             <h4>Validation rules</h4>
             <ul>
-              <li>Branches satisfy Git ref-name rules, the remote is a normalized non-option name, and <code>work_branch_prefix</code> ends with <code>/</code>.</li>
+              <li>Branches satisfy Git ref-name rules, the remote is a normalized non-option name, <code>work_branch_prefix</code> ends with <code>/</code>, and neither base nor staging starts with that reserved prefix.</li>
               <li>Every required section ID must exist in <code>form_sections</code>.</li>
               <li>Every implementation label must appear in an agent-mode mapping or be marked externally managed.</li>
               <li>Controlled label groups must not duplicate labels across unrelated groups.</li>
@@ -875,7 +883,7 @@ delivery:
               <dt>reviewThreads</dt><dd><code>summary.unresolved</code>, <code>summary.humanUnresolved</code>; per thread: <code>isResolved</code>, <code>isOutdated</code>; per comment: <code>authorKind</code> (<code>human</code>, <code>codex</code>, <code>coderabbit</code>, <code>greptile</code>, <code>bot</code>, <code>unknown</code>), <code>bodyTruncated</code>.</dd>
               <dt>issuePolicyDecision · prPolicyDecision</dt><dd>Pure policy results — see the <a href="#commands">issue-policy</a> and <a href="#commands">pr-policy</a> commands.</dd>
               <dt>workItemTransitionPlan</dt><dd>Deterministic merged-work label or cursor-last promotion-completion operations; apply adds an embedded operation report.</dd>
-              <dt>deliveryRecordPlan</dt><dd>Bounded staged-work, reconciliation, synchronization, and delivery-ledger operations with explicit completeness and apply preconditions.</dd>
+              <dt>deliveryRecordPlan</dt><dd>Version 3 bounded staged-work, reconciliation, synchronization, durable promotion-recheck, and delivery-ledger operations with explicit completeness and apply preconditions.</dd>
               <dt>doctor</dt><dd>Live adoption compatibility v2 with <code>readyState</code>, per-status counts, and actionable remediation.</dd>
             </dl>
           </div>
@@ -909,6 +917,7 @@ delivery:
               <li><b>Reference keyword</b> — the body must reference its issue with <code>Refs</code>.</li>
               <li><b>Forbidden closing keywords</b> — <code>Closes</code>/<code>Fixes</code>/<code>Resolves</code> are rejected on work PRs, so issues aren't closed before promotion.</li>
               <li><b>Linked-issue ownership</b> — every referenced issue has a trusted ownership record or temporary legacy fingerprint.</li>
+              <li><b>Immutable work evidence</b> — each managed work decision appends the exact PR revision, prose digest, durable issue set, decision, and policy schema for post-merge delivery.</li>
               <li><b>Commit-subject quality</b> — rejects noisy subjects like <code>fix</code>, <code>wip</code>, <code>update</code>.</li>
               <li><b>Commit-listing cap</b> — fails closed when GitHub pagination prevents complete validation.</li>
               <li><b>Promotion provenance</b> — seals included work from immutable delivery records at the exact base/head/cursor. Closing references are optional presentation and must exactly match the seal when present; explicit post-merge transition owns closure.</li>

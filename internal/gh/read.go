@@ -215,6 +215,8 @@ type pullRequestPayload struct {
 	Body          string    `json:"body"`
 	Draft         bool      `json:"draft"`
 	State         string    `json:"state"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 	MergedAt      time.Time `json:"merged_at"`
 	MergeRevision string    `json:"merge_commit_sha"`
 	Mergeable     *bool     `json:"mergeable"`
@@ -253,7 +255,7 @@ func pullRequestFromPayload(pr pullRequestPayload) PullRequest {
 		BaseRef: pr.Base.Ref, BaseSHA: pr.Base.SHA, HeadRef: pr.Head.Ref, HeadSHA: pr.Head.SHA,
 		BaseRepositoryFullName: repositoryFullName(pr.Base.Repo), HeadRepositoryFullName: repositoryFullName(pr.Head.Repo),
 		Draft: pr.Draft, Author: Actor{Login: pr.User.Login, Type: pr.User.Type}, Mergeable: mergeable, MergeState: pr.MergeState,
-		State: pr.State, Merged: !pr.MergedAt.IsZero(), MergedAt: pr.MergedAt, MergeRevision: pr.MergeRevision,
+		State: pr.State, Merged: !pr.MergedAt.IsZero(), CreatedAt: pr.CreatedAt, UpdatedAt: pr.UpdatedAt, MergedAt: pr.MergedAt, MergeRevision: pr.MergeRevision,
 	}
 }
 

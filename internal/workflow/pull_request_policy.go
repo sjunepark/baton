@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/sjunepark/baton/internal/apperror"
 	"github.com/sjunepark/baton/internal/auth"
@@ -39,6 +40,8 @@ type PullRequestPolicyGitHub interface {
 	GetCheckRollupContext(context.Context, string, int, string) (gh.CheckRollup, error)
 	ListOpenPullRequestsBoundedContext(context.Context, string, string) (gh.PullRequestListing, error)
 	ListNewestIssueCommentsContext(context.Context, string, int) (gh.IssueCommentListing, error)
+	ListNewestPullRequestCommentsContext(context.Context, string, int) (gh.IssueCommentListing, error)
+	ListIssueCommentsAfterContext(context.Context, string, int, time.Time) (gh.IssueCommentListing, error)
 	CreateIssueCommentReturningContext(context.Context, string, int, string) (gh.IssueComment, error)
 	UpdateIssueCommentReturningContext(context.Context, string, int64, string) (gh.IssueComment, error)
 	RerequestCheckRunContext(context.Context, string, int64) error
@@ -125,6 +128,7 @@ func (workflow PullRequestPolicyWorkflow) RunContext(ctx context.Context, input 
 	if flow != policy.PRFlowWork && flow != policy.PRFlowPromotion {
 		return policy.PRPolicyDecision{}, apperror.New(apperror.GitHub, "pull request ownership changed before policy acquisition", "Let the newest pull request event evaluate the current branch and repository identities.")
 	}
+	workEvidenceIssues := []delivery.ManagedIssueReference{}
 	if flow == policy.PRFlowWork {
 		issueNumbers := pullRequestReferenceIssueNumbersFromText(latest.Title, latest.Body, cfg.PRPolicy.RequiredReferenceKeyword)
 		for _, issueNumber := range issueNumbers {
@@ -145,6 +149,14 @@ func (workflow PullRequestPolicyWorkflow) RunContext(ctx context.Context, input 
 					IssueNodeID: issue.NodeID, IssueNumber: issue.Number, Body: issue.Body, Labels: issue.Labels,
 					Comments: issueOwnershipComments(comments), Policy: cfg.IssuePolicy,
 				})
+				if ownership.Managed {
+					record := ownership.Record
+					if record == nil {
+						value := policy.NewManagedIssueRecord(issue.NodeID, issue.Number)
+						record = &value
+					}
+					workEvidenceIssues = append(workEvidenceIssues, delivery.ManagedIssueReference{Number: issue.Number, NodeID: issue.NodeID, OwnershipDigest: record.Digest})
+				}
 			}
 			policyInput.ReferencedIssues = append(policyInput.ReferencedIssues, policy.ReferencedIssue{Number: issue.Number, Ownership: ownership})
 		}
@@ -170,7 +182,97 @@ func (workflow PullRequestPolicyWorkflow) RunContext(ctx context.Context, input 
 	}
 	policyInput.CommitMessages = listing.Messages
 	policyInput.CommitListingReachedCap = listing.GitHubCapReached
-	return policy.ComputePullRequestPolicy(policyInput), nil
+	decision := policy.ComputePullRequestPolicy(policyInput)
+	if flow == policy.PRFlowWork && cfg.Delivery != nil && strings.EqualFold(confirmed.State, "open") {
+		if err := persistManagedWorkPolicyEvidence(ctx, client, repo, cfg, confirmed, decision, workEvidenceIssues, delivery.WriterProvenance{Workflow: strings.TrimSpace(input.WorkflowName), RunID: input.RunID}); err != nil {
+			return policy.PRPolicyDecision{}, err
+		}
+	}
+	return decision, nil
+}
+
+func persistManagedWorkPolicyEvidence(ctx context.Context, client PullRequestPolicyGitHub, repo string, cfg config.Config, pr gh.PullRequest, decision policy.PRPolicyDecision, issues []delivery.ManagedIssueReference, writer delivery.WriterProvenance) error {
+	if writer.Workflow != "PR Policy" || writer.RunID <= 0 {
+		return apperror.New(apperror.Usage, "managed-work policy evidence requires the trusted PR Policy workflow", "Use the generated PR Policy workflow so evidence is authored by trusted default-branch code.")
+	}
+	locator, err := deliveryLocatorFromConfig(cfg)
+	if err != nil {
+		return apperror.Wrap(apperror.Config, "managed-work policy evidence requires a pinned delivery repository", err, "Review and pin the delivery locator before enabling delivery policy evidence.")
+	}
+	repository, err := client.GetRepositoryIdentityContext(ctx, repo)
+	if err != nil {
+		return classifyGitHubError(err)
+	}
+	if !strings.EqualFold(repository.Host, locator.Repository.Host) || repository.FullName != locator.Repository.FullName || repository.NodeID != locator.Repository.NodeID {
+		return apperror.New(apperror.Config, "managed-work policy evidence repository does not match the pinned delivery locator", "Repair the delivery repository identity before merging managed work.")
+	}
+	allowed := len(decision.Errors) == 0
+	if !allowed {
+		issues = nil
+	}
+	evidence, err := policy.NewManagedWorkPolicyEvidence(policy.ManagedWorkPolicyEvidence{
+		Repository: locator.Repository, PullRequest: delivery.ResourceIdentity{Number: pr.Number, NodeID: pr.NodeID},
+		BaseBranch: pr.BaseRef, WorkBranch: pr.HeadRef, BaseSHA: pr.BaseSHA, HeadSHA: pr.HeadSHA,
+		ProseDigest: policy.ManagedWorkProseDigest(pr.Title, pr.Body), PolicySchemaVersion: decision.SchemaVersion,
+		Allowed: allowed, Issues: issues, Writer: writer,
+	})
+	if err != nil {
+		return apperror.Wrap(apperror.Policy, "managed-work policy evidence is invalid", err, "Re-run policy against the current pull-request and managed-issue facts.")
+	}
+	body, err := policy.RenderManagedWorkPolicyEvidence(evidence)
+	if err != nil {
+		return apperror.Wrap(apperror.Policy, "managed-work policy evidence could not be encoded", err, "")
+	}
+	listing, err := client.ListNewestPullRequestCommentsContext(ctx, repo, pr.Number)
+	if err != nil {
+		return classifyGitHubError(err)
+	}
+	match, err := policy.FindTrustedManagedWorkPolicyEvidence(managedWorkEvidenceComments(listing.Comments))
+	if err != nil {
+		return apperror.Wrap(apperror.Policy, "managed-work policy evidence is ambiguous", err, "Repair the trusted evidence comments on the pull request, then retry policy.")
+	}
+	if match == nil || match.Evidence.Digest != evidence.Digest {
+		written, createErr := client.CreateIssueCommentReturningContext(ctx, repo, pr.Number, body)
+		if createErr != nil {
+			retryListing, readErr := client.ListNewestPullRequestCommentsContext(ctx, repo, pr.Number)
+			if readErr != nil {
+				return classifyGitHubError(createErr)
+			}
+			retryMatch, matchErr := policy.FindTrustedManagedWorkPolicyEvidence(managedWorkEvidenceComments(retryListing.Comments))
+			if matchErr != nil || retryMatch == nil || retryMatch.Evidence.Digest != evidence.Digest {
+				return classifyGitHubError(createErr)
+			}
+			written, err = client.GetIssueCommentContext(ctx, repo, retryMatch.Comment.ID)
+			if err != nil {
+				return classifyGitHubError(createErr)
+			}
+		}
+		if err := validateTrustedDeliveryWrite(written, repo, pr.Number); err != nil || strings.TrimSpace(written.Body) != body {
+			if err == nil {
+				err = errors.New("managed-work policy evidence write returned stale content")
+			}
+			return apperror.Wrap(apperror.GitHub, "managed-work policy evidence write was not trusted", err, "Retry the PR Policy workflow against the current pull-request revision.")
+		}
+	}
+	confirmed, err := client.GetPullRequestContext(ctx, repo, pr.Number)
+	if err != nil {
+		return classifyGitHubError(err)
+	}
+	if !strings.EqualFold(confirmed.State, "open") || !sameManagedPolicyPullRequest(pr, confirmed) {
+		return apperror.New(apperror.GitHub, "pull request changed after policy evidence was written", "Let the newest pull-request event evaluate and persist evidence for the current open revision.")
+	}
+	return nil
+}
+
+func managedWorkEvidenceComments(comments []gh.IssueComment) []policy.ManagedWorkEvidenceComment {
+	result := make([]policy.ManagedWorkEvidenceComment, 0, len(comments))
+	for _, comment := range comments {
+		result = append(result, policy.ManagedWorkEvidenceComment{
+			ID: comment.ID, NodeID: comment.NodeID, IssueURL: comment.IssueURL, Body: comment.Body,
+			AuthorLogin: comment.Author.Login, AuthorType: comment.Author.Type, CreatedAt: comment.CreatedAt, UpdatedAt: comment.UpdatedAt,
+		})
+	}
+	return result
 }
 
 func loadWorkflowConfig(path string) (config.Config, error) {

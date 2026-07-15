@@ -6,11 +6,14 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/sjunepark/baton/internal/config"
 	"github.com/sjunepark/baton/internal/delivery"
 	"github.com/sjunepark/baton/internal/gh"
 )
+
+const deliveryRecordReadConcurrency = 8
 
 type deliveryStoreReader interface {
 	GetRepositoryIdentityContext(context.Context, string) (gh.RepositoryIdentity, error)
@@ -66,17 +69,14 @@ func acquireDeliveryStore(ctx context.Context, client deliveryStoreReader, repo 
 	if err != nil {
 		return acquiredDeliveryStore{}, err
 	}
+	if checkpoint.Successor != nil {
+		successor := checkpoint.Successor.Locator
+		return acquiredDeliveryStore{}, fmt.Errorf("pinned delivery checkpoint is frozen; repin successor issue %d checkpoint %d (%s)", successor.Issue.Number, successor.Checkpoint.DatabaseID, checkpoint.Successor.Digest)
+	}
 	references := deliveryCheckpointReferences(checkpoint)
-	stored := make([]delivery.StoredComment, 0, len(references))
-	for _, reference := range references {
-		comment, err := client.GetIssueCommentContext(ctx, repo, reference.Comment.DatabaseID)
-		if err != nil {
-			return acquiredDeliveryStore{}, err
-		}
-		if !deliveryCommentBelongsToIssue(comment, repo, locator.Issue.Number) {
-			return acquiredDeliveryStore{}, fmt.Errorf("delivery record comment %d does not belong to the pinned ledger issue", comment.ID)
-		}
-		stored = append(stored, storedDeliveryComment(comment))
+	stored, err := acquireDeliveryRecordComments(ctx, client, repo, locator.Issue.Number, references)
+	if err != nil {
+		return acquiredDeliveryStore{}, err
 	}
 	snapshot, err := delivery.ParseStoreSnapshot(delivery.StoreSnapshot{
 		Locator: locator, Checkpoint: checkpointStored, Records: stored, Complete: true,
@@ -85,6 +85,45 @@ func acquireDeliveryStore(ctx context.Context, client deliveryStoreReader, repo 
 		return acquiredDeliveryStore{}, err
 	}
 	return acquiredDeliveryStore{Snapshot: snapshot, CheckpointComment: checkpointComment, LedgerIssue: issue}, nil
+}
+
+func acquireDeliveryRecordComments(ctx context.Context, client deliveryStoreReader, repo string, issueNumber int, references []delivery.RecordReference) ([]delivery.StoredComment, error) {
+	if len(references) == 0 {
+		return []delivery.StoredComment{}, nil
+	}
+	stored := make([]delivery.StoredComment, len(references))
+	errorsByIndex := make([]error, len(references))
+	jobs := make(chan int, len(references))
+	for index := range references {
+		jobs <- index
+	}
+	close(jobs)
+	workers := min(deliveryRecordReadConcurrency, len(references))
+	var group sync.WaitGroup
+	group.Add(workers)
+	for range workers {
+		go func() {
+			defer group.Done()
+			for index := range jobs {
+				comment, err := client.GetIssueCommentContext(ctx, repo, references[index].Comment.DatabaseID)
+				if err == nil && !deliveryCommentBelongsToIssue(comment, repo, issueNumber) {
+					err = fmt.Errorf("delivery record comment %d does not belong to the pinned ledger issue", comment.ID)
+				}
+				if err != nil {
+					errorsByIndex[index] = err
+					continue
+				}
+				stored[index] = storedDeliveryComment(comment)
+			}
+		}()
+	}
+	group.Wait()
+	for _, err := range errorsByIndex {
+		if err != nil {
+			return nil, err
+		}
+	}
+	return stored, nil
 }
 
 func deliveryCommentBelongsToIssue(comment gh.IssueComment, repo string, issueNumber int) bool {

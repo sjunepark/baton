@@ -3,6 +3,7 @@ package delivery
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -157,23 +158,25 @@ func currentBaseIntegration(snapshot Snapshot) (BaseIntegrationRecord, bool) {
 }
 
 type SynchronizationInput struct {
-	PullRequest     ResourceIdentity `json:"pullRequest"`
-	PriorStagingSHA string           `json:"priorStagingSha"`
-	BaseSHA         string           `json:"baseSha"`
-	StagingSHA      string           `json:"stagingSha"`
-	Writer          WriterProvenance `json:"writer"`
-	RecordedAt      string           `json:"recordedAt"`
+	PullRequest     ResourceIdentity         `json:"pullRequest"`
+	PriorStagingSHA string                   `json:"priorStagingSha"`
+	BaseSHA         string                   `json:"baseSha"`
+	StagingSHA      string                   `json:"stagingSha"`
+	Writer          WriterProvenance         `json:"writer"`
+	RecordedAt      string                   `json:"recordedAt"`
+	RecheckTargets  []PromotionRecheckTarget `json:"recheckTargets"`
 }
 
 type SynchronizationPlan struct {
-	SchemaVersion int                        `json:"schemaVersion"`
-	Kind          string                     `json:"kind"`
-	Applicable    bool                       `json:"applicable"`
-	Locator       DeliveryStoreLocator       `json:"locator"`
-	Precondition  CheckpointPrecondition     `json:"precondition"`
-	Record        *BaseIntegrationRecord     `json:"record,omitempty"`
-	Checkpoint    *CheckpointAppendTemplate  `json:"checkpoint,omitempty"`
-	Existing      *BaseIntegrationRetryMatch `json:"existing,omitempty"`
+	SchemaVersion  int                        `json:"schemaVersion"`
+	Kind           string                     `json:"kind"`
+	Applicable     bool                       `json:"applicable"`
+	Locator        DeliveryStoreLocator       `json:"locator"`
+	Precondition   CheckpointPrecondition     `json:"precondition"`
+	Record         *BaseIntegrationRecord     `json:"record,omitempty"`
+	Checkpoint     *CheckpointAppendTemplate  `json:"checkpoint,omitempty"`
+	Existing       *BaseIntegrationRetryMatch `json:"existing,omitempty"`
+	RecheckTargets []PromotionRecheckTarget   `json:"recheckTargets"`
 }
 
 type SynchronizationCommit = PromotionConsumptionCommit
@@ -182,6 +185,9 @@ func PlanSynchronization(snapshot Snapshot, input SynchronizationInput) (Synchro
 	checkpoint := snapshot.Checkpoint
 	if err := validateCheckpoint(checkpoint, snapshot.Locator); err != nil {
 		return SynchronizationPlan{}, fmt.Errorf("synchronization checkpoint: %w", err)
+	}
+	if checkpoint.PendingRechecks != nil {
+		return SynchronizationPlan{}, errors.New("pending promotion rechecks must be cleared before synchronization")
 	}
 	if err := validateResource(input.PullRequest, "synchronization pull request"); err != nil {
 		return SynchronizationPlan{}, err
@@ -198,7 +204,11 @@ func PlanSynchronization(snapshot Snapshot, input SynchronizationInput) (Synchro
 	if current, found := currentBaseIntegration(snapshot); found && current.Source == IntegrationPromotion && current.StagingSHA == input.StagingSHA && current.BaseSHA != input.BaseSHA {
 		return SynchronizationPlan{}, errors.New("synchronization event predates the current promotion integration")
 	}
-	plan := SynchronizationPlan{SchemaVersion: SchemaVersion, Kind: "synchronizationPlan", Applicable: true, Locator: snapshot.Locator, Precondition: checkpointPrecondition(checkpoint)}
+	targets, err := normalizePromotionRecheckTargets(input.RecheckTargets)
+	if err != nil {
+		return SynchronizationPlan{}, err
+	}
+	plan := SynchronizationPlan{SchemaVersion: SchemaVersion, Kind: "synchronizationPlan", Applicable: true, Locator: snapshot.Locator, Precondition: checkpointPrecondition(checkpoint), RecheckTargets: targets}
 	record := finalizeBaseIntegration(BaseIntegrationRecord{
 		RecordHeader: RecordHeader{LedgerID: checkpoint.LedgerID, Repository: checkpoint.Repository, Sequence: checkpoint.HeadSequence + 1, PreviousDigest: checkpoint.HeadDigest, Writer: input.Writer},
 		Source:       IntegrationSynchronization, Method: PromotionSync, PullRequest: input.PullRequest,
@@ -215,8 +225,8 @@ func PlanSynchronization(snapshot Snapshot, input SynchronizationInput) (Synchro
 		plan.Existing = existing
 		return plan, nil
 	}
-	if len(checkpoint.ActiveRecords) >= MaxActiveRecords {
-		return SynchronizationPlan{}, fmt.Errorf("delivery checkpoint active-record cap reached: %d", MaxActiveRecords)
+	if len(checkpoint.ActiveRecords) >= MaxSynchronizationRecords {
+		return SynchronizationPlan{}, fmt.Errorf("delivery checkpoint synchronization-record cap reached: %d; one slot is reserved for a promotion seal", MaxSynchronizationRecords)
 	}
 	next := synchronizationCheckpointTemplate(checkpoint, record)
 	plan.Record = &record
@@ -298,6 +308,9 @@ func FinalizeSynchronization(plan SynchronizationPlan, current DeliveryCheckpoin
 	next := expected
 	next.ActiveRecords = append(next.ActiveRecords, reference)
 	next.BaseIntegration = &reference
+	if len(plan.RecheckTargets) > 0 {
+		next.PendingRechecks = &PendingPromotionRechecks{Cause: reference, Targets: append([]PromotionRecheckTarget(nil), plan.RecheckTargets...)}
+	}
 	next = finalizeCheckpoint(next)
 	if err := validateCheckpoint(next, plan.Locator); err != nil {
 		return SynchronizationCommit{}, fmt.Errorf("synchronization checkpoint: %w", err)
@@ -307,6 +320,23 @@ func FinalizeSynchronization(plan SynchronizationPlan, current DeliveryCheckpoin
 		return SynchronizationCommit{}, err
 	}
 	return SynchronizationCommit{Record: record, RecordBody: renderBaseIntegration(record), RecordReference: reference, Checkpoint: next, CheckpointBody: body}, nil
+}
+
+func normalizePromotionRecheckTargets(values []PromotionRecheckTarget) ([]PromotionRecheckTarget, error) {
+	result := append([]PromotionRecheckTarget(nil), values...)
+	sort.Slice(result, func(i, j int) bool { return result[i].PullRequest.Number < result[j].PullRequest.Number })
+	for index, target := range result {
+		if err := validateResource(target.PullRequest, "promotion recheck pull request"); err != nil || !validSHA(target.HeadSHA) {
+			return nil, errors.New("promotion recheck target is invalid")
+		}
+		if index > 0 && target.PullRequest.Number == result[index-1].PullRequest.Number {
+			return nil, fmt.Errorf("duplicate promotion recheck target #%d", target.PullRequest.Number)
+		}
+	}
+	if len(result) > 100 {
+		return nil, errors.New("promotion recheck target cap exceeded")
+	}
+	return result, nil
 }
 
 func AdoptSynchronizationRetry(plan SynchronizationPlan, current DeliveryCheckpoint, record BaseIntegrationRecord) (SynchronizationPlan, error) {

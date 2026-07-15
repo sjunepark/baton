@@ -118,14 +118,14 @@ func sealPromotionPolicy(ctx context.Context, client PullRequestPolicyGitHub, re
 	if err != nil {
 		return policy.PromotionFacts{}, apperror.Wrap(apperror.Policy, "promotion plan could not be encoded", err, "Repair the delivery ledger before retrying policy.")
 	}
-	comment, err := findTrustedPromotionPlanRetry(ctx, client, repo, locator.Issue.Number, plan.Record.RetryID)
+	comment, err := findTrustedPromotionPlanRetry(ctx, client, repo, locator.Issue.Number, store.CheckpointComment.UpdatedAt, plan.Record.RetryID)
 	if err != nil {
 		return fail(0, "promotion plan retry lookup failed", err)
 	}
 	if comment == nil {
 		created, createErr := client.CreateIssueCommentReturningContext(ctx, repo, locator.Issue.Number, body)
 		if createErr != nil {
-			comment, err = findTrustedPromotionPlanRetry(ctx, client, repo, locator.Issue.Number, plan.Record.RetryID)
+			comment, err = findTrustedPromotionPlanRetry(ctx, client, repo, locator.Issue.Number, store.CheckpointComment.UpdatedAt, plan.Record.RetryID)
 			if err != nil {
 				return fail(0, "promotion plan append was ambiguous", err)
 			}
@@ -362,10 +362,13 @@ func acquireBaseIntegrationFacts(ctx context.Context, client baseIntegrationComp
 	return delivery.ClassifyBaseIntegration(snapshot, observation)
 }
 
-func findTrustedPromotionPlanRetry(ctx context.Context, client PullRequestPolicyGitHub, repo string, issueNumber int, retryID string) (*gh.IssueComment, error) {
-	listing, err := client.ListNewestIssueCommentsContext(ctx, repo, issueNumber)
+func findTrustedPromotionPlanRetry(ctx context.Context, client PullRequestPolicyGitHub, repo string, issueNumber int, after time.Time, retryID string) (*gh.IssueComment, error) {
+	listing, err := client.ListIssueCommentsAfterContext(ctx, repo, issueNumber, after)
 	if err != nil {
 		return nil, err
+	}
+	if !listing.Complete {
+		return nil, fmt.Errorf("promotion-plan retry lookup did not reach the checkpoint boundary")
 	}
 	stored := make([]delivery.StoredComment, 0, len(listing.Comments))
 	byID := make(map[int64]gh.IssueComment, len(listing.Comments))
@@ -378,9 +381,6 @@ func findTrustedPromotionPlanRetry(ctx context.Context, client PullRequestPolicy
 		return nil, err
 	}
 	if match == nil {
-		if !listing.Complete {
-			return nil, fmt.Errorf("promotion-plan retry lookup reached the newest-comment cap")
-		}
 		return nil, nil
 	}
 	comment := byID[match.Comment.DatabaseID]

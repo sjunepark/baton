@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sjunepark/baton/internal/config"
 	"github.com/sjunepark/baton/internal/delivery"
@@ -295,15 +296,11 @@ func TestPromotionTransitionPartialFailureRetriesSatisfiedIssueMutation(t *testi
 	}
 }
 
-func TestPromotionTransitionCreatesRecordFromIncompleteNewestWindow(t *testing.T) {
-	input, _, stub := promotionTransitionFixture(t)
-	stub.newestIncomplete = true
-	workflow := PullRequestTransitionWorkflow{newClient: func(context.Context, PullRequestTransitionInput) (PullRequestTransitionGitHub, error) {
-		return stub, nil
-	}}
-	result, err := workflow.RunContext(context.Background(), input)
-	if err != nil || result.Report == nil || result.Report.Status != operation.ReportCompleted || len(stub.created) != 1 || len(stub.updated) != 1 {
-		t.Fatalf("result=%+v err=%v", result, err)
+func TestFindTrustedBaseIntegrationRetryRejectsIncompleteNewestWindow(t *testing.T) {
+	stub := &deliveryRecordGitHubStub{records: map[int64]gh.IssueComment{}, newestIncomplete: true}
+	_, err := findTrustedBaseIntegrationRetry(context.Background(), stub, "example/repo", 900, time.Now(), strings.Repeat("a", 64))
+	if err == nil || !strings.Contains(err.Error(), "checkpoint boundary") {
+		t.Fatalf("error = %v", err)
 	}
 }
 
@@ -348,7 +345,6 @@ func TestPromotionTransitionAdoptsOrphanRecordAfterCursorFailure(t *testing.T) {
 	}
 	firstDigest := result.BaseIntegrationDigest
 	stub.checkpointErr = nil
-	stub.newestIncomplete = true
 	input.RunID++
 	result, err = workflow.RunContext(context.Background(), input)
 	if err != nil || result.Report == nil || result.Report.Status != operation.ReportCompleted || len(stub.created) != 1 || len(stub.updated) != 1 || result.BaseIntegrationDigest != firstDigest {

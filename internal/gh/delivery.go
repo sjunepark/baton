@@ -11,7 +11,9 @@ import (
 
 const (
 	newestIssueCommentLimit = 100
+	retryCommentPageLimit   = 10
 	pullRequestListingLimit = 100
+	pullRequestPageLimit    = 10
 )
 
 type issueCommentPayload struct {
@@ -174,6 +176,121 @@ func (c *Client) ListNewestIssueCommentsContext(ctx context.Context, repo string
 	return IssueCommentListing{Comments: comments, Complete: !connection.PageInfo.HasPreviousPage}, nil
 }
 
+// ListNewestPullRequestCommentsContext reads the bounded append-only policy
+// evidence window on one pull request.
+func (c *Client) ListNewestPullRequestCommentsContext(ctx context.Context, repo string, pullRequestNumber int) (IssueCommentListing, error) {
+	owner, name, err := splitRepo(repo)
+	if err != nil {
+		return IssueCommentListing{}, err
+	}
+	var result issueCommentsGraphQLResponse
+	headers, err := c.postGraphQLContext(ctx, graphQLPayload{
+		Query: `query($owner: String!, $name: String!, $number: Int!, $limit: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      comments(last: $limit) {
+        nodes {
+          databaseId
+          id
+          body
+          createdAt
+          updatedAt
+          author { login __typename }
+        }
+        pageInfo { hasPreviousPage }
+      }
+    }
+  }
+}`,
+		Variables: map[string]any{"owner": owner, "name": name, "number": pullRequestNumber, "limit": newestIssueCommentLimit},
+	}, &result)
+	if err != nil {
+		return IssueCommentListing{}, err
+	}
+	if len(result.Errors) > 0 {
+		return IssueCommentListing{}, graphQLResponseError(result.Errors, headers)
+	}
+	if result.Data.Repository == nil || result.Data.Repository.PullRequest == nil {
+		return IssueCommentListing{}, fmt.Errorf("repository pull request %s#%d was not found", repo, pullRequestNumber)
+	}
+	connection := result.Data.Repository.PullRequest.Comments
+	comments := make([]IssueComment, 0, len(connection.Nodes))
+	for _, node := range connection.Nodes {
+		comments = append(comments, IssueComment{
+			ID: node.DatabaseID, NodeID: node.NodeID, Body: node.Body,
+			Author: Actor{Login: node.Author.Login, Type: node.Author.TypeName}, CreatedAt: node.CreatedAt, UpdatedAt: node.UpdatedAt,
+		})
+	}
+	return IssueCommentListing{Comments: comments, Complete: !connection.PageInfo.HasPreviousPage}, nil
+}
+
+// ListIssueCommentsAfterContext walks newest comments backwards only until it
+// crosses the last committed checkpoint update. This proves whether an
+// uncommitted retry exists without treating older ledger history as relevant.
+func (c *Client) ListIssueCommentsAfterContext(ctx context.Context, repo string, issueNumber int, after time.Time) (IssueCommentListing, error) {
+	if after.IsZero() {
+		return IssueCommentListing{}, fmt.Errorf("retry comment boundary is missing")
+	}
+	owner, name, err := splitRepo(repo)
+	if err != nil {
+		return IssueCommentListing{}, err
+	}
+	comments := []IssueComment{}
+	var before any
+	for page := 0; page < retryCommentPageLimit; page++ {
+		var result issueCommentsGraphQLResponse
+		headers, err := c.postGraphQLContext(ctx, graphQLPayload{
+			Query: `query($owner: String!, $name: String!, $number: Int!, $limit: Int!, $before: String) {
+  repository(owner: $owner, name: $name) {
+    issue(number: $number) {
+      comments(last: $limit, before: $before) {
+        nodes {
+          databaseId
+          id
+          body
+          createdAt
+          updatedAt
+          author { login __typename }
+        }
+        pageInfo { hasPreviousPage startCursor }
+      }
+    }
+  }
+}`,
+			Variables: map[string]any{"owner": owner, "name": name, "number": issueNumber, "limit": newestIssueCommentLimit, "before": before},
+		}, &result)
+		if err != nil {
+			return IssueCommentListing{}, err
+		}
+		if len(result.Errors) > 0 {
+			return IssueCommentListing{}, graphQLResponseError(result.Errors, headers)
+		}
+		if result.Data.Repository == nil || result.Data.Repository.Issue == nil {
+			return IssueCommentListing{}, fmt.Errorf("repository issue %s#%d was not found", repo, issueNumber)
+		}
+		connection := result.Data.Repository.Issue.Comments
+		reachedBoundary := false
+		for _, node := range connection.Nodes {
+			if node.CreatedAt.Before(after) {
+				reachedBoundary = true
+				continue
+			}
+			comments = append(comments, IssueComment{
+				ID: node.DatabaseID, NodeID: node.NodeID, Body: node.Body,
+				Author: Actor{Login: node.Author.Login, Type: node.Author.TypeName}, CreatedAt: node.CreatedAt, UpdatedAt: node.UpdatedAt,
+			})
+		}
+		if reachedBoundary || !connection.PageInfo.HasPreviousPage {
+			return IssueCommentListing{Comments: comments, Complete: true}, nil
+		}
+		if strings.TrimSpace(connection.PageInfo.StartCursor) == "" {
+			return IssueCommentListing{Comments: comments, Complete: false}, nil
+		}
+		before = connection.PageInfo.StartCursor
+	}
+	return IssueCommentListing{Comments: comments, Complete: false}, nil
+}
+
 func (c *Client) ListOpenPullRequestsBounded(repo, base string) (PullRequestListing, error) {
 	return c.ListOpenPullRequestsBoundedContext(context.Background(), repo, base)
 }
@@ -188,6 +305,85 @@ func (c *Client) ListClosedPullRequestsBounded(repo, base string) (PullRequestLi
 
 func (c *Client) ListClosedPullRequestsBoundedContext(ctx context.Context, repo, base string) (PullRequestListing, error) {
 	return c.listPullRequestsBoundedContext(ctx, repo, base, "closed")
+}
+
+// ListClosedPullRequestsUpdatedSinceContext walks closed pull requests in
+// descending update order until it crosses the checkpoint observation time.
+// Equal timestamps are retained so second-resolution boundaries cannot hide a
+// merge observed concurrently with the checkpoint update.
+func (c *Client) ListClosedPullRequestsUpdatedSinceContext(ctx context.Context, repo, base string, after time.Time) (PullRequestListing, error) {
+	if after.IsZero() {
+		return PullRequestListing{}, fmt.Errorf("closed pull request boundary is missing")
+	}
+	// GitHub's REST pull-request timestamps are second-resolution. Floor an
+	// operator-supplied fractional boundary so the shared second remains in the
+	// reconciliation window.
+	after = after.Truncate(time.Second)
+	pullRequests := []PullRequest{}
+	var previous time.Time
+	var firstPage []pullRequestPayload
+	for page := 1; page <= pullRequestPageLimit; page++ {
+		batch, err := c.listClosedPullRequestsUpdatedPageContext(ctx, repo, base, page)
+		if err != nil {
+			return PullRequestListing{}, err
+		}
+		if page == 1 {
+			firstPage = append([]pullRequestPayload(nil), batch...)
+		}
+		reachedBoundary := false
+		for _, payload := range batch {
+			if payload.UpdatedAt.IsZero() {
+				return PullRequestListing{PullRequests: pullRequests, Complete: false}, nil
+			}
+			if !previous.IsZero() && payload.UpdatedAt.After(previous) {
+				return PullRequestListing{PullRequests: pullRequests, Complete: false}, nil
+			}
+			previous = payload.UpdatedAt
+			if payload.UpdatedAt.Before(after) {
+				reachedBoundary = true
+				continue
+			}
+			pullRequests = append(pullRequests, pullRequestFromPayload(payload))
+		}
+		if reachedBoundary || len(batch) < pullRequestListingLimit {
+			stable, err := c.listClosedPullRequestsUpdatedPageContext(ctx, repo, base, 1)
+			if err != nil {
+				return PullRequestListing{}, err
+			}
+			if !samePullRequestUpdatePage(firstPage, stable) {
+				return PullRequestListing{PullRequests: pullRequests, Complete: false}, nil
+			}
+			return PullRequestListing{PullRequests: pullRequests, Complete: true}, nil
+		}
+	}
+	return PullRequestListing{PullRequests: pullRequests, Complete: false}, nil
+}
+
+func (c *Client) listClosedPullRequestsUpdatedPageContext(ctx context.Context, repo, base string, page int) ([]pullRequestPayload, error) {
+	query := url.Values{
+		"state": {"closed"}, "sort": {"updated"}, "direction": {"desc"},
+		"per_page": {fmt.Sprint(pullRequestListingLimit)}, "page": {fmt.Sprint(page)},
+	}
+	if base != "" {
+		query.Set("base", base)
+	}
+	var batch []pullRequestPayload
+	if err := c.getJSONContext(ctx, fmt.Sprintf("/repos/%s/pulls?%s", repo, query.Encode()), &batch); err != nil {
+		return nil, err
+	}
+	return batch, nil
+}
+
+func samePullRequestUpdatePage(left, right []pullRequestPayload) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index].Number != right[index].Number || left[index].NodeID != right[index].NodeID || !left[index].UpdatedAt.Equal(right[index].UpdatedAt) {
+			return false
+		}
+	}
+	return true
 }
 
 func (c *Client) listPullRequestsBoundedContext(ctx context.Context, repo, base, state string) (PullRequestListing, error) {
@@ -241,6 +437,9 @@ type issueCommentsGraphQLResponse struct {
 			Issue *struct {
 				Comments issueCommentConnection `json:"comments"`
 			} `json:"issue"`
+			PullRequest *struct {
+				Comments issueCommentConnection `json:"comments"`
+			} `json:"pullRequest"`
 		} `json:"repository"`
 	} `json:"data"`
 	Errors []graphQLError `json:"errors"`
@@ -249,7 +448,8 @@ type issueCommentsGraphQLResponse struct {
 type issueCommentConnection struct {
 	Nodes    []issueCommentNode `json:"nodes"`
 	PageInfo struct {
-		HasPreviousPage bool `json:"hasPreviousPage"`
+		HasPreviousPage bool   `json:"hasPreviousPage"`
+		StartCursor     string `json:"startCursor"`
 	} `json:"pageInfo"`
 }
 

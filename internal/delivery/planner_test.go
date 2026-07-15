@@ -32,6 +32,60 @@ func TestCheckpointIndexAndGenesisRoundTrip(t *testing.T) {
 	}
 }
 
+func TestGenesisCheckpointRequiresBaseRevision(t *testing.T) {
+	checkpoint, _ := plannerGenesis(t)
+	_, err := NewGenesisCheckpoint(GenesisCheckpointInput{
+		LedgerID: checkpoint.LedgerID, Repository: checkpoint.Repository, Issue: checkpoint.Issue,
+		StagingSHA: checkpoint.Coverage.StagingSHA, Writer: checkpoint.Coverage.Writer, ObservedAt: checkpoint.Coverage.ObservedAt,
+	})
+	if err == nil || !strings.Contains(err.Error(), "base revision") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestRolloverLinksDrainedPredecessorAndSuccessor(t *testing.T) {
+	checkpoint, locator := plannerGenesis(t)
+	snapshot := Snapshot{Locator: locator, Checkpoint: checkpoint}
+	plan, err := PlanRollover(snapshot, RolloverInput{
+		Issue: ResourceIdentity{Number: 901, NodeID: "I_901"}, Writer: fixtureWriter(), ObservedAt: "2026-07-15T01:00:00Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !plan.Applicable || plan.Checkpoint.Predecessor == nil || plan.Checkpoint.Predecessor.Locator != locator || plan.Checkpoint.Coverage.StagingSHA != checkpoint.Coverage.StagingSHA {
+		t.Fatalf("rollover plan = %+v", plan)
+	}
+	successor := DeliveryStoreLocator{Repository: locator.Repository, Issue: plan.Checkpoint.Issue, Checkpoint: CommentIdentity{DatabaseID: 301, NodeID: "IC_301"}}
+	frozen, body, err := FinalizeRollover(snapshot, plan, successor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if frozen.Successor == nil || frozen.Successor.Locator != successor || frozen.Successor.Digest != plan.Checkpoint.Digest {
+		t.Fatalf("frozen predecessor = %+v", frozen)
+	}
+	parsed, err := ParseCheckpointIndex(locator, fixtureComment(locator.Checkpoint.DatabaseID, locator.Checkpoint.NodeID, body))
+	if err != nil || parsed.Successor == nil || parsed.Successor.Locator != successor {
+		t.Fatalf("parsed frozen predecessor = %+v, error = %v", parsed, err)
+	}
+	tampered := plan
+	tampered.Checkpoint.Coverage.ObservedAt = "2026-07-15T02:00:00Z"
+	if _, _, err := FinalizeRollover(snapshot, tampered, successor); err == nil || !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("tampered rollover error = %v", err)
+	}
+
+	activePlan, err := PlanStagedWorkAppend(snapshot, plannerStagedInput(20, 7))
+	if err != nil {
+		t.Fatal(err)
+	}
+	commit, err := FinalizeStagedWorkAppend(activePlan, checkpoint, CommentIdentity{DatabaseID: 201, NodeID: "IC_201"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PlanRollover(Snapshot{Locator: locator, Checkpoint: commit.Checkpoint}, RolloverInput{Issue: ResourceIdentity{Number: 901, NodeID: "I_901"}, Writer: fixtureWriter(), ObservedAt: "2026-07-15T01:00:00Z"}); err == nil || !strings.Contains(err.Error(), "drained") {
+		t.Fatalf("active rollover error = %v", err)
+	}
+}
+
 func TestStagedWorkAppendPlansThenFinalizesExactCheckpoint(t *testing.T) {
 	checkpoint, locator := plannerGenesis(t)
 	snapshot := Snapshot{Locator: locator, Checkpoint: checkpoint}
@@ -134,7 +188,7 @@ func TestStagedWorkAppendRejectsStaleAndTamperedPlans(t *testing.T) {
 	}
 	staleInput := GenesisCheckpointInput{
 		LedgerID: checkpoint.LedgerID, Repository: checkpoint.Repository, Issue: checkpoint.Issue,
-		StagingSHA: strings.Repeat("9", 40), Writer: fixtureWriter(), ObservedAt: "2026-07-14T01:01:00Z",
+		StagingSHA: strings.Repeat("9", 40), BaseSHA: checkpoint.GenesisBaseSHA, Writer: fixtureWriter(), ObservedAt: "2026-07-14T01:01:00Z",
 	}
 	stale, err := NewGenesisCheckpoint(staleInput)
 	if err != nil {
@@ -192,15 +246,15 @@ func TestStagedWorkAppendCapDoesNotBlockCommittedRetry(t *testing.T) {
 	}
 	record := *firstPlan.Record
 	reference := recordReference(CommentIdentity{DatabaseID: 201, NodeID: "IC_201"}, record.RecordHeader)
-	checkpoint.ActiveRecords = make([]RecordReference, MaxActiveRecords)
+	checkpoint.ActiveRecords = make([]RecordReference, MaxOperationalRecords)
 	checkpoint.ActiveRecords[0] = reference
-	for index := 1; index < MaxActiveRecords; index++ {
+	for index := 1; index < MaxOperationalRecords; index++ {
 		checkpoint.ActiveRecords[index] = RecordReference{
 			Comment: CommentIdentity{DatabaseID: int64(201 + index), NodeID: "IC_" + strings.Repeat("x", index+1)},
 			Kind:    RecordStagedWork, Sequence: uint64(index + 1), Digest: fixtureDigest("record-" + strings.Repeat("x", index)), RetryID: fixtureDigest("retry-" + strings.Repeat("x", index)),
 		}
 	}
-	checkpoint.HeadSequence = MaxActiveRecords
+	checkpoint.HeadSequence = MaxOperationalRecords
 	checkpoint.HeadDigest = checkpoint.ActiveRecords[len(checkpoint.ActiveRecords)-1].Digest
 	checkpoint = finalizeCheckpoint(checkpoint)
 	snapshot := Snapshot{Locator: locator, Checkpoint: checkpoint, StagedWork: []StagedWorkRecord{record}}
@@ -347,7 +401,7 @@ func TestBootstrapPlanIsStableAndGenesisAmbiguityBlocksApply(t *testing.T) {
 	input := BootstrapPlanInput{
 		Genesis: GenesisCheckpointInput{
 			LedgerID: genesis.LedgerID, Repository: genesis.Repository, Issue: genesis.Issue,
-			StagingSHA: strings.Repeat("a", 40), Writer: fixtureWriter(), ObservedAt: "2026-07-14T00:00:00Z",
+			StagingSHA: strings.Repeat("a", 40), BaseSHA: strings.Repeat("c", 40), Writer: fixtureWriter(), ObservedAt: "2026-07-14T00:00:00Z",
 		},
 		SourceFacts:      facts,
 		Relationships:    []BootstrapRelationship{{Kind: "delivers", FromFactID: "pr-20", ToFactID: "issue-7", EvidenceFactIDs: []string{"pr-20"}}},
@@ -511,7 +565,7 @@ func plannerGenesis(t *testing.T) (DeliveryCheckpoint, DeliveryStoreLocator) {
 	issue := ResourceIdentity{Number: 900, NodeID: "I_900"}
 	checkpoint, err := NewGenesisCheckpoint(GenesisCheckpointInput{
 		LedgerID: "ledger-1", Repository: repository, Issue: issue,
-		StagingSHA: strings.Repeat("a", 40), Writer: fixtureWriter(), ObservedAt: "2026-07-14T00:00:00Z",
+		StagingSHA: strings.Repeat("a", 40), BaseSHA: strings.Repeat("b", 40), Writer: fixtureWriter(), ObservedAt: "2026-07-14T00:00:00Z",
 	})
 	if err != nil {
 		t.Fatal(err)

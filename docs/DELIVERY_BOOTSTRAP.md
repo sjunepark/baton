@@ -1,8 +1,9 @@
 # Delivery bootstrap
 
 Delivery bootstrap is explicit and review-gated. It never edits the adopter's
-checkout. Planning is the temporary shadow-read phase; committing the reviewed
-locator after a complete bootstrap is the sealed-authority cutover.
+checkout. Initialization creates the locator, a normal review pins it with
+shadow authority, migration and comparison run in that shadow phase, and a
+separate normal review changes authority to sealed only after cutover is ready.
 
 Bootstrap planning and apply must run through the generated `Delivery Recorder`
 workflow. Its repository-scoped concurrency group prevents the routine recorder
@@ -43,8 +44,10 @@ checkpoint boundary, out-of-staging merge, or ambiguous ancestry order blocks
 apply.
 Approve the environment only if the emitted plan is correct.
 
-Ownership comments are written before staged records. Each immutable record
-append and checkpoint commit has a separate operation result. Promotion-policy
+If the reviewed promotion corrects the initialized base boundary, apply commits
+that exact genesis checkpoint first. Ownership comments are then written before
+staged records. Each boundary update, immutable record append, and checkpoint
+commit has a separate operation result. Promotion-policy
 rechecks run after every checkpoint commit succeeds; if a later bootstrap
 operation fails, the partial-return path still attempts those rechecks. Stop
 and review the operation report after any partial result; partial bootstrap is
@@ -66,10 +69,27 @@ an ancestry/body fallback. If bootstrap or reconciliation is incomplete,
 remove no records and repair with `delivery-bootstrap --dry-run` or
 `delivery-record --dry-run`; incomplete state fails closed.
 
+## 4. Roll over a drained ledger
+
+The checkpoint accepts 250 routine active references and reserves one additional
+slot for synchronization plus one for the promotion seal (252 total). Promote and
+consume the active window before rollover; do not use rollover to discard
+pending delivery work.
+
+Create and lock a new reserved delivery-state issue. With the current locator
+still present in config, dispatch `bootstrap-initialize` using that new issue,
+the existing ledger ID, the exact committed `coverage.stagingSha`, and a fixed
+observation time. Initialization schema v2 then returns a reviewed rollover
+plan. Apply creates or adopts the successor checkpoint and freezes the old
+checkpoint with an exact successor locator and digest. Routine readers reject
+the frozen locator and identify the successor to repin. Commit the returned
+locator through normal review; predecessor and successor links preserve the
+epoch boundary without carrying old active records forward.
+
 ## SemVer
 
 Bootstrap itself was additive, but the authority cutover changes promotion and
-recommendation behavior and bumps public policy/transition JSON to v3. The
+recommendation behavior and bumps public policy/transition JSON to v4. The
 cumulative change is a breaking `feat!:` and therefore a pre-1.0 minor release
 under Baton's Release Please policy. Release Please owns the manifest,
 changelog, tag, release, and pinned adopter-target updates.

@@ -58,6 +58,7 @@ type DeliveryBootstrapInitialization struct {
 	GenesisCheckpoint delivery.DeliveryCheckpoint       `json:"genesisCheckpoint"`
 	CheckpointBody    string                            `json:"checkpointBody"`
 	Locator           *delivery.DeliveryStoreLocator    `json:"locator,omitempty"`
+	Rollover          *delivery.RolloverPlan            `json:"rollover,omitempty"`
 	Warnings          []string                          `json:"warnings"`
 }
 
@@ -82,6 +83,8 @@ type DeliveryBootstrapGitHub interface {
 type DeliveryBootstrapWorkflow struct {
 	newClient func(context.Context, DeliveryBootstrapInput) (DeliveryBootstrapGitHub, error)
 }
+
+const bootstrapGenesisBoundaryOperationID = "delivery-genesis-boundary"
 
 func NewDeliveryBootstrapWorkflow() DeliveryBootstrapWorkflow {
 	return DeliveryBootstrapWorkflow{newClient: func(ctx context.Context, input DeliveryBootstrapInput) (DeliveryBootstrapGitHub, error) {
@@ -137,6 +140,11 @@ func (workflow DeliveryBootstrapWorkflow) RunContext(ctx context.Context, input 
 	if err != nil {
 		return DeliveryBootstrapResult{}, apperror.Wrap(apperror.Policy, "delivery bootstrap could not be planned", err, "Review the reported repository facts and genesis boundary.")
 	}
+	if plan.GenesisCheckpoint.Digest != store.Snapshot.Checkpoint.Digest {
+		operations = append([]DeliveryRecordOperation{{
+			ID: bootstrapGenesisBoundaryOperationID, Resource: fmt.Sprintf("%s#comment-%d", repo, store.CheckpointComment.ID), Action: "update_genesis_checkpoint",
+		}}, operations...)
+	}
 	plan.PlanID = deliveryBootstrapExecutionDigest(plan, operations, rechecks)
 	result := DeliveryBootstrapResult{BootstrapPlan: plan, Rechecks: rechecks, Operations: operations}
 	if !input.Apply {
@@ -162,6 +170,9 @@ func (workflow DeliveryBootstrapWorkflow) runInitialization(ctx context.Context,
 	client, err := workflow.newClient(ctx, input)
 	if err != nil {
 		return DeliveryBootstrapResult{}, err
+	}
+	if cfg.Delivery != nil {
+		return workflow.runRolloverInitialization(ctx, client, repo, input, cfg)
 	}
 	repository, err := client.GetRepositoryIdentityContext(ctx, repo)
 	if err != nil {
@@ -281,10 +292,207 @@ func (workflow DeliveryBootstrapWorkflow) runInitialization(ctx context.Context,
 
 func deliveryBootstrapInitializationDigest(value DeliveryBootstrapInitialization) string {
 	value.PlanID = ""
-	value.Locator = nil
+	if value.Rollover == nil {
+		value.Locator = nil
+	}
 	content, _ := json.Marshal(value)
 	digest := sha256.Sum256(content)
 	return "sha256:" + hex.EncodeToString(digest[:])
+}
+
+func (workflow DeliveryBootstrapWorkflow) runRolloverInitialization(ctx context.Context, client DeliveryBootstrapGitHub, repo string, input DeliveryBootstrapInput, cfg config.Config) (DeliveryBootstrapResult, error) {
+	oldLocator, err := deliveryLocatorFromConfig(cfg)
+	if err != nil {
+		return DeliveryBootstrapResult{}, apperror.Wrap(apperror.Config, "delivery rollover predecessor is invalid", err, "Repair the pinned delivery locator before retrying.")
+	}
+	oldStore, err := acquireDeliveryStore(ctx, client, repo, oldLocator)
+	if err != nil {
+		return DeliveryBootstrapResult{}, classifyGitHubError(err)
+	}
+	if strings.TrimSpace(input.LedgerID) != oldStore.Snapshot.Checkpoint.LedgerID {
+		return DeliveryBootstrapResult{}, apperror.New(apperror.Usage, "delivery rollover must preserve the ledger identity", "Pass the ledgerId from the pinned predecessor checkpoint.")
+	}
+	if strings.TrimSpace(input.GenesisStagingSHA) != oldStore.Snapshot.Checkpoint.Coverage.StagingSHA {
+		return DeliveryBootstrapResult{}, apperror.New(apperror.Usage, "delivery rollover staging boundary must match committed coverage", "Pass the exact coverage.stagingSha from the pinned predecessor checkpoint.")
+	}
+	issue, err := client.GetIssueContext(ctx, repo, input.LedgerIssue)
+	if err != nil {
+		return DeliveryBootstrapResult{}, classifyGitHubError(err)
+	}
+	if issue.PullRequest || !issue.Locked || issue.NodeID == "" || issue.Number == oldStore.LedgerIssue.Number {
+		return DeliveryBootstrapResult{}, apperror.New(apperror.Policy, "delivery successor must be a different existing locked issue", "Create and lock a new reserved delivery-state issue, then retry.")
+	}
+	rollover, err := delivery.PlanRollover(oldStore.Snapshot, delivery.RolloverInput{
+		Issue:  delivery.ResourceIdentity{Number: issue.Number, NodeID: issue.NodeID},
+		Writer: delivery.WriterProvenance{Workflow: input.WorkflowName, RunID: input.RunID}, ObservedAt: input.ObservedAt,
+	})
+	if err != nil {
+		return DeliveryBootstrapResult{}, apperror.Wrap(apperror.Policy, "delivery rollover could not be planned", err, "Drain the active delivery window and pending rechecks before rollover.")
+	}
+	temporaryLocator := delivery.DeliveryStoreLocator{Repository: oldLocator.Repository, Issue: rollover.Checkpoint.Issue, Checkpoint: delivery.CommentIdentity{DatabaseID: 1, NodeID: "pending-checkpoint"}}
+	body, err := delivery.RenderCheckpointIndex(temporaryLocator, rollover.Checkpoint)
+	if err != nil {
+		return DeliveryBootstrapResult{}, err
+	}
+	comments, err := client.ListNewestIssueCommentsContext(ctx, repo, issue.Number)
+	if err != nil {
+		return DeliveryBootstrapResult{}, classifyGitHubError(err)
+	}
+	warnings := []string{}
+	applicable := comments.Complete
+	if !comments.Complete {
+		warnings = append(warnings, "successor checkpoint discovery reached the newest-100 cap")
+	}
+	var existing *delivery.DeliveryStoreLocator
+	checkpointMarkers := 0
+	for _, comment := range comments.Comments {
+		if !strings.Contains(comment.Body, delivery.CheckpointMarkerV1) {
+			continue
+		}
+		checkpointMarkers++
+		locator := delivery.DeliveryStoreLocator{Repository: oldLocator.Repository, Issue: rollover.Checkpoint.Issue, Checkpoint: delivery.CommentIdentity{DatabaseID: comment.ID, NodeID: comment.NodeID}}
+		parsed, parseErr := delivery.ParseCheckpointIndex(locator, storedDeliveryComment(comment))
+		if parseErr == nil && parsed.Digest == rollover.Checkpoint.Digest && validateTrustedDeliveryWrite(comment, repo, issue.Number) == nil {
+			candidate := locator
+			existing = &candidate
+		}
+	}
+	if checkpointMarkers > 0 && existing == nil {
+		applicable = false
+		warnings = append(warnings, "successor issue already contains a different delivery checkpoint")
+	}
+	if checkpointMarkers > 1 {
+		applicable = false
+		warnings = append(warnings, "successor issue contains multiple delivery checkpoints")
+	}
+	initialization := &DeliveryBootstrapInitialization{
+		SchemaVersion: 2, Kind: "deliveryBootstrapInitialization", Applicable: applicable,
+		Repository: oldLocator.Repository, Issue: rollover.Checkpoint.Issue,
+		GenesisBoundary:   delivery.BootstrapGenesisBoundary{Explicit: true, StagingSHA: rollover.Checkpoint.Coverage.StagingSHA, BaseSHA: rollover.Checkpoint.GenesisBaseSHA, Rationale: "operator-reviewed drained-ledger rollover"},
+		GenesisCheckpoint: rollover.Checkpoint, CheckpointBody: body, Locator: existing, Rollover: &rollover, Warnings: warnings,
+	}
+	initialization.PlanID = deliveryBootstrapInitializationDigest(*initialization)
+	createAction := "create_successor_checkpoint"
+	if existing != nil {
+		createAction = "adopt_successor_checkpoint"
+	}
+	result := DeliveryBootstrapResult{
+		BootstrapPlan: delivery.BootstrapPlan{PlanID: initialization.PlanID, Ambiguities: []delivery.BootstrapAmbiguity{}}, Initialization: initialization,
+		Operations: []DeliveryRecordOperation{
+			{ID: "delivery-successor-checkpoint", Resource: fmt.Sprintf("%s#%d", repo, issue.Number), Action: createAction},
+			{ID: "delivery-predecessor-freeze", Resource: fmt.Sprintf("%s#comment-%d", repo, oldStore.CheckpointComment.ID), Action: "freeze_predecessor"},
+		},
+	}
+	if !input.Apply {
+		return result, nil
+	}
+	if input.ReviewedPlanID != initialization.PlanID {
+		return result, apperror.New(apperror.Policy, "delivery rollover plan changed after review", "Run --dry-run again and pass its exact planId.")
+	}
+	if !initialization.Applicable {
+		return result, apperror.New(apperror.Policy, "delivery rollover is incomplete", "Resolve the reported successor checkpoint ambiguity before apply.")
+	}
+	return applyDeliveryRollover(ctx, client, repo, oldStore, result)
+}
+
+func applyDeliveryRollover(ctx context.Context, client DeliveryBootstrapGitHub, repo string, oldStore acquiredDeliveryStore, result DeliveryBootstrapResult) (DeliveryBootstrapResult, error) {
+	initialization := result.Initialization
+	results := make([]operation.Result, len(result.Operations))
+	for index, planned := range result.Operations {
+		results[index] = operation.Result{ID: planned.ID, Resource: planned.Resource, Action: planned.Action, Status: operation.StatusNotAttempted}
+	}
+	fail := func(index int, message string, cause error) (DeliveryBootstrapResult, error) {
+		results[index].Status = operation.StatusFailed
+		results[index].Error = operationFailure("github", message, cause)
+		report := operation.NewReport(results)
+		result.Report = &report
+		return result, apperror.WithReport(classifyGitHubError(cause), report)
+	}
+	if err := verifyRolloverPredecessor(ctx, client, repo, oldStore, *initialization.Rollover); err != nil {
+		return fail(0, "rollover predecessor preflight failed", err)
+	}
+	issue, err := client.GetIssueContext(ctx, repo, initialization.Issue.Number)
+	if err != nil || issue.PullRequest || !issue.Locked || issue.NodeID != initialization.Issue.NodeID {
+		if err == nil {
+			err = fmt.Errorf("successor ledger issue changed after planning")
+		}
+		return fail(0, "successor ledger issue preflight failed", err)
+	}
+	var successor delivery.DeliveryStoreLocator
+	if initialization.Locator != nil {
+		successor = *initialization.Locator
+		comment, err := client.GetIssueCommentContext(ctx, repo, successor.Checkpoint.DatabaseID)
+		if err != nil || comment.Body != initialization.CheckpointBody || validateTrustedDeliveryWrite(comment, repo, successor.Issue.Number) != nil {
+			if err == nil {
+				err = fmt.Errorf("reviewed successor checkpoint changed before apply")
+			}
+			return fail(0, "successor checkpoint adoption failed", err)
+		}
+		results[0].Status = operation.StatusUnchanged
+	} else {
+		created, err := client.CreateIssueCommentReturningContext(ctx, repo, initialization.Issue.Number, initialization.CheckpointBody)
+		if err != nil {
+			return fail(0, "successor checkpoint creation failed", err)
+		}
+		if trustErr := validateTrustedDeliveryWrite(created, repo, initialization.Issue.Number); trustErr != nil || created.Body != initialization.CheckpointBody {
+			if trustErr == nil {
+				trustErr = fmt.Errorf("successor checkpoint creation returned stale content")
+			}
+			return fail(0, "successor checkpoint creation was not trusted", trustErr)
+		}
+		successor = delivery.DeliveryStoreLocator{Repository: initialization.Repository, Issue: initialization.Issue, Checkpoint: delivery.CommentIdentity{DatabaseID: created.ID, NodeID: created.NodeID}}
+		results[0].Status = operation.StatusApplied
+	}
+	if err := verifyRolloverPredecessor(ctx, client, repo, oldStore, *initialization.Rollover); err != nil {
+		return fail(1, "rollover predecessor changed before freeze", err)
+	}
+	frozen, body, err := delivery.FinalizeRollover(oldStore.Snapshot, *initialization.Rollover, successor)
+	if err != nil {
+		return fail(1, "predecessor freeze planning failed", err)
+	}
+	updated, err := client.UpdateIssueCommentReturningContext(ctx, repo, oldStore.CheckpointComment.ID, body)
+	if err != nil {
+		readback, readErr := client.GetIssueCommentContext(ctx, repo, oldStore.CheckpointComment.ID)
+		if readErr != nil || readback.Body != body {
+			return fail(1, "predecessor checkpoint freeze failed", err)
+		}
+		updated = readback
+	}
+	if trustErr := validateTrustedDeliveryWrite(updated, repo, oldStore.LedgerIssue.Number); trustErr != nil || updated.ID != oldStore.CheckpointComment.ID || updated.NodeID != oldStore.CheckpointComment.NodeID || updated.Body != body {
+		if trustErr == nil {
+			trustErr = fmt.Errorf("predecessor checkpoint freeze returned stale content")
+		}
+		return fail(1, "predecessor checkpoint freeze was not trusted", trustErr)
+	}
+	if frozen.Successor == nil || frozen.Successor.Locator != successor {
+		return fail(1, "predecessor checkpoint freeze was not exact", fmt.Errorf("successor link is missing"))
+	}
+	results[1].Status = operation.StatusApplied
+	initialization.Locator = &successor
+	report := operation.NewReport(results)
+	result.Report = &report
+	return result, nil
+}
+
+func verifyRolloverPredecessor(ctx context.Context, client DeliveryBootstrapGitHub, repo string, store acquiredDeliveryStore, plan delivery.RolloverPlan) error {
+	comment, err := client.GetIssueCommentContext(ctx, repo, store.CheckpointComment.ID)
+	if err != nil {
+		return err
+	}
+	if err := validateTrustedDeliveryWrite(comment, repo, store.LedgerIssue.Number); err != nil || comment.ID != store.CheckpointComment.ID || comment.NodeID != store.CheckpointComment.NodeID {
+		if err == nil {
+			err = fmt.Errorf("predecessor checkpoint identity changed")
+		}
+		return err
+	}
+	checkpoint, err := delivery.ParseCheckpointIndex(store.Snapshot.Locator, storedDeliveryComment(comment))
+	if err != nil {
+		return err
+	}
+	if checkpoint.Digest != plan.Precondition.Digest || checkpoint.Generation != plan.Precondition.Generation {
+		return fmt.Errorf("predecessor checkpoint changed after planning")
+	}
+	return nil
 }
 
 func deliveryBootstrapExecutionDigest(plan delivery.BootstrapPlan, operations []DeliveryRecordOperation, rechecks []DeliveryBootstrapRecheck) string {
@@ -555,11 +763,22 @@ func acquireBootstrapPlanInput(ctx context.Context, client DeliveryBootstrapGitH
 			operations = append(operations, DeliveryRecordOperation{ID: fmt.Sprintf("promotion-%d-policy-recheck", plannedRecheck.PullRequest.Number), Resource: fmt.Sprintf("%s#%d@%s", repo, plannedRecheck.PullRequest.Number, plannedRecheck.HeadSHA), Action: "rerequest_check"})
 		}
 	}
+	retryListing, err := client.ListIssueCommentsAfterContext(ctx, repo, store.LedgerIssue.Number, store.CheckpointComment.UpdatedAt)
+	if err != nil {
+		return delivery.BootstrapPlanInput{}, nil, nil, classifyGitHubError(err)
+	}
+	if !retryListing.Complete {
+		ambiguities = append(ambiguities, delivery.BootstrapAmbiguity{Code: "bootstrap-retry-boundary-incomplete", Message: "bootstrap retry discovery did not reach the checkpoint boundary"})
+	}
+	retryComments := make([]delivery.StoredComment, 0, len(retryListing.Comments))
+	for _, comment := range retryListing.Comments {
+		retryComments = append(retryComments, storedDeliveryComment(comment))
+	}
 	boundary := &delivery.BootstrapGenesisBoundary{Explicit: explicit, StagingSHA: boundarySHA, BaseSHA: boundaryBaseSHA, SourceFactIDs: boundaryFacts, Rationale: "reviewed last acknowledged base and staging boundary"}
 	return delivery.BootstrapPlanInput{
 		Genesis:     delivery.GenesisCheckpointInput{LedgerID: checkpoint.LedgerID, Repository: checkpoint.Repository, Issue: checkpoint.Issue, StagingSHA: checkpoint.Coverage.StagingSHA, Writer: checkpoint.Coverage.Writer, ObservedAt: checkpoint.Coverage.ObservedAt},
 		SourceFacts: facts, Relationships: relationships, Ambiguities: ambiguities, GenesisBoundary: boundary,
-		OwnershipRecords: ownershipPlans, StagedWork: workPlans, ShadowComparisons: shadow,
+		OwnershipRecords: ownershipPlans, StagedWork: workPlans, RetryComments: retryComments, ShadowComparisons: shadow,
 	}, operations, rechecks, nil
 }
 
@@ -645,6 +864,43 @@ func applyDeliveryBootstrap(ctx context.Context, client DeliveryBootstrapGitHub,
 		result.Report = &report
 		return result, apperror.WithReport(classifyGitHubError(err), report)
 	}
+	currentStore := store
+	if boundaryIndex, planned := operationIndexes[bootstrapGenesisBoundaryOperationID]; planned {
+		body, err := bootstrapGenesisBoundaryBody(store.Snapshot.Locator, store.Snapshot.Checkpoint, result.GenesisCheckpoint)
+		if err != nil {
+			return fail(boundaryIndex, "bootstrap genesis boundary is invalid", err)
+		}
+		checkpointNow, err := client.GetIssueCommentContext(ctx, repo, store.CheckpointComment.ID)
+		if err != nil {
+			return fail(boundaryIndex, "bootstrap genesis boundary preflight failed", err)
+		}
+		if checkpointNow.ID != store.CheckpointComment.ID || checkpointNow.NodeID != store.CheckpointComment.NodeID || checkpointNow.Body != store.CheckpointComment.Body {
+			return fail(boundaryIndex, "bootstrap genesis boundary preflight failed", fmt.Errorf("checkpoint changed after planning"))
+		}
+		updated, err := client.UpdateIssueCommentReturningContext(ctx, repo, store.CheckpointComment.ID, body)
+		if err != nil {
+			readback, readErr := client.GetIssueCommentContext(ctx, repo, store.CheckpointComment.ID)
+			if readErr != nil || readback.Body != body {
+				return fail(boundaryIndex, "bootstrap genesis boundary update failed", err)
+			}
+			updated = readback
+		}
+		if trustErr := validateTrustedDeliveryWrite(updated, repo, store.LedgerIssue.Number); trustErr != nil || updated.ID != store.CheckpointComment.ID || updated.NodeID != store.CheckpointComment.NodeID || updated.Body != body {
+			if trustErr == nil {
+				trustErr = fmt.Errorf("bootstrap genesis boundary update returned stale content or identity")
+			}
+			return fail(boundaryIndex, "bootstrap genesis boundary update was not trusted", trustErr)
+		}
+		results[boundaryIndex].Status = operation.StatusApplied
+		committedAny = true
+		currentStore, err = acquireDeliveryStore(ctx, client, repo, store.Snapshot.Locator)
+		if err != nil {
+			return fail(boundaryIndex, "bootstrap genesis boundary readback failed", err)
+		}
+		if currentStore.Snapshot.Checkpoint.Digest != result.GenesisCheckpoint.Digest {
+			return fail(boundaryIndex, "bootstrap genesis boundary readback failed", fmt.Errorf("checkpoint digest changed after update"))
+		}
+	}
 	for _, ownership := range result.OwnershipRecords {
 		commentIndex := operationIndexes[fmt.Sprintf("issue-%d-ownership-record", ownership.Issue.Number)]
 		labelIndex := operationIndexes[fmt.Sprintf("issue-%d-ownership-index", ownership.Issue.Number)]
@@ -661,7 +917,6 @@ func applyDeliveryBootstrap(ctx context.Context, client DeliveryBootstrapGitHub,
 		}
 		results[labelIndex].Status = operation.StatusApplied
 	}
-	currentStore := store
 	if len(result.StagedWork) > 0 {
 		freshStore, err := acquireDeliveryStore(ctx, client, repo, store.Snapshot.Locator)
 		if err != nil {
@@ -697,14 +952,29 @@ func applyDeliveryBootstrap(ctx context.Context, client DeliveryBootstrapGitHub,
 		if err != nil {
 			return fail(recordIndex, "bootstrap staged-work encoding failed", err)
 		}
-		comment, err := findTrustedStagedWorkRetry(ctx, client, repo, currentStore.LedgerIssue.Number, appendPlan.Record.RetryID)
-		if err != nil {
-			return fail(recordIndex, "bootstrap staged-work retry lookup failed", err)
+		var comment *gh.IssueComment
+		if planned.ExistingComment != nil {
+			reviewed, readErr := client.GetIssueCommentContext(ctx, repo, planned.ExistingComment.DatabaseID)
+			if readErr != nil {
+				return fail(recordIndex, "reviewed bootstrap staged-work retry disappeared", readErr)
+			}
+			if reviewed.NodeID != planned.ExistingComment.NodeID || validateTrustedDeliveryWrite(reviewed, repo, currentStore.LedgerIssue.Number) != nil || reviewed.Body != body {
+				return fail(recordIndex, "reviewed bootstrap staged-work retry changed", fmt.Errorf("reviewed retry identity, trust, or bytes changed after planning"))
+			}
+			comment = &reviewed
+		} else {
+			comment, err = findTrustedStagedWorkRetry(ctx, client, repo, currentStore.LedgerIssue.Number, currentStore.CheckpointComment.UpdatedAt, appendPlan.Record.RetryID)
+			if err != nil {
+				return fail(recordIndex, "bootstrap staged-work retry lookup failed", err)
+			}
+			if comment != nil {
+				return fail(recordIndex, "bootstrap staged-work retry appeared after review", fmt.Errorf("retry comment must be included in a new reviewed plan"))
+			}
 		}
 		if comment == nil {
 			created, createErr := client.CreateIssueCommentReturningContext(ctx, repo, currentStore.LedgerIssue.Number, body)
 			if createErr != nil {
-				comment, err = findTrustedStagedWorkRetry(ctx, client, repo, currentStore.LedgerIssue.Number, appendPlan.Record.RetryID)
+				comment, err = findTrustedStagedWorkRetry(ctx, client, repo, currentStore.LedgerIssue.Number, currentStore.CheckpointComment.UpdatedAt, appendPlan.Record.RetryID)
 				if err != nil {
 					return fail(recordIndex, "bootstrap staged-work append was ambiguous", err)
 				}
@@ -763,6 +1033,24 @@ func applyDeliveryBootstrap(ctx context.Context, client DeliveryBootstrapGitHub,
 	report := operation.NewReport(results)
 	result.Report = &report
 	return result, nil
+}
+
+func bootstrapGenesisBoundaryBody(locator delivery.DeliveryStoreLocator, current, planned delivery.DeliveryCheckpoint) (string, error) {
+	expected := current
+	expected.GenesisBaseSHA = planned.GenesisBaseSHA
+	expected.Digest = planned.Digest
+	expectedBody, err := delivery.RenderCheckpointIndex(locator, expected)
+	if err != nil {
+		return "", fmt.Errorf("reviewed checkpoint changes more than the genesis base boundary: %w", err)
+	}
+	plannedBody, err := delivery.RenderCheckpointIndex(locator, planned)
+	if err != nil {
+		return "", err
+	}
+	if expectedBody != plannedBody {
+		return "", fmt.Errorf("reviewed checkpoint changes more than the genesis base boundary")
+	}
+	return plannedBody, nil
 }
 
 func reconcileBootstrapPromotionRechecks(ctx context.Context, client DeliveryBootstrapGitHub, repo string, planned []DeliveryBootstrapRecheck, operationIndexes map[string]int, results []operation.Result) (int, error) {

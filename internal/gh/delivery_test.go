@@ -1,6 +1,7 @@
 package gh
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -112,6 +113,47 @@ func TestListNewestIssueCommentsIsBoundedAndReportsCompleteness(t *testing.T) {
 	}
 }
 
+func TestListIssueCommentsAfterPaginatesOnlyToCheckpointBoundary(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		var request struct {
+			Query     string         `json:"query"`
+			Variables map[string]any `json:"variables"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(request.Query, "before: $before") {
+			t.Fatalf("query = %s", request.Query)
+		}
+		switch requests {
+		case 1:
+			if request.Variables["before"] != nil {
+				t.Fatalf("first before = %#v", request.Variables["before"])
+			}
+			w.Write([]byte(`{"data":{"repository":{"issue":{"comments":{"nodes":[{"databaseId":103,"id":"IC_103","body":"new","createdAt":"2026-07-15T03:00:00Z","updatedAt":"2026-07-15T03:00:00Z","author":{"login":"github-actions[bot]","__typename":"Bot"}}],"pageInfo":{"hasPreviousPage":true,"startCursor":"cursor-2"}}}}}}`))
+		case 2:
+			if request.Variables["before"] != "cursor-2" {
+				t.Fatalf("second before = %#v", request.Variables["before"])
+			}
+			w.Write([]byte(`{"data":{"repository":{"issue":{"comments":{"nodes":[{"databaseId":101,"id":"IC_101","body":"old","createdAt":"2026-07-15T01:00:00Z","updatedAt":"2026-07-15T01:00:00Z","author":{"login":"github-actions[bot]","__typename":"Bot"}},{"databaseId":102,"id":"IC_102","body":"boundary","createdAt":"2026-07-15T02:00:00Z","updatedAt":"2026-07-15T02:00:00Z","author":{"login":"github-actions[bot]","__typename":"Bot"}}],"pageInfo":{"hasPreviousPage":true,"startCursor":"cursor-1"}}}}}}`))
+		default:
+			t.Fatalf("unexpected request %d", requests)
+		}
+	}))
+	defer server.Close()
+
+	boundary := time.Date(2026, 7, 15, 2, 0, 0, 0, time.UTC)
+	listing, err := NewClient(server.URL, "token", server.Client()).ListIssueCommentsAfterContext(t.Context(), "example/repo", 900, boundary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !listing.Complete || requests != 2 || len(listing.Comments) != 2 || listing.Comments[0].ID != 103 || listing.Comments[1].ID != 102 {
+		t.Fatalf("requests=%d listing=%+v", requests, listing)
+	}
+}
+
 func TestListNewestIssueCommentsRejectsMissingIssue(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Write([]byte(`{"data":{"repository":{"issue":null}}}`))
@@ -177,6 +219,72 @@ func TestBoundedPullRequestListingsExposeCapForOpenAndClosed(t *testing.T) {
 	}
 	if open.Complete || len(open.PullRequests) != 100 || open.PullRequests[0].NodeID != "PR_1" || !closed.Complete || len(closed.PullRequests) != 1 {
 		t.Fatalf("open=%+v closed=%+v", open, closed)
+	}
+}
+
+func TestClosedPullRequestListingPaginatesToUpdatedBoundary(t *testing.T) {
+	boundary := time.Date(2026, 7, 15, 1, 0, 0, 0, time.UTC)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/example/repo/pulls" || r.URL.Query().Get("state") != "closed" || r.URL.Query().Get("base") != "agent" || r.URL.Query().Get("sort") != "updated" || r.URL.Query().Get("direction") != "desc" {
+			t.Fatalf("request = %s", r.URL.String())
+		}
+		page := r.URL.Query().Get("page")
+		if page == "1" {
+			pullRequests := make([]map[string]any, 100)
+			for index := range pullRequests {
+				pullRequests[index] = map[string]any{"number": index + 1, "node_id": fmt.Sprintf("PR_%d", index+1), "updated_at": boundary.Format(time.RFC3339)}
+			}
+			json.NewEncoder(w).Encode(pullRequests)
+			return
+		}
+		if page != "2" {
+			t.Fatalf("page = %q", page)
+		}
+		json.NewEncoder(w).Encode([]map[string]any{{"number": 101, "node_id": "PR_101", "updated_at": boundary.Add(-time.Second).Format(time.RFC3339)}})
+	}))
+	defer server.Close()
+
+	listing, err := NewClient(server.URL, "token", server.Client()).ListClosedPullRequestsUpdatedSinceContext(context.Background(), "example/repo", "agent", boundary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !listing.Complete || len(listing.PullRequests) != 100 || listing.PullRequests[99].Number != 100 || !listing.PullRequests[0].UpdatedAt.Equal(boundary) {
+		t.Fatalf("listing = complete:%t pullRequests:%d last:%+v", listing.Complete, len(listing.PullRequests), listing.PullRequests[len(listing.PullRequests)-1])
+	}
+}
+
+func TestClosedPullRequestListingRejectsAnUnstableNewestPage(t *testing.T) {
+	boundary := time.Date(2026, 7, 15, 1, 0, 0, 0, time.UTC)
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		number := calls
+		json.NewEncoder(w).Encode([]map[string]any{{"number": number, "node_id": fmt.Sprintf("PR_%d", number), "updated_at": boundary.Format(time.RFC3339)}})
+	}))
+	defer server.Close()
+
+	listing, err := NewClient(server.URL, "token", server.Client()).ListClosedPullRequestsUpdatedSinceContext(context.Background(), "example/repo", "agent", boundary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if listing.Complete || calls != 2 {
+		t.Fatalf("listing = %+v calls=%d", listing, calls)
+	}
+}
+
+func TestClosedPullRequestListingIncludesTheFractionalBoundarySecond(t *testing.T) {
+	boundary := time.Date(2026, 7, 15, 1, 0, 0, 500_000_000, time.UTC)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode([]map[string]any{{"number": 1, "node_id": "PR_1", "updated_at": "2026-07-15T01:00:00Z"}})
+	}))
+	defer server.Close()
+
+	listing, err := NewClient(server.URL, "token", server.Client()).ListClosedPullRequestsUpdatedSinceContext(context.Background(), "example/repo", "agent", boundary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !listing.Complete || len(listing.PullRequests) != 1 {
+		t.Fatalf("listing = %+v", listing)
 	}
 }
 

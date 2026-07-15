@@ -211,6 +211,13 @@ func ParseStoreSnapshot(store StoreSnapshot) (Snapshot, error) {
 	if err := validateActiveChain(checkpoint, parsedByID); err != nil {
 		return Snapshot{}, err
 	}
+	if checkpoint.PendingRechecks != nil {
+		parsed := parsedByID[checkpoint.PendingRechecks.Cause.Comment.DatabaseID]
+		integration, ok := parsed.value.(BaseIntegrationRecord)
+		if !ok || integration.Source != IntegrationSynchronization || integration.Digest != checkpoint.PendingRechecks.Cause.Digest {
+			return Snapshot{}, errors.New("pending promotion rechecks do not name a synchronization record")
+		}
+	}
 	return result, nil
 }
 
@@ -527,6 +534,19 @@ func validateCheckpoint(checkpoint DeliveryCheckpoint, locator DeliveryStoreLoca
 	if len(checkpoint.ActiveRecords) > MaxActiveRecords {
 		return fmt.Errorf("delivery checkpoint active-record cap exceeded: %d > %d", len(checkpoint.ActiveRecords), MaxActiveRecords)
 	}
+	if checkpoint.Predecessor != nil {
+		if err := validateCheckpointLink(*checkpoint.Predecessor, checkpoint.Repository, checkpoint.Issue); err != nil {
+			return fmt.Errorf("delivery checkpoint predecessor: %w", err)
+		}
+	}
+	if checkpoint.Successor != nil {
+		if err := validateCheckpointLink(*checkpoint.Successor, checkpoint.Repository, checkpoint.Issue); err != nil {
+			return fmt.Errorf("delivery checkpoint successor: %w", err)
+		}
+		if len(checkpoint.ActiveRecords) != 0 || checkpoint.ActivePlan != nil || checkpoint.PendingRechecks != nil {
+			return errors.New("delivery checkpoint successor requires a drained active window")
+		}
+	}
 	if err := validateCursor(checkpoint.Cursor, checkpoint.LedgerID, checkpoint.Repository.NodeID); err != nil {
 		return err
 	}
@@ -556,6 +576,26 @@ func validateCheckpoint(checkpoint DeliveryCheckpoint, locator DeliveryStoreLoca
 			return fmt.Errorf("duplicate active delivery retry identity %q", reference.RetryID)
 		}
 		seenRetries[reference.RetryID] = struct{}{}
+	}
+	if checkpoint.PendingRechecks != nil {
+		pending := checkpoint.PendingRechecks
+		if err := validateRecordReference(pending.Cause); err != nil || pending.Cause.Kind != RecordBaseIntegration {
+			return errors.New("pending promotion recheck cause is invalid")
+		}
+		if checkpoint.BaseIntegration == nil || *checkpoint.BaseIntegration != pending.Cause || pending.Cause.Sequence != checkpoint.HeadSequence || pending.Cause.Digest != checkpoint.HeadDigest || checkpoint.ActivePlan != nil {
+			return errors.New("pending promotion rechecks are not bound to the active synchronization head")
+		}
+		if len(pending.Targets) > 100 {
+			return errors.New("pending promotion recheck target cap exceeded")
+		}
+		for index, target := range pending.Targets {
+			if err := validateResource(target.PullRequest, "pending promotion recheck pull request"); err != nil || !validSHA(target.HeadSHA) {
+				return errors.New("pending promotion recheck target is invalid")
+			}
+			if index > 0 && target.PullRequest.Number <= pending.Targets[index-1].PullRequest.Number {
+				return errors.New("pending promotion recheck targets are not sorted and unique")
+			}
+		}
 	}
 	if checkpoint.BaseIntegration != nil {
 		if err := validateRecordReference(*checkpoint.BaseIntegration); err != nil {
@@ -614,6 +654,19 @@ func validateCheckpoint(checkpoint DeliveryCheckpoint, locator DeliveryStoreLoca
 	}
 	if checkpoint.Digest != checkpointDigest(checkpoint) {
 		return errors.New("delivery checkpoint digest is invalid")
+	}
+	return nil
+}
+
+func validateCheckpointLink(link CheckpointLink, repository RepositoryIdentity, currentIssue ResourceIdentity) error {
+	if err := validateRepository(link.Locator.Repository); err != nil || link.Locator.Repository != repository {
+		return errors.New("linked checkpoint repository is invalid")
+	}
+	if err := validateResource(link.Locator.Issue, "linked ledger issue"); err != nil || link.Locator.Issue == currentIssue {
+		return errors.New("linked checkpoint issue is invalid")
+	}
+	if link.Locator.Checkpoint.DatabaseID <= 0 || strings.TrimSpace(link.Locator.Checkpoint.NodeID) == "" || !validDigest(link.Digest) {
+		return errors.New("linked checkpoint identity or digest is invalid")
 	}
 	return nil
 }
