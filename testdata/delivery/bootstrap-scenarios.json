@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "kind": "deliveryBootstrapScenarios",
+  "scenarios": [
+    {
+      "name": "explicit-last-promotion",
+      "genesis": {
+        "promotionPullRequest": 42,
+        "stagingSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "sourceFacts": [
+        {"id": "promotion-42", "kind": "acknowledgedPromotion"},
+        {"id": "work-pr-50", "kind": "mergedStagingWork"},
+        {"id": "issue-7", "kind": "managedIssue", "ownershipSource": "recordV1"}
+      ],
+      "relationships": [
+        {"kind": "stagesManagedIssue", "from": "work-pr-50", "to": "issue-7"}
+      ],
+      "applicable": true
+    },
+    {
+      "name": "awaiting-review-with-ambiguous-work",
+      "sourceFacts": [
+        {"id": "issue-8", "kind": "managedIssue", "awaitingReview": true},
+        {"id": "work-pr-51", "kind": "mergedStagingWork"},
+        {"id": "work-pr-52", "kind": "mergedStagingWork"}
+      ],
+      "ambiguities": ["awaiting-issue-8-relationship", "genesis-history-ambiguous"],
+      "applicable": false
+    },
+    {
+      "name": "legacy-ownership-first",
+      "sourceFacts": [
+        {"id": "issue-9", "kind": "managedIssue", "ownershipSource": "legacyFingerprint"},
+        {"id": "work-pr-53", "kind": "mergedStagingWork"}
+      ],
+      "operationOrder": ["issue-9-ownership", "work-pr-53-record"],
+      "applicable": true
+    }
+  ]
+}
