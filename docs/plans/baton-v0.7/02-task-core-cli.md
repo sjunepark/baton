@@ -17,8 +17,11 @@ behind compatibility wrappers.
   confirmed prerequisite creation is surfaced on partial failure.
 - Exact v0.6 managed-file and adopter-inventory evidence is now isolated under
   `testdata/migration/v0.6` with no Task runtime dependency.
-- The production GitHub adapter, setup-free repository resolution, CLI cutover,
-  and old-runtime deletion remain.
+- The production GitHub Task store now performs server-filtered issue reads,
+  exact label lookups/creation, label mutations, and close operations through
+  the typed client with complete pagination and safe typed errors.
+- Setup-free repository resolution, CLI cutover, trimming obsolete GitHub
+  methods, and old-runtime deletion remain.
 
 ## Architecture audit findings
 
@@ -102,11 +105,11 @@ one real adapter and no testing value.
 - [ ] Trim the GitHub adapter to server-side queries for open/closed
   `baton:managed` issues, one-issue detail, label definitions and mutations,
   and close operations.
-- [ ] Keep comments out of the Task store. Core list/show/next/mutations never
+- [x] Keep comments out of the Task store. Core list/show/next/mutations never
   fetch, create, update, parse, or depend on issue comments.
-- [ ] Handle pagination completely and translate GitHub failures into Baton's
+- [x] Handle pagination completely and translate GitHub failures into Baton's
   small typed errors without leaking raw responses or credentials.
-- [ ] Do not request PRs, branches, checks, reviews, GraphQL threads, commits,
+- [x] Do not request PRs, branches, checks, reviews, GraphQL threads, commits,
   repository settings, or delivery facts from any Task command.
 
 ### 3. Make repository context setup-free
@@ -241,10 +244,10 @@ Keep and simplify modules that continue to earn their interface:
 
 - [ ] Unit-test the Task module exclusively through its external interface;
   delete shallow tests after replacement coverage exists.
-- [ ] Test the production adapter with `httptest` fixtures for pagination,
+- [x] Test the production adapter with `httptest` fixtures for pagination,
   errors, redaction, server-side managed-label filtering, label creation,
   label mutation, and close behavior.
-- [ ] Assert list/next make no comment, PR, branch, check, review-thread,
+- [x] Assert list/next make no comment, PR, branch, check, review-thread,
   settings, commit, or delivery request.
 - [ ] Test all commands without config using explicit repo, ambient repo, and
   optional local inference; include an explicit repo beside a broken checkout.
@@ -292,3 +295,9 @@ Keep and simplify modules that continue to earn their interface:
   inventory scenarios. Base64 decoding/hashing matches every recorded digest,
   and a fresh v0.6 renderer comparison matches all paths and hashes. Next:
   implement the typed GitHub issue-store adapter.
+- **2026-07-16 — Production GitHub adapter:** Added the Task-owned store and a
+  narrow typed issues endpoint with full pagination and server-side enrollment
+  filtering. Exact label reads avoid taxonomy scans; create races and delete
+  404s are confirmed safely; errors retain redacted causes behind small Task
+  codes. Repository-wide vet/tests and focused race tests pass. Next: setup-
+  free repository resolution and CLI cutover.

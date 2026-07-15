@@ -39,6 +39,9 @@ used as v0.7 requirements.
 - Exact v0.6.0 default managed-file bytes/fingerprints and representative
   adopter inventories are preserved only under `testdata/migration/v0.6` for
   the later M4 manual decommission guide.
+- The production Task store now uses typed GitHub issue/label endpoints with
+  server-side enrollment filtering, complete pagination, narrow label reads,
+  safe error translation, and no orchestration-fact acquisition.
 
 ## Confirmed product decisions
 
@@ -220,3 +223,8 @@ Task module may change without adding public concepts.
   modified, partial, and already-removed read-only adopter inventories. The
   fixtures contain no executable migration or compatibility path. Next: add
   the production GitHub issue adapter.
+- **2026-07-16 — GitHub Task adapter:** Added the typed production issue store,
+  server-side managed-label pagination, exact label lookup/creation, strict
+  idempotent label deletion, close support, safe Task error codes, and request-
+  boundary tests. `go vet ./...`, `go test ./...`, and focused race tests pass.
+  Next: cut over setup-free repository resolution and the standalone CLI.

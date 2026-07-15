@@ -239,7 +239,7 @@ There is no installed intake profile in v0.7:
 - [ ] Test idempotent enroll, unenroll, start, stop, and close outcomes.
 - [ ] Test explicit repository precedence, including a broken lower-precedence
   local remote, and prove that no config discovery occurs.
-- [ ] Test that list/next never read comments or request PR, branch, check,
+- [x] Test that list/next never read comments or request PR, branch, check,
   review-thread, commit, settings, or delivery facts.
 
 ## Completion criteria
@@ -258,3 +258,7 @@ There is no installed intake profile in v0.7:
   and singular ready-Task selection. Focused, race, vet, and repository-wide
   tests pass. Remaining M1 contract work is primarily CLI/output goldens and
   the exhaustive ordering/idempotence coverage completed with that surface.
+- **2026-07-16 — Production fact boundary:** Added request-recorder coverage
+  proving list/next use only the server-filtered GitHub issues endpoint and do
+  not acquire comments or orchestration facts. Transport failures become small
+  Task codes without leaking response bodies or credentials.
