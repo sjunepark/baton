@@ -56,7 +56,18 @@ func defaultRuntime() runtime {
 }
 
 func newProductionHTTPClient() *http.Client {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
+	base, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		base = &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			ForceAttemptHTTP2:     true,
+			MaxIdleConns:          100,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: time.Second,
+		}
+	}
+	transport := base.Clone()
 	transport.DialContext = (&net.Dialer{Timeout: githubConnectTimeout, KeepAlive: 30 * time.Second}).DialContext
 	transport.ResponseHeaderTimeout = githubResponseHeaderTimeout
 	return &http.Client{Transport: transport, Timeout: githubRequestTimeout}

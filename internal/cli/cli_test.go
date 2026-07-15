@@ -287,11 +287,19 @@ func TestTextPartialMutationErrorIncludesConfirmedState(t *testing.T) {
 }
 
 func TestProductionHTTPClientHasFiniteDeadlines(t *testing.T) {
-	t.Parallel()
 	client := newProductionHTTPClient()
 	transport, ok := client.Transport.(*http.Transport)
 	if !ok || client.Timeout != githubRequestTimeout || transport.ResponseHeaderTimeout != githubResponseHeaderTimeout {
 		t.Fatalf("production HTTP client = %#v transport %#v", client, client.Transport)
+	}
+
+	original := http.DefaultTransport
+	http.DefaultTransport = testRoundTripper{}
+	t.Cleanup(func() { http.DefaultTransport = original })
+	client = newProductionHTTPClient()
+	transport, ok = client.Transport.(*http.Transport)
+	if !ok || client.Timeout != githubRequestTimeout || transport.ResponseHeaderTimeout != githubResponseHeaderTimeout {
+		t.Fatalf("fallback production HTTP client = %#v transport %#v", client, client.Transport)
 	}
 }
 
@@ -370,6 +378,12 @@ func TestJSONOutputFailureUsesOutputError(t *testing.T) {
 type errorWriter struct{}
 
 func (errorWriter) Write([]byte) (int, error) { return 0, errors.New("injected write failure") }
+
+type testRoundTripper struct{}
+
+func (testRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, errors.New("unexpected request")
+}
 
 func testRuntime(store *task.MemoryStore) runtime {
 	service := task.NewService(store)
