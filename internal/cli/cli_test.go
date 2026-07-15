@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/sjunepark/baton/internal/gh"
 	"github.com/sjunepark/baton/internal/repository"
 	"github.com/sjunepark/baton/internal/task"
 )
@@ -292,6 +295,34 @@ func TestProductionHTTPClientHasFiniteDeadlines(t *testing.T) {
 	}
 }
 
+func TestProductionHTTPClientPreservesCallerCancellation(t *testing.T) {
+	t.Parallel()
+	started := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		close(started)
+		<-request.Context().Done()
+	}))
+	defer server.Close()
+
+	client := gh.NewClient(server.URL, "", newProductionHTTPClient())
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := client.GetIssueContext(ctx, "example/repo", 1)
+		done <- err
+	}()
+	<-started
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("request error = %v, want context cancellation", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("GitHub request ignored caller cancellation")
+	}
+}
+
 func TestTextOutputFailuresReturnOperationalExit(t *testing.T) {
 	t.Parallel()
 	store := task.NewMemoryStore()
@@ -315,6 +346,25 @@ func TestTextOutputFailuresReturnOperationalExit(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestJSONOutputFailureUsesOutputError(t *testing.T) {
+	t.Parallel()
+	stderr := &bytes.Buffer{}
+	code := runContext(
+		context.Background(),
+		[]string{"--json", "--repo", "example/repo", "list"},
+		errorWriter{},
+		stderr,
+		"dev",
+		testRuntime(task.NewMemoryStore()),
+	)
+	if code != exitOperational {
+		t.Fatalf("code = %d, stderr %q", code, stderr)
+	}
+	assertJSONValue(t, stderr.String(), map[string]any{"error": map[string]any{
+		"code": "output_error", "message": "write output failed", "hint": "Retry with a writable output stream.",
+	}})
 }
 
 type errorWriter struct{}

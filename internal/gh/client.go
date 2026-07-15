@@ -118,7 +118,7 @@ func (c *Client) doJSONContext(ctx context.Context, method, path string, in, out
 	if err != nil {
 		return APIError{Method: method, Path: path, Cause: err}
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if allowNotFound && response.StatusCode == http.StatusNotFound {
 		return nil
 	}

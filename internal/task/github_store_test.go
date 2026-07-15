@@ -145,7 +145,11 @@ func TestGitHubStoreMutationCreatesLabelsWithoutUpdatingExistingMetadata(t *test
 			if err := json.NewDecoder(r.Body).Decode(&definition); err != nil {
 				t.Fatal(err)
 			}
-			definitions[strings.ToLower(definition["name"].(string))] = definition
+			name, ok := definition["name"].(string)
+			if !ok || name == "" {
+				t.Fatalf("create label name = %#v", definition["name"])
+			}
+			definitions[strings.ToLower(name)] = definition
 			w.WriteHeader(http.StatusCreated)
 			writeJSON(t, w, definition)
 		case r.Method == http.MethodPost && r.URL.Path == "/repos/example/repo/issues/7/labels":
