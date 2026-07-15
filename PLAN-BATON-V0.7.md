@@ -36,6 +36,9 @@ used as v0.7 requirements.
   canonical Task model, fixed-label classification, singular next selection,
   one lifecycle planner, an issue-store seam, and an in-memory adapter. The
   legacy CLI/runtime remains active until the later cutover and M3 deletion.
+- Exact v0.6.0 default managed-file bytes/fingerprints and representative
+  adopter inventories are preserved only under `testdata/migration/v0.6` for
+  the later M4 manual decommission guide.
 
 ## Confirmed product decisions
 
@@ -212,3 +215,8 @@ Task module may change without adding public concepts.
   creation, and confirmed partial failures. `go vet ./...`, `go test ./...`,
   and `go test -race ./internal/task` pass. Next: preserve bounded v0.6
   decommission evidence, then add the production GitHub issue adapter.
+- **2026-07-16 — v0.6 evidence freeze:** Preserved eight exact rendered
+  v0.6.0 managed files with verified SHA-256 fingerprints plus unmodified,
+  modified, partial, and already-removed read-only adopter inventories. The
+  fixtures contain no executable migration or compatibility path. Next: add
+  the production GitHub issue adapter.

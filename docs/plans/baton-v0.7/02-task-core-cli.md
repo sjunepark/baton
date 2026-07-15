@@ -15,8 +15,10 @@ behind compatibility wrappers.
 - Dry-run and apply share the same Task-change plan. Apply creates only labels
   needed by additions, writes changes minimally, and rereads final state;
   confirmed prerequisite creation is surfaced on partial failure.
+- Exact v0.6 managed-file and adopter-inventory evidence is now isolated under
+  `testdata/migration/v0.6` with no Task runtime dependency.
 - The production GitHub adapter, setup-free repository resolution, CLI cutover,
-  bounded v0.6 migration evidence, and old-runtime deletion remain.
+  and old-runtime deletion remain.
 
 ## Architecture audit findings
 
@@ -163,7 +165,7 @@ one real adapter and no testing value.
 
 ### 6. Delete the old runtime path
 
-- [ ] Before deleting installer/doctor code, preserve exact v0.6 managed-file
+- [x] Before deleting installer/doctor code, preserve exact v0.6 managed-file
   fingerprints and representative settings facts required by the bounded
   decommission fixtures.
 - [ ] Remove PR policy, PR transition, PR/check/review inspection, branch
@@ -285,3 +287,8 @@ Keep and simplify modules that continue to earn their interface:
   Task-specific partial failures. `go vet ./...`, `go test ./...`, and
   `go test -race ./internal/task` pass. Next: preserve v0.6 decommission
   evidence and implement the typed GitHub issue-store adapter.
+- **2026-07-16 — Bounded migration evidence:** Froze the eight exact v0.6.0
+  default managed-file contents and SHA-256 fingerprints plus four adopter
+  inventory scenarios. Base64 decoding/hashing matches every recorded digest,
+  and a fresh v0.6 renderer comparison matches all paths and hashes. Next:
+  implement the typed GitHub issue-store adapter.

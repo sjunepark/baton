@@ -7,6 +7,14 @@ ongoing v0.7 mode. Shipping a reduced binary is insufficient because adopter
 workflows install pinned releases and required check settings can continue to
 block ordinary pull requests.
 
+## Current state
+
+- M4 has not started; no adopter repository or GitHub setting has been changed.
+- M3 preserved only the evidence needed for later review under
+  `testdata/migration/v0.6`: exact v0.6.0 default managed-file bytes/hashes and
+  representative unmodified, modified, partial, and already-removed read-only
+  inventories.
+
 ## Migration outcomes
 
 - Existing repositories stop running Baton on PR, branch, promotion, delivery,

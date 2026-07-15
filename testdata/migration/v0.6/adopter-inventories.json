@@ -1,0 +1,146 @@
+{
+  "description": "Representative read-only v0.6 adopter inventories for reviewing the v0.7 manual decommission guide. These are migration evidence, not a runtime schema.",
+  "retiredWorkflowPaths": [
+    ".github/workflows/issue-policy.yml",
+    ".github/workflows/pr-policy.yml",
+    ".github/workflows/work-item-transition.yml",
+    ".github/workflows/delivery-recorder.yml"
+  ],
+  "retiredRequiredCheck": {
+    "context": "Check PR policy",
+    "app": {
+      "slug": "github-actions",
+      "id": 15368
+    }
+  },
+  "scenarios": [
+    {
+      "name": "unmodified-default-install",
+      "defaultBranch": "main",
+      "configuredBatonVersion": "v0.6.0",
+      "files": [
+        {"path": ".github/baton.yml", "state": "exact_default", "sha256": "f303f429e24176816f7e42c17fee9bfb53d37e5b9384db0e1b1040edb574f6da"},
+        {"path": ".github/labels.yml", "state": "exact_default", "sha256": "4e7dcbbc9e9d0b3cfb75a0e3df74bc8d2a237a87cf66552f3515b84f4d3d90c4"},
+        {"path": ".github/ISSUE_WORKFLOW.md", "state": "exact_default", "sha256": "1c86bdcfc02a75c7296a9c116b15afff46c54c2941a8964fc10356a29015d33e"},
+        {"path": ".github/ISSUE_TEMPLATE/agent-work.yml", "state": "exact_default", "sha256": "c8861f58e02242982f8d0afb1790aae24f00a6f573999f442dada80c176057b5"},
+        {"path": ".github/workflows/issue-policy.yml", "state": "exact_default", "sha256": "f249063832cb347a2b14d65aaae255120c9ce1b75b6ac85fcb697a72ec25dd66"},
+        {"path": ".github/workflows/pr-policy.yml", "state": "exact_default", "sha256": "f563ed23138289071f9b86e6aca38b5f5a02ee761a7bfb7fb14d6da4d8eeb1e8"},
+        {"path": ".github/workflows/work-item-transition.yml", "state": "exact_default", "sha256": "60d5f899e10c393cb151d37b0c41f12bb58ccb24ce149f56bf7dc09a54f450de"},
+        {"path": ".github/workflows/delivery-recorder.yml", "state": "exact_default", "sha256": "f13bdf135c866bde194fdae1f20cc97076ae37b517c618d6438f42b9db137bb1"}
+      ],
+      "workflows": [
+        {"path": ".github/workflows/issue-policy.yml", "state": "active"},
+        {"path": ".github/workflows/pr-policy.yml", "state": "active"},
+        {"path": ".github/workflows/work-item-transition.yml", "state": "active"},
+        {"path": ".github/workflows/delivery-recorder.yml", "state": "active"}
+      ],
+      "settings": {
+        "branchProtection": {"observed": true, "requiredChecks": [{"context": "Check PR policy", "appId": 15368}]},
+        "rulesets": {"observed": true, "requiredChecks": []},
+        "settingsUnknown": false
+      },
+      "resources": {
+        "labels": ["baton:managed", "baton:delivery-state", "needs:review", "agent:ready-trivial", "agent:ready-bounded", "agent:investigate-only"],
+        "deliveryLedgerIssue": "present_locked",
+        "deliveryBootstrapEnvironment": "present"
+      },
+      "unknowns": []
+    },
+    {
+      "name": "modified-install",
+      "defaultBranch": "main",
+      "configuredBatonVersion": "v0.6.0",
+      "files": [
+        {"path": ".github/baton.yml", "state": "modified"},
+        {"path": ".github/labels.yml", "state": "modified"},
+        {"path": ".github/ISSUE_WORKFLOW.md", "state": "exact_default", "sha256": "1c86bdcfc02a75c7296a9c116b15afff46c54c2941a8964fc10356a29015d33e"},
+        {"path": ".github/ISSUE_TEMPLATE/agent-work.yml", "state": "modified"},
+        {"path": ".github/workflows/issue-policy.yml", "state": "modified"},
+        {"path": ".github/workflows/pr-policy.yml", "state": "modified"},
+        {"path": ".github/workflows/work-item-transition.yml", "state": "exact_default", "sha256": "60d5f899e10c393cb151d37b0c41f12bb58ccb24ce149f56bf7dc09a54f450de"},
+        {"path": ".github/workflows/delivery-recorder.yml", "state": "missing"}
+      ],
+      "workflows": [
+        {"path": ".github/workflows/issue-policy.yml", "state": "active"},
+        {"path": ".github/workflows/pr-policy.yml", "state": "active"},
+        {"path": ".github/workflows/work-item-transition.yml", "state": "disabled_manually"},
+        {"path": ".github/workflows/delivery-recorder.yml", "state": "missing"}
+      ],
+      "settings": {
+        "branchProtection": {"observed": false, "requiredChecks": null},
+        "rulesets": {"observed": false, "requiredChecks": null},
+        "settingsUnknown": true
+      },
+      "resources": {
+        "labels": ["baton:managed", "needs:review", "agent:ready-trivial"],
+        "deliveryLedgerIssue": "unknown",
+        "deliveryBootstrapEnvironment": "unknown"
+      },
+      "unknowns": ["required-check sources", "delivery ledger", "environment settings"]
+    },
+    {
+      "name": "partial-install",
+      "defaultBranch": "trunk",
+      "configuredBatonVersion": "v0.6.0",
+      "files": [
+        {"path": ".github/baton.yml", "state": "exact_default", "sha256": "f303f429e24176816f7e42c17fee9bfb53d37e5b9384db0e1b1040edb574f6da"},
+        {"path": ".github/labels.yml", "state": "missing"},
+        {"path": ".github/ISSUE_WORKFLOW.md", "state": "missing"},
+        {"path": ".github/ISSUE_TEMPLATE/agent-work.yml", "state": "missing"},
+        {"path": ".github/workflows/issue-policy.yml", "state": "disabled_manually", "sha256": "f249063832cb347a2b14d65aaae255120c9ce1b75b6ac85fcb697a72ec25dd66"},
+        {"path": ".github/workflows/pr-policy.yml", "state": "exact_default", "sha256": "f563ed23138289071f9b86e6aca38b5f5a02ee761a7bfb7fb14d6da4d8eeb1e8"},
+        {"path": ".github/workflows/work-item-transition.yml", "state": "missing"},
+        {"path": ".github/workflows/delivery-recorder.yml", "state": "missing"}
+      ],
+      "workflows": [
+        {"path": ".github/workflows/issue-policy.yml", "state": "disabled_manually"},
+        {"path": ".github/workflows/pr-policy.yml", "state": "active"},
+        {"path": ".github/workflows/work-item-transition.yml", "state": "missing"},
+        {"path": ".github/workflows/delivery-recorder.yml", "state": "missing"}
+      ],
+      "settings": {
+        "branchProtection": {"observed": true, "requiredChecks": [{"context": "Check PR policy", "appId": 15368}]},
+        "rulesets": {"observed": true, "requiredChecks": []},
+        "settingsUnknown": false
+      },
+      "resources": {
+        "labels": ["baton:managed", "agent:ready-bounded"],
+        "deliveryLedgerIssue": "absent",
+        "deliveryBootstrapEnvironment": "absent"
+      },
+      "unknowns": ["default config names main while repository default branch is trunk"]
+    },
+    {
+      "name": "already-removed",
+      "defaultBranch": "main",
+      "configuredBatonVersion": null,
+      "files": [
+        {"path": ".github/baton.yml", "state": "missing"},
+        {"path": ".github/labels.yml", "state": "missing"},
+        {"path": ".github/ISSUE_WORKFLOW.md", "state": "missing"},
+        {"path": ".github/ISSUE_TEMPLATE/agent-work.yml", "state": "missing"},
+        {"path": ".github/workflows/issue-policy.yml", "state": "missing"},
+        {"path": ".github/workflows/pr-policy.yml", "state": "missing"},
+        {"path": ".github/workflows/work-item-transition.yml", "state": "missing"},
+        {"path": ".github/workflows/delivery-recorder.yml", "state": "missing"}
+      ],
+      "workflows": [
+        {"path": ".github/workflows/issue-policy.yml", "state": "missing"},
+        {"path": ".github/workflows/pr-policy.yml", "state": "missing"},
+        {"path": ".github/workflows/work-item-transition.yml", "state": "missing"},
+        {"path": ".github/workflows/delivery-recorder.yml", "state": "missing"}
+      ],
+      "settings": {
+        "branchProtection": {"observed": true, "requiredChecks": []},
+        "rulesets": {"observed": true, "requiredChecks": []},
+        "settingsUnknown": false
+      },
+      "resources": {
+        "labels": ["baton:managed", "needs:review", "agent:ready-trivial"],
+        "deliveryLedgerIssue": "present_locked",
+        "deliveryBootstrapEnvironment": "present"
+      },
+      "unknowns": []
+    }
+  ]
+}
