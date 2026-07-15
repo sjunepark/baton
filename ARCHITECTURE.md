@@ -146,11 +146,12 @@ GitHub state + repo config
    a record/repair race cannot leave a stale green check.
 9. Bootstrap compares bounded ancestry containment with the planned ledger
    projection for every open promotion and blocks on mismatches. Committing the
-   reviewed locator is the cutover: PR Policy thereafter appends and activates
-   an exact promotion seal bound to PR node/base/head, cursor, coverage, and
-   included or reviewed-excluded records. Bootstrap requires
-   `delivery.authority: shadow`; a separately reviewed change to `sealed` is
-   the cutover. There is no ancestry fallback.
+   reviewed locator under `delivery.authority: shadow` establishes the migration
+   checkpoint; PR Policy does not gain delivery authority at that point. Only a
+   separate reviewed change from `shadow` to `sealed` activates authority, after
+   which PR Policy appends and activates exact promotion seals bound to PR
+   node/base/head, cursor, coverage, and included or reviewed-excluded records.
+   There is no ancestry fallback.
 
 ### Automation Work Selection
 

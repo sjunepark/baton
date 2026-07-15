@@ -100,7 +100,8 @@ argument.
 - `$baton`: run `baton home --format toon` or `baton doctor --format toon`,
   then `baton queue --format toon` and `baton next --format toon` when a repo
   is known. Report state and exact next skill commands only.
-- `status`: run `baton doctor --repo <repo> --format toon`, plus `baton ensure-branch --json`
+- `status`: from the target repository checkout, run
+  `baton doctor --repo <repo> --format toon`, plus `baton ensure-branch --json`
   and `baton sync-labels --dry-run --repo <repo> --json` when setup is in
   scope. Do not apply setup.
 - `next`: run `baton next --format toon --repo <repo>` and report the
@@ -128,7 +129,8 @@ argument.
   `recommendation.outcome` is `actionable`; choose exactly one returned
   candidate, handle it according to `recommendation.action`, validate, report
   the chosen candidate, and stop. All other outcomes are report-and-stop states.
-- `adopt`: run read-only/dry-run setup checks: `baton home --format toon`,
+- `adopt`: from the target repository checkout, run read-only/dry-run setup
+  checks: `baton home --format toon`,
   `baton doctor --repo <repo> --format toon`, `baton init --dry-run --json`,
   `baton migrate-config --dry-run` when a legacy policy exists,
   `baton sync-labels --dry-run --repo <repo> --json`, and

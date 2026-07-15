@@ -423,7 +423,7 @@ git switch &lt;head-ref&gt;
         <section class="doc" data-section data-entry id="automate">
           <h3 class="sec">Handing it to a schedule</h3>
           <p>Everything so far you drove by hand. The point of Baton is to let a scheduler drive it instead — but only once you trust the setup.</p>
-          <p>Prove it manually first. Run the read-only checks and one real task yourself, and confirm the agent stayed in its sandbox and never touched <code>main</code>:</p>
+          <p>Prove it manually first. From the target repository checkout, run the read-only checks and one real task yourself, and confirm the agent stayed in its sandbox and never touched <code>main</code>:</p>
 <pre><code>baton doctor --repo owner/name --format toon
 baton ensure-branch --json
 baton sync-labels --dry-run --repo owner/name --json
@@ -944,7 +944,7 @@ gh issue create --repo owner/name --title "..." --body-file issue.md</code></pre
           <details class="cmd" data-entry>
             <summary><span class="name">$baton status · adopt</span> <span class="desc">readiness &amp; setup</span> <span class="badge">read-only / dry-run</span></summary>
             <div class="cmd-body">
-              <p>Check whether a repository is Baton-ready and preview any missing setup. Nothing is applied.</p>
+              <p>From the target repository checkout, check whether it is Baton-ready and preview any missing setup. Nothing is applied.</p>
 <pre><code>baton doctor --repo owner/name --format toon
 baton init --dry-run --json
 baton migrate-config --dry-run
@@ -1003,7 +1003,7 @@ git switch &lt;head-ref&gt;
           <details class="cmd" data-entry>
             <summary><span class="name">$baton automate</span> <span class="desc">schedule one-unit runs</span> <span class="badge">after a manual run</span></summary>
             <div class="cmd-body">
-              <p>Prepare scheduled automation only after a manual run has succeeded and respected isolation. Start read-only when uncertain; scheduled implementation still handles one unit, works in an isolated checkout, and never merges.</p>
+              <p>From the target repository checkout, prepare scheduled automation only after a manual run has succeeded and respected isolation. Start read-only when uncertain; scheduled implementation still handles one unit, works in an isolated checkout, and never merges.</p>
 <pre><code>baton home --format toon
 baton doctor --repo owner/name --format toon
 baton ensure-branch --json

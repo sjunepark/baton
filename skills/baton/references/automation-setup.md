@@ -29,6 +29,9 @@ against the same queue is unsafe.
 
 Before scheduling, verify the target repository is Baton-ready:
 
+Run checkout-scoped commands such as `ensure-branch` from that repository's
+checkout.
+
 ```sh
 baton home --format toon
 baton doctor --repo owner/name --format toon

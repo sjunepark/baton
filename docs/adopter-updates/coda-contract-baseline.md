@@ -1,8 +1,9 @@
 # Coda contract baseline
 
-This file records the original projection overlap. Current consumers use
-`repositorySnapshot` v2; maintained projections are `nextCandidates` v3 and
-`queueSnapshot` v2. See
+This file records the original projection overlap. The adoption target is
+`repositorySnapshot` v2; maintained projections remain `nextCandidates` v3 and
+`queueSnapshot` v2 until a released Coda uses the single-command snapshot path.
+This does not assert that every current consumer has completed migration. See
 [Coda repository snapshot v2](coda-repository-snapshot-v2.md).
 
 Coda may continue invoking, from the Project checkout:

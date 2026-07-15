@@ -11,7 +11,8 @@ runtime authority.
 
 ## Current State
 
-- Coda's current adapter and UI contracts are frozen in producer-backed golden
+- At the time of this historical goal, Coda's adapter and UI contracts were
+  frozen in producer-backed golden
   fixtures for `nextCandidates` v2, `queueSnapshot` v1, structured error v1,
   and issue, pull-request, branch, tied-selection, and no-work variants.
 - Queue-backed commands (`queue`, `prs`, and `next`) now resolve config, git

@@ -23,6 +23,9 @@ needed.
 
 Run dry-run or read-only checks before recommending changes:
 
+Run checkout-scoped commands such as `init`, `migrate-config`, and
+`ensure-branch` from the target repository's checkout.
+
 ```sh
 baton init --dry-run --json
 baton migrate-config --dry-run
