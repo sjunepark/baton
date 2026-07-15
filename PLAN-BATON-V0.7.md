@@ -235,4 +235,4 @@ Task module may change without adding public concepts.
   normalization. Dry-run projections preserve project-label casing, mutation
   failures retain state-confirmation errors, no-op mutations avoid a redundant
   read, production requests have finite deadlines, and all text writers
-  propagate failures. M4 remains next; M5 docs and skill work remains pending.
+  propagate failures. M4 remains next; M5 docs and skill work remain pending.
