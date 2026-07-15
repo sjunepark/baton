@@ -243,6 +243,29 @@ func TestEveryMutationExecutionState(t *testing.T) {
 	}
 }
 
+func TestMutationFailurePreservesActionAndConfirmationErrors(t *testing.T) {
+	t.Parallel()
+	store := newInstrumentedStore(issueWithLabels(task.LabelManaged, "agent:ready-trivial"))
+	store.failAfterIssueWrite = 1
+	store.failGet = 2
+	_, err := task.NewService(store).Mutate(
+		context.Background(), repository, 1,
+		task.Mutation{Kind: task.MutationStart}, false,
+	)
+	var mutationErr *task.MutationError
+	if !errors.As(err, &mutationErr) {
+		t.Fatalf("error = %#v, want MutationError", err)
+	}
+	if !errors.Is(mutationErr.Cause, errInjectedIssueWrite) || !errors.Is(mutationErr.Cause, errInjectedGet) {
+		t.Fatalf("joined cause = %v", mutationErr.Cause)
+	}
+}
+
+var (
+	errInjectedGet        = errors.New("injected get failure")
+	errInjectedIssueWrite = errors.New("injected post-write failure")
+)
+
 type instrumentedStore struct {
 	*task.MemoryStore
 	getCalls            int
@@ -260,7 +283,7 @@ func newInstrumentedStore(issue task.Issue) *instrumentedStore {
 func (s *instrumentedStore) GetIssue(ctx context.Context, repository string, number int) (task.Issue, error) {
 	s.getCalls++
 	if s.failGet == s.getCalls {
-		return task.Issue{}, fmt.Errorf("injected get failure")
+		return task.Issue{}, errInjectedGet
 	}
 	return s.MemoryStore.GetIssue(ctx, repository, number)
 }
@@ -286,7 +309,7 @@ func (s *instrumentedStore) afterIssueWrite(err error) error {
 	}
 	s.issueWrites++
 	if s.failAfterIssueWrite == s.issueWrites {
-		return fmt.Errorf("injected post-write failure")
+		return errInjectedIssueWrite
 	}
 	return nil
 }

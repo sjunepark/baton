@@ -66,10 +66,6 @@ func PlanMutation(issue Issue, mutation Mutation) (Plan, error) {
 			Hint:    "Choose an open task.",
 		}
 	}
-	if err := validateSafeFacetClear(labels, mutation); err != nil {
-		return Plan{}, err
-	}
-
 	changes := []Change{}
 	switch mutation.Kind {
 	case MutationEnroll:
@@ -107,6 +103,11 @@ func PlanMutation(issue Issue, mutation Mutation) (Plan, error) {
 	default:
 		return Plan{}, fmt.Errorf("unknown Task mutation %q", mutation.Kind)
 	}
+	orderedChanges, err := orderPrefixSafe(issue, changes, mutation)
+	if err != nil {
+		return Plan{}, err
+	}
+	changes = orderedChanges
 
 	projectedIssue := applyChanges(issue, changes)
 	var projected *Task
@@ -118,31 +119,6 @@ func PlanMutation(issue Issue, mutation Mutation) (Plan, error) {
 		projected = &value
 	}
 	return Plan{Changes: changes, Projected: projected}, nil
-}
-
-func validateSafeFacetClear(labels map[string]struct{}, mutation Mutation) error {
-	if mutation.Kind != MutationUpdate {
-		return nil
-	}
-	if mutation.ModeSet && mutation.Mode == nil {
-		if _, count := classifiedMode(labels); count > 1 {
-			return &Error{
-				Code:    "invalid_transition",
-				Message: "conflicting mode labels cannot be cleared safely in one update",
-				Hint:    "First set one mode, then run update --mode none.",
-			}
-		}
-	}
-	if mutation.PrioritySet && mutation.Priority == nil {
-		if _, count := classifiedPriority(labels); count > 1 {
-			return &Error{
-				Code:    "invalid_transition",
-				Message: "conflicting priority labels cannot be cleared safely in one update",
-				Hint:    "First set one priority, then run update --priority none.",
-			}
-		}
-	}
-	return nil
 }
 
 func validateMutation(mutation Mutation) error {
@@ -194,6 +170,63 @@ func validateMutation(mutation Mutation) error {
 		}
 	}
 	return nil
+}
+
+// orderPrefixSafe preserves the stable planner order where possible while
+// ensuring that no incomplete mutation publishes an issue that was not ready
+// before the command. GitHub applies label changes individually, so readiness
+// is the ordering constraint rather than a transaction the API cannot provide.
+func orderPrefixSafe(issue Issue, changes []Change, mutation Mutation) ([]Change, error) {
+	if len(changes) < 2 {
+		return changes, nil
+	}
+	remaining := append([]Change(nil), changes...)
+	ordered := make([]Change, 0, len(changes))
+	current := issue
+	for len(remaining) > 0 {
+		selected := -1
+		for index, change := range remaining {
+			candidate := applyChanges(current, []Change{change})
+			if len(remaining) == 1 || !issueReady(candidate) {
+				selected = index
+				current = candidate
+				break
+			}
+		}
+		if selected < 0 {
+			return nil, unsafeMutationError(mutation)
+		}
+		ordered = append(ordered, remaining[selected])
+		remaining = append(remaining[:selected], remaining[selected+1:]...)
+	}
+	return ordered, nil
+}
+
+func issueReady(issue Issue) bool {
+	value, err := Classify(issue)
+	return err == nil && value.State == StateReady
+}
+
+func unsafeMutationError(mutation Mutation) error {
+	if mutation.ModeSet && mutation.Mode == nil {
+		return &Error{
+			Code:    "invalid_transition",
+			Message: "conflicting mode labels cannot be cleared safely in one update",
+			Hint:    "First set one mode, then run update --mode none.",
+		}
+	}
+	if mutation.PrioritySet && mutation.Priority == nil {
+		return &Error{
+			Code:    "invalid_transition",
+			Message: "conflicting priority labels cannot be cleared safely in one update",
+			Hint:    "First set one priority, then run update --priority none.",
+		}
+	}
+	return &Error{
+		Code:    "invalid_transition",
+		Message: "mutation cannot be applied safely with individual GitHub label writes",
+		Hint:    "Split the classification change into smaller updates.",
+	}
 }
 
 func requiresEnrollment(kind MutationKind) bool {

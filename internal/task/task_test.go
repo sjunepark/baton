@@ -109,7 +109,7 @@ func TestNextReturnsDefinitiveNil(t *testing.T) {
 func TestMutationDryRunApplyAndIdempotence(t *testing.T) {
 	t.Parallel()
 	store := task.NewMemoryStore()
-	store.PutIssue(repository, task.Issue{Number: 12, Title: "task", State: task.IssueOpen, Labels: []string{"bug"}})
+	store.PutIssue(repository, task.Issue{Number: 12, Title: "task", State: task.IssueOpen, Labels: []string{"Customer:Acme"}})
 	service := task.NewService(store)
 	bounded, p1 := task.ModeBounded, task.PriorityP1
 	mutation := task.Mutation{Kind: task.MutationEnroll, ModeSet: true, Mode: &bounded, PrioritySet: true, Priority: &p1}
@@ -118,7 +118,7 @@ func TestMutationDryRunApplyAndIdempotence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !dryRun.Changed || !dryRun.DryRun || dryRun.Task == nil || dryRun.Task.State != task.StateReady {
+	if !dryRun.Changed || !dryRun.DryRun || dryRun.Task == nil || dryRun.Task.State != task.StateReady || !reflect.DeepEqual(dryRun.Task.ProjectLabels, []string{"Customer:Acme"}) {
 		t.Fatalf("dry-run = %#v", dryRun)
 	}
 	if _, err := service.Show(context.Background(), repository, 12, false); err == nil {
@@ -131,6 +131,9 @@ func TestMutationDryRunApplyAndIdempotence(t *testing.T) {
 	}
 	if !applied.Changed || applied.Task == nil || applied.Task.Mode == nil || *applied.Task.Mode != task.ModeBounded || len(applied.Changes) != 3 {
 		t.Fatalf("apply = %#v", applied)
+	}
+	if !reflect.DeepEqual(applied.Task.ProjectLabels, dryRun.Task.ProjectLabels) {
+		t.Fatalf("dry-run project labels %v differ from apply %v", dryRun.Task.ProjectLabels, applied.Task.ProjectLabels)
 	}
 	if !reflect.DeepEqual(applied.Changes, dryRun.Changes) {
 		t.Fatalf("apply changes %v differ from dry-run plan %v", applied.Changes, dryRun.Changes)
@@ -320,6 +323,16 @@ func TestMutationPlansKeepIncompleteWorkNonDispatchable(t *testing.T) {
 			mutation: task.Mutation{Kind: task.MutationUpdate, ModeSet: true, Mode: &bounded},
 		},
 		{
+			name:     "cross-facet update resolves the last conflict last",
+			issue:    issueWithLabels(task.LabelManaged, "agent:ready-trivial", "agent:investigate-only", "priority:p0"),
+			mutation: task.Mutation{Kind: task.MutationUpdate, ModeSet: true, Mode: &bounded, PrioritySet: true, Priority: &p1},
+		},
+		{
+			name:     "ready cross-facet update stays hidden between writes",
+			issue:    issueWithLabels(task.LabelManaged, "agent:ready-trivial", "priority:p0"),
+			mutation: task.Mutation{Kind: task.MutationUpdate, ModeSet: true, Mode: &bounded, PrioritySet: true, Priority: &p1},
+		},
+		{
 			name:     "unenrollment hides before activity cleanup",
 			issue:    issueWithLabels(task.LabelManaged, "agent:ready-bounded", task.LabelInProgress),
 			mutation: task.Mutation{Kind: task.MutationUnenroll},
@@ -379,6 +392,22 @@ func TestPlannerRejectsUnsafeConflictingFacetClear(t *testing.T) {
 				t.Fatalf("PlanMutation() error = %#v", err)
 			}
 		})
+	}
+}
+
+func TestPlannerAllowsConflictingFacetClearBehindExistingGuard(t *testing.T) {
+	t.Parallel()
+	plan, err := task.PlanMutation(issueWithLabels(
+		task.LabelManaged,
+		"agent:ready-trivial",
+		"agent:ready-bounded",
+		task.BlockerNeedsInfo,
+	), task.Mutation{Kind: task.MutationUpdate, ModeSet: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Projected == nil || plan.Projected.State != task.StateBlocked || plan.Projected.Mode != nil {
+		t.Fatalf("PlanMutation() = %#v", plan)
 	}
 }
 
