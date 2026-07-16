@@ -1,0 +1,361 @@
+{
+  "description": "Representative read-only v0.5.0 adopter inventories. They are review fixtures, not a runtime schema.",
+  "scenarios": [
+    {
+      "name": "unmodified-default-install",
+      "sourceVersion": "v0.5.0",
+      "configuredPins": [
+        "v0.5.0"
+      ],
+      "files": [
+        {
+          "path": ".github/baton.yml",
+          "state": "exact_default",
+          "sha256": "d8126641e1580635df8901b5ae93e3a776630627dbfbcf63751f32b2a879c922"
+        },
+        {
+          "path": ".github/labels.yml",
+          "state": "exact_default",
+          "sha256": "9b180b5284eae177badaf8503ec2411f26348864fc7742cdd94425ff072f7952"
+        },
+        {
+          "path": ".github/ISSUE_WORKFLOW.md",
+          "state": "exact_default",
+          "sha256": "33c5c44abc4aa1ed81786865a592e1fc261c4b6310eda789847410f43a942298"
+        },
+        {
+          "path": ".github/ISSUE_TEMPLATE/agent-work.yml",
+          "state": "exact_default",
+          "sha256": "c8861f58e02242982f8d0afb1790aae24f00a6f573999f442dada80c176057b5"
+        },
+        {
+          "path": ".github/workflows/issue-policy.yml",
+          "state": "exact_default",
+          "sha256": "a4adb0eac9c6a3321b5356f3bd65ff959e1cd3dc33af5c111747a58fba7a74bc"
+        },
+        {
+          "path": ".github/workflows/pr-policy.yml",
+          "state": "exact_default",
+          "sha256": "3e617a059f59183fc751d4749af58745ee85ded861a9313f8316609ccd03a7b2"
+        },
+        {
+          "path": ".github/workflows/work-item-transition.yml",
+          "state": "exact_default",
+          "sha256": "54dda73abebf94122a28b16e262a97582f2593311aee1fead7a2cc14886ece4c"
+        }
+      ],
+      "workflows": [
+        {
+          "path": ".github/workflows/issue-policy.yml",
+          "state": "active"
+        },
+        {
+          "path": ".github/workflows/pr-policy.yml",
+          "state": "active"
+        },
+        {
+          "path": ".github/workflows/work-item-transition.yml",
+          "state": "active"
+        }
+      ],
+      "settings": {
+        "branchProtection": {
+          "observed": true,
+          "requiredChecks": [
+            {
+              "context": "Check PR policy",
+              "appSlug": "github-actions"
+            }
+          ]
+        },
+        "rulesets": {
+          "observed": true,
+          "requiredChecks": [
+
+          ]
+        },
+        "settingsUnknown": false
+      },
+      "issueDiscovery": {
+        "eligibilityWithoutEnrollment": [
+          {
+            "number": 41,
+            "labels": [
+              "agent:ready-bounded",
+              "priority:p1"
+            ],
+            "hasBatonManaged": false,
+            "bodyState": "preserve_unread"
+          }
+        ],
+        "approvedEnrollments": [
+
+        ]
+      },
+      "unknowns": [
+
+      ]
+    },
+    {
+      "name": "modified-install",
+      "sourceVersion": "v0.5.0",
+      "configuredPins": [
+        "v0.5.0"
+      ],
+      "files": [
+        {
+          "path": ".github/baton.yml",
+          "state": "modified"
+        },
+        {
+          "path": ".github/labels.yml",
+          "state": "exact_default",
+          "sha256": "9b180b5284eae177badaf8503ec2411f26348864fc7742cdd94425ff072f7952"
+        },
+        {
+          "path": ".github/ISSUE_WORKFLOW.md",
+          "state": "modified"
+        },
+        {
+          "path": ".github/ISSUE_TEMPLATE/agent-work.yml",
+          "state": "exact_default",
+          "sha256": "c8861f58e02242982f8d0afb1790aae24f00a6f573999f442dada80c176057b5"
+        },
+        {
+          "path": ".github/workflows/issue-policy.yml",
+          "state": "modified"
+        },
+        {
+          "path": ".github/workflows/pr-policy.yml",
+          "state": "exact_default",
+          "sha256": "3e617a059f59183fc751d4749af58745ee85ded861a9313f8316609ccd03a7b2"
+        },
+        {
+          "path": ".github/workflows/work-item-transition.yml",
+          "state": "modified"
+        }
+      ],
+      "workflows": [
+        {
+          "path": ".github/workflows/issue-policy.yml",
+          "state": "active"
+        },
+        {
+          "path": ".github/workflows/pr-policy.yml",
+          "state": "active"
+        },
+        {
+          "path": ".github/workflows/work-item-transition.yml",
+          "state": "active"
+        }
+      ],
+      "settings": {
+        "branchProtection": {
+          "observed": false,
+          "requiredChecks": null
+        },
+        "rulesets": {
+          "observed": false,
+          "requiredChecks": null
+        },
+        "settingsUnknown": true
+      },
+      "issueDiscovery": {
+        "eligibilityWithoutEnrollment": [
+          {
+            "number": 41,
+            "labels": [
+              "agent:ready-bounded",
+              "priority:p1"
+            ],
+            "hasBatonManaged": false,
+            "bodyState": "preserve_unread"
+          }
+        ],
+        "approvedEnrollments": [
+
+        ]
+      },
+      "unknowns": [
+        "required-check sources",
+        "modified files"
+      ]
+    },
+    {
+      "name": "partial-install",
+      "sourceVersion": "v0.5.0",
+      "configuredPins": [
+        "v0.5.0"
+      ],
+      "files": [
+        {
+          "path": ".github/baton.yml",
+          "state": "exact_default",
+          "sha256": "d8126641e1580635df8901b5ae93e3a776630627dbfbcf63751f32b2a879c922"
+        },
+        {
+          "path": ".github/labels.yml",
+          "state": "exact_default",
+          "sha256": "9b180b5284eae177badaf8503ec2411f26348864fc7742cdd94425ff072f7952"
+        },
+        {
+          "path": ".github/ISSUE_WORKFLOW.md",
+          "state": "exact_default",
+          "sha256": "33c5c44abc4aa1ed81786865a592e1fc261c4b6310eda789847410f43a942298"
+        },
+        {
+          "path": ".github/ISSUE_TEMPLATE/agent-work.yml",
+          "state": "missing"
+        },
+        {
+          "path": ".github/workflows/issue-policy.yml",
+          "state": "missing"
+        },
+        {
+          "path": ".github/workflows/pr-policy.yml",
+          "state": "missing"
+        },
+        {
+          "path": ".github/workflows/work-item-transition.yml",
+          "state": "missing"
+        }
+      ],
+      "workflows": [
+        {
+          "path": ".github/workflows/issue-policy.yml",
+          "state": "active"
+        },
+        {
+          "path": ".github/workflows/pr-policy.yml",
+          "state": "missing"
+        },
+        {
+          "path": ".github/workflows/work-item-transition.yml",
+          "state": "missing"
+        }
+      ],
+      "settings": {
+        "branchProtection": {
+          "observed": true,
+          "requiredChecks": [
+            {
+              "context": "Check PR policy",
+              "appSlug": "github-actions"
+            }
+          ]
+        },
+        "rulesets": {
+          "observed": true,
+          "requiredChecks": [
+
+          ]
+        },
+        "settingsUnknown": false
+      },
+      "issueDiscovery": {
+        "eligibilityWithoutEnrollment": [
+          {
+            "number": 41,
+            "labels": [
+              "agent:ready-bounded",
+              "priority:p1"
+            ],
+            "hasBatonManaged": false,
+            "bodyState": "preserve_unread"
+          }
+        ],
+        "approvedEnrollments": [
+
+        ]
+      },
+      "unknowns": [
+        "missing managed-file evidence"
+      ]
+    },
+    {
+      "name": "already-removed",
+      "sourceVersion": "v0.5.0",
+      "configuredPins": [
+
+      ],
+      "files": [
+        {
+          "path": ".github/baton.yml",
+          "state": "missing"
+        },
+        {
+          "path": ".github/labels.yml",
+          "state": "missing"
+        },
+        {
+          "path": ".github/ISSUE_WORKFLOW.md",
+          "state": "missing"
+        },
+        {
+          "path": ".github/ISSUE_TEMPLATE/agent-work.yml",
+          "state": "missing"
+        },
+        {
+          "path": ".github/workflows/issue-policy.yml",
+          "state": "missing"
+        },
+        {
+          "path": ".github/workflows/pr-policy.yml",
+          "state": "missing"
+        },
+        {
+          "path": ".github/workflows/work-item-transition.yml",
+          "state": "missing"
+        }
+      ],
+      "workflows": [
+        {
+          "path": ".github/workflows/issue-policy.yml",
+          "state": "missing"
+        },
+        {
+          "path": ".github/workflows/pr-policy.yml",
+          "state": "missing"
+        },
+        {
+          "path": ".github/workflows/work-item-transition.yml",
+          "state": "missing"
+        }
+      ],
+      "settings": {
+        "branchProtection": {
+          "observed": true,
+          "requiredChecks": [
+
+          ]
+        },
+        "rulesets": {
+          "observed": true,
+          "requiredChecks": [
+
+          ]
+        },
+        "settingsUnknown": false
+      },
+      "issueDiscovery": {
+        "eligibilityWithoutEnrollment": [
+          {
+            "number": 41,
+            "labels": [
+              "agent:ready-bounded",
+              "priority:p1"
+            ],
+            "hasBatonManaged": false,
+            "bodyState": "preserve_unread"
+          }
+        ],
+        "approvedEnrollments": [
+
+        ]
+      },
+      "unknowns": [
+
+      ]
+    }
+  ]
+}

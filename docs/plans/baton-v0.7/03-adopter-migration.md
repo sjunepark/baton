@@ -9,16 +9,16 @@ check settings can continue to block ordinary pull requests.
 
 ## Current state
 
-- M4 execution has not started; no adopter repository or GitHub setting has
-  been changed.
-- M3 preserved only the evidence needed for later review under
-  `testdata/migration/v0.6`: exact v0.6.0 default managed-file bytes/hashes and
-  representative unmodified, modified, partial, and already-removed read-only
-  inventories.
-- Repository tag inspection confirms that v0.5.0 and v0.5.1 installed the
-  retired issue, PR-policy, and transition surface but did not assign
-  `baton:managed` by default. Their exact rendered defaults and representative
-  inventories have not yet been preserved.
+- M4 is complete as repository guidance and inert evidence. No adopter
+  repository or GitHub setting was changed while preparing it.
+- Exact v0.5.0, v0.5.1, and v0.6.0 renderer bytes and SHA-256 manifests are
+  preserved under `testdata/migration/` and were verified against binaries
+  built from each exact tag.
+- Version-specific and cross-version inventories cover unmodified, modified,
+  partial, already-removed, mixed, customized, older, and unknown sources.
+- The v0.7 adopter note requires read-only inventory, full ruleset and branch
+  rule inspection, required-check-first removal, reviewed file diffs, and
+  explicit enrollment that keeps known-blocked issues blocked at every prefix.
 
 ## Supported source installations
 
@@ -83,28 +83,28 @@ check settings can continue to block ordinary pull requests.
 
 ## Migration guide and evidence
 
-- [ ] Keep v0.5/v0.6 decommissioning out of the shipped Task CLI,
+- [x] Keep v0.5/v0.6 decommissioning out of the shipped Task CLI,
   `internal/task`, and repository scripts. v0.7 provides a reviewed guide and
   exact migration fixtures, not a compatibility command or helper program.
-- [ ] Preserve exact v0.5.0 and v0.5.1 default rendered files and SHA-256
+- [x] Preserve exact v0.5.0 and v0.5.1 default rendered files and SHA-256
   fingerprints beside the existing v0.6.0 evidence. Record a complete
   path-to-hash manifest for each version and verify it against a fresh renderer
   built from that exact release tag.
-- [ ] Add unmodified, modified, partial, already-removed, mixed-version, and
+- [x] Add unmodified, modified, partial, already-removed, mixed-version, and
   unknown-version read-only inventories. Preserve any file whose exact source
   cannot be proven.
-- [ ] Document read-only `gh api` inventory examples, ordered manual changes,
+- [x] Document read-only `gh api` inventory examples, ordered manual changes,
   warnings, and explicit unknowns. Never report completion when required-check
   state is unknown.
-- [ ] Document read-only discovery of v0.5-era issues without
+- [x] Document read-only discovery of v0.5-era issues without
   `baton:managed`, followed by per-issue `baton enroll ISSUE --dry-run` and
   explicit approval before running the mutation. Do not use body parsing or old
   labels as enrollment authority.
-- [ ] Preview every file removal as a normal reviewed diff and run it only in
+- [x] Preview every file removal as a normal reviewed diff and run it only in
   an explicitly selected non-primary checkout.
-- [ ] Treat settings changes that lack safe API support as named manual steps,
+- [x] Treat settings changes that lack safe API support as named manual steps,
   not shell snippets applied optimistically.
-- [ ] If repeated real migrations later demonstrate a need for automation,
+- [x] If repeated real migrations later demonstrate a need for automation,
   evaluate that as a separate goal rather than pre-building it into v0.7.
 
 ## Resource handling
@@ -163,19 +163,19 @@ Create `docs/adopter-updates/v0.7.0.md` with:
 
 ## Validation
 
-- [ ] Verify each v0.5.0, v0.5.1, and v0.6.0 manifest against exact-tag
+- [x] Verify each v0.5.0, v0.5.1, and v0.6.0 manifest against exact-tag
   renderer output, then review the guide against unmodified, modified,
   partially installed, and already removed fixtures for every source release.
-- [ ] Review mixed-version, customized, older, and unknown scenarios; every
+- [x] Review mixed-version, customized, older, and unknown scenarios; every
   unmatched resource must remain preserved with a named manual action.
-- [ ] Verify required-check-first ordering and explicit unknown-settings
+- [x] Verify required-check-first ordering and explicit unknown-settings
   handling in every documented scenario.
-- [ ] Verify no instruction deletes branches, issues, comments, labels,
+- [x] Verify no instruction deletes branches, issues, comments, labels,
   environments, worktrees, or local artifacts.
-- [ ] Verify every audit command is read-only and safely repeatable.
-- [ ] Test v0.7 list behavior against migrated v0.6 issue labels without
+- [x] Verify every audit command is read-only and safely repeatable.
+- [x] Test v0.7 list behavior against migrated v0.6 issue labels without
   reading ownership comments.
-- [ ] Test that v0.5 labels and bodies do not enroll an issue, then verify an
+- [x] Test that v0.5 labels and bodies do not enroll an issue, then verify an
   explicitly approved `enroll` preserves its body and existing labels and
   makes exactly that issue visible as a Task with classification derived from
   the preserved labels.

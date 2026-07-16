@@ -1,0 +1,37 @@
+{
+  "description": "Conservative read-only inventories that must not be classified as a known default installation.",
+  "scenarios": [
+    {
+      "name": "mixed-version",
+      "configuredPins": ["v0.5.1", "v0.6.0"],
+      "classification": "mixed",
+      "requiredChecksKnown": false,
+      "fileDisposition": "preserve_unmatched_and_review_each_exact_match",
+      "manualActions": ["identify every pin", "inspect required-check producers", "decide each file independently"]
+    },
+    {
+      "name": "customized-install",
+      "configuredPins": ["v0.6.0"],
+      "classification": "customized",
+      "requiredChecksKnown": true,
+      "fileDisposition": "preserve_modified_files",
+      "manualActions": ["remove retired required checks before workflow changes", "review customized workflow behavior"]
+    },
+    {
+      "name": "older-version",
+      "configuredPins": ["v0.4.4"],
+      "classification": "unsupported_older",
+      "requiredChecksKnown": false,
+      "fileDisposition": "preserve_all_until_manual_attribution",
+      "manualActions": ["inventory settings and files", "review the historical release before any change"]
+    },
+    {
+      "name": "unknown-version",
+      "configuredPins": [],
+      "classification": "unknown",
+      "requiredChecksKnown": false,
+      "fileDisposition": "preserve_all",
+      "manualActions": ["identify required-check producers", "attribute resources manually", "do not report completion while settings remain unknown"]
+    }
+  ]
+}

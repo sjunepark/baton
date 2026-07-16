@@ -54,6 +54,51 @@ func TestClassifyRejectsUnenrolledIssue(t *testing.T) {
 	}
 }
 
+func TestAdopterLabelsRespectExplicitEnrollment(t *testing.T) {
+	t.Parallel()
+	store := task.NewMemoryStore()
+	const legacyBody = "### Summary\nLegacy v0.5 body content must remain ordinary issue data."
+	store.PutIssue(repository, task.Issue{
+		Number: 50, Title: "v0.5 candidate", Body: legacyBody, State: task.IssueOpen,
+		Labels: []string{"agent:ready-bounded", "priority:p1", "Customer:Acme"},
+	})
+	store.PutIssue(repository, task.Issue{
+		Number: 60, Title: "v0.6 managed", State: task.IssueOpen,
+		Labels: []string{task.LabelManaged, "agent:ready-trivial", "priority:p2"},
+	})
+	service := task.NewService(store)
+
+	listed, err := service.List(context.Background(), repository, task.ListAll)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := taskNumbers(listed); !reflect.DeepEqual(got, []int{60}) {
+		t.Fatalf("legacy labels enrolled unexpected issues: %v", got)
+	}
+
+	bounded, p1 := task.ModeBounded, task.PriorityP1
+	_, err = service.Mutate(context.Background(), repository, 50, task.Mutation{
+		Kind: task.MutationEnroll, ModeSet: true, Mode: &bounded, PrioritySet: true, Priority: &p1,
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issue, err := store.GetIssue(context.Background(), repository, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if issue.Body != legacyBody || !reflect.DeepEqual(issue.Labels, []string{"agent:ready-bounded", "priority:p1", "Customer:Acme", task.LabelManaged}) {
+		t.Fatalf("approved enrollment changed legacy issue data: %#v", issue)
+	}
+	listed, err = service.List(context.Background(), repository, task.ListAll)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := taskNumbers(listed); !reflect.DeepEqual(got, []int{50, 60}) {
+		t.Fatalf("explicit enrollment exposed wrong Tasks: %v", got)
+	}
+}
+
 func TestListShowAndNext(t *testing.T) {
 	t.Parallel()
 	store := task.NewMemoryStore()
@@ -109,7 +154,8 @@ func TestNextReturnsDefinitiveNil(t *testing.T) {
 func TestMutationDryRunApplyAndIdempotence(t *testing.T) {
 	t.Parallel()
 	store := task.NewMemoryStore()
-	store.PutIssue(repository, task.Issue{Number: 12, Title: "task", State: task.IssueOpen, Labels: []string{"Customer:Acme"}})
+	const originalBody = "legacy body with no Baton authority"
+	store.PutIssue(repository, task.Issue{Number: 12, Title: "task", Body: originalBody, State: task.IssueOpen, Labels: []string{"Customer:Acme"}})
 	service := task.NewService(store)
 	bounded, p1 := task.ModeBounded, task.PriorityP1
 	mutation := task.Mutation{Kind: task.MutationEnroll, ModeSet: true, Mode: &bounded, PrioritySet: true, Priority: &p1}
@@ -137,6 +183,13 @@ func TestMutationDryRunApplyAndIdempotence(t *testing.T) {
 	}
 	if !reflect.DeepEqual(applied.Changes, dryRun.Changes) {
 		t.Fatalf("apply changes %v differ from dry-run plan %v", applied.Changes, dryRun.Changes)
+	}
+	issue, err := store.GetIssue(context.Background(), repository, 12)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if issue.Body != originalBody || !reflect.DeepEqual(issue.Labels, []string{"Customer:Acme", "agent:ready-bounded", "priority:p1", task.LabelManaged}) {
+		t.Fatalf("enroll changed issue content or project labels: %#v", issue)
 	}
 	noOp, err := service.Mutate(context.Background(), repository, 12, mutation, false)
 	if err != nil {

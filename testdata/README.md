@@ -1,5 +1,8 @@
 # Test Data
 
-`migration/v0.6/` contains the immutable evidence needed for the later v0.7
-adopter-decommissioning milestone. It preserves exact v0.6 managed-file
-content and representative read-only adopter inventories.
+`migration/` contains inert evidence for the reviewed v0.7 adopter
+decommission. Each supported source release has exact renderer bytes and
+SHA-256 fingerprints plus representative read-only inventories.
+
+These files are not runtime schemas, compatibility inputs, or deletion
+authority. See [the v0.7 adopter guide](../docs/adopter-updates/v0.7.0.md).
