@@ -58,14 +58,28 @@ func TestAdopterLabelsRespectExplicitEnrollment(t *testing.T) {
 	t.Parallel()
 	store := task.NewMemoryStore()
 	const legacyBody = "### Summary\nLegacy v0.5 body content must remain ordinary issue data."
-	store.PutIssue(repository, task.Issue{
-		Number: 50, Title: "v0.5 candidate", Body: legacyBody, State: task.IssueOpen,
-		Labels: []string{"agent:ready-bounded", "priority:p1", "Customer:Acme"},
-	})
-	store.PutIssue(repository, task.Issue{
-		Number: 60, Title: "v0.6 managed", State: task.IssueOpen,
-		Labels: []string{task.LabelManaged, "agent:ready-trivial", "priority:p2"},
-	})
+	tests := []struct {
+		name    string
+		issue   task.Issue
+		managed bool
+	}{
+		{name: "unmanaged issue", issue: task.Issue{Number: 40, Title: "ordinary issue", State: task.IssueOpen, Labels: []string{"Customer:Acme"}}},
+		{name: "legacy labels do not enroll", issue: task.Issue{Number: 50, Title: "v0.5 candidate", Body: legacyBody, State: task.IssueOpen, Labels: []string{"agent:ready-bounded", "priority:p1", "Customer:Acme"}}},
+		{name: "managed label enrolls", issue: task.Issue{Number: 60, Title: "v0.6 managed", State: task.IssueOpen, Labels: []string{task.LabelManaged, "agent:ready-trivial", "priority:p2"}}, managed: true},
+	}
+	for _, test := range tests {
+		store.PutIssue(repository, test.issue)
+		t.Run(test.name, func(t *testing.T) {
+			_, err := task.Classify(test.issue)
+			var taskErr *task.Error
+			if test.managed && err != nil {
+				t.Fatalf("Classify() error = %v", err)
+			}
+			if !test.managed && (!errors.As(err, &taskErr) || taskErr.Code != "not_managed") {
+				t.Fatalf("Classify() error = %#v, want not_managed", err)
+			}
+		})
+	}
 	service := task.NewService(store)
 
 	listed, err := service.List(context.Background(), repository, task.ListAll)

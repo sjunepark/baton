@@ -29,7 +29,8 @@ Run `baton COMMAND --help` for exact syntax.
 
 A mutation applies unless `--dry-run` is present. `enroll` may omit mode or
 priority, yielding a blocked Task until later `update`. `unenroll` removes
-only enrollment and advisory activity. `close` requires an enrolled open Task.
+only enrollment and advisory activity. `close` requires an enrolled Task,
+closes it when open, and succeeds as an idempotent no-op when already closed.
 
 ## Output and errors
 

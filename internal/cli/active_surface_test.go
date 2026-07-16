@@ -220,11 +220,17 @@ func TestAdopterGuidePreservesSafetyOrdering(t *testing.T) {
 		t.Fatal("guide does not remove retired required checks before workflow files")
 	}
 	for _, evidence := range []string{
+		`if .truncated then error`,
 		`repos/$repo/rulesets/$ruleset`,
-		`repos/$repo/rules/branches/$encoded`,
+		`repos/$repo/rules/branches/$encoded?per_page=100`,
 		`repos/$repo/branches/$encoded/protection`,
+		`repos/$repo/environments?per_page=100" --paginate`,
+		`--jq '.content // empty'`,
+		"missing-or-forbidden",
 		"without a mode",
 		"prefix-safe update",
+		"already has a fixed mode label",
+		"reviewed blocker before enrollment",
 		"It is valid to approve no old issues.",
 	} {
 		if !strings.Contains(guide, evidence) {

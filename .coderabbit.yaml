@@ -18,6 +18,11 @@ reviews:
       - "dependabot[bot]"
       - "renovate[bot]"
   path_instructions:
+    - path: "cmd/**/*.go"
+      instructions: |
+        Keep the entrypoint thin and route command behavior through the Task
+        service-backed CLI. Preserve JSON-first output and flag any duplicate
+        Task model, direct GitHub behavior, or repository orchestration.
     - path: "internal/**/*.go"
       instructions: |
         Review the issue-only Task contract. Require explicit errors, typed

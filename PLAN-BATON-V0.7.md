@@ -114,8 +114,8 @@ v0.7 does not install or monitor an issue-policy workflow:
 - Required repository workflows or required repository-local config.
 - Repository setup, readiness dashboards, managed issue templates, or issue
   validation workflows.
-- Downstream-orchestrator adapters, compatibility projections, fixtures, or
-  migration work.
+- Downstream-orchestrator adapters, compatibility projections, or
+  downstream-orchestrator migration work.
 - Candidate sets, action tiers, degraded snapshots, in-band execution
   instructions, or generic operation-report protocols.
 - GitHub Projects fields, project boards, non-GitHub forges, or a web UI.

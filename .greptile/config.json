@@ -10,7 +10,7 @@
     {
       "id": "task-boundary",
       "rule": "Flag config, setup, policy workflows/comments, repository-file mutation, branch/PR/CI/review/merge, delivery, candidate, recommendation, or run behavior in active Baton code and skill guidance.",
-      "scope": ["internal/**", "cmd/**", "skills/**"],
+      "scope": ["internal/**", "cmd/**", "skills/**", "docs/**"],
       "severity": "high"
     },
     {

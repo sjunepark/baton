@@ -47,10 +47,12 @@ Do not start implementation unless the user also asked for it.
 3. Choose a priority when it should differ from the default `p2`, and identify
    `needs-info` or `needs:discussion` blockers.
 4. If there is no blocker, preview `baton enroll ISSUE ... --dry-run`, then
-   enroll when the request authorizes it. If a blocker is needed, enroll first
-   without a mode so the Task remains blocked, then preview and apply one
-   `update` that sets mode/priority and adds the blocker. Use `baton update`
-   for later classification changes.
+   enroll when the request authorizes it. If a blocker is needed and the issue
+   has no fixed mode label, enroll first without a mode so the Task remains
+   blocked, then preview and apply one `update` that sets mode/priority and adds
+   the blocker. If a fixed mode label already exists, require the project's
+   approved workflow to add the blocker before classified enrollment or leave
+   the issue unenrolled. Use `baton update` for later classification changes.
 5. Preserve all project labels. Use `baton unenroll` only on explicit intent;
    it reversibly removes Baton enrollment/activity, not project data.
 
