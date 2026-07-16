@@ -184,8 +184,9 @@ one real adapter and no testing value.
 - [x] Remove body parsing, required sections, controlled form mappings, hidden
   ownership comments/digests, ownership repair, and issue-event authority.
 - [x] Remove config/install fields and all v0.6 decoding from the active
-  runtime; any exact evidence needed by M4 lives only under a migration-v0.6
-  fixture namespace.
+  runtime. Exact old-release evidence remains isolated under
+  `testdata/migration`; M3 supplied the v0.6 profile and M4 owns any added
+  v0.5 profiles.
 - [x] Delete generic `internal/operation` reports. Task mutations return only
   changed/dry-run facts, an ordered Task-specific change list, and the final or
   projected Task.
@@ -260,7 +261,8 @@ Keep and simplify modules that continue to earn their interface:
 - [x] Delete all old contract fixtures, including doctor, queue TOON, PR policy,
   pull request, transition, delivery, event, format/field, rich-error, and
   generic operation-report fixtures and tests. Retain only explicitly named
-  v0.6 decommission evidence under `testdata/migration/v0.6`.
+  decommission evidence under `testdata/migration`; M3 supplied v0.6 and M4
+  owns the v0.5 evidence profiles.
 - [x] Audit named downstream-tool references. Every remaining occurrence must
   be this bounded removal checklist or immutable, clearly superseded history;
   no active code, test, fixture, spec, skill, or instruction may depend on it.

@@ -4,7 +4,8 @@
 
 Align every user- and agent-facing surface with the issue-only product after
 the Task contract and CLI are stable. Prevent an old installed skill, duplicate
-manual, or release pin from continuing to prescribe the v0.6 workflow.
+manual, or v0.5/v0.6 release pin from continuing to prescribe the retired
+workflow.
 
 ## Bundled skill
 
@@ -56,7 +57,8 @@ manual, or release pin from continuing to prescribe the v0.6 workflow.
 - [ ] Remove or rewrite `docs/AXI_REVIEW.md`, `EXECUTION_CONTEXT.md`,
   `GITHUB_POLICY_EXTRACTION.md`, `IMPLEMENTATION_PLAN.md`, `NEXT_SESSION.md`,
   `RELEASE.md`, the completed root `TODO.md`, and
-  `docs/adopter-updates/README.md` so none remains an active v0.6 contract.
+  `docs/adopter-updates/README.md` so none remains an active pre-v0.7
+  contract.
 - [ ] Mark orchestration goals and ADRs as superseded/history, and archive or
   remove active delivery/bootstrap/session handoff documents.
 - [ ] Remove downstream-tool-specific integration, fixture, and migration
@@ -92,7 +94,9 @@ manual, or release pin from continuing to prescribe the v0.6 workflow.
   v0.7.0 under the repository's pre-1.0 policy.
 - [ ] Prune `release-please-config.json` extra-file entries for deleted install,
   config, HTML, and automation files; retain only real marked version targets.
-- [ ] Add the focused v0.7 adopter update from the migration plan.
+- [ ] Add the focused v0.7 adopter update from the migration plan, covering
+  direct migration from v0.5.0, v0.5.1, and v0.6.0 plus conservative handling
+  of mixed, customized, older, and unknown installations.
 - [ ] Let Release Please update `CHANGELOG.md`, the manifest, tags, GitHub
   release, release PR, and remaining marked version references.
 - [ ] Review the generated release PR's diff, version, migration note, skill,
@@ -138,5 +142,5 @@ manual, or release pin from continuing to prescribe the v0.6 workflow.
 - Active Baton documentation makes no downstream-orchestrator compatibility or
   migration promise.
 - Release Please proposes the intended breaking v0.7.0 with an actionable,
-  non-destructive adopter migration.
+  non-destructive adopter migration from v0.5.0, v0.5.1, or v0.6.0.
 - No release or merge occurs without explicit user authorization.

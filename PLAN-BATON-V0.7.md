@@ -24,19 +24,25 @@ used as v0.7 requirements.
   workflow, branch, PR, delivery, and compatibility runtime is deleted.
 - Old contract fixtures and named downstream integration artifacts are
   deleted. Exact v0.6 managed-file evidence remains isolated under
-  `testdata/migration/v0.6` for M4.
+  `testdata/migration/v0.6` for M4; exact v0.5.0 and v0.5.1 evidence is the
+  first remaining M4 slice.
 - YAML is no longer a dependency. Repository-wide tests, race detection, vet,
   pinned Staticcheck, CLI boundary checks, and the implementation/diet review
   pass.
 - Review follow-up makes mutation plans prefix-safe, preserves dry-run label
   casing, bounds GitHub requests, and propagates output failures.
-- M4 adopter decommissioning and M5 skill/docs/release work have not started.
+- M4 now covers direct decommissioning from v0.5.0, v0.5.1, and v0.6.0; its
+  execution has not started. M5 skill/docs/release work has not started.
 
 ## Confirmed product decisions
 
 - A **Task** is an open or closed GitHub issue explicitly enrolled in Baton.
 - `baton:managed` is the complete enrollment fact. Labels do not require a
   hidden ownership comment, digest, issue-form fingerprint, or body schema.
+- The released v0.5 policy did not assign `baton:managed` by default. Migration
+  may use fixed eligibility labels as read-only discovery evidence, but every
+  issue lacking the enrollment label requires explicit reviewed enrollment;
+  old labels or body fingerprints never authorize automatic enrollment.
 - Baton never edits an existing issue body. Comments are optional,
   human-readable explanations and never authoritative state.
 - Keep the useful eligibility labels `agent:ready-trivial`,
@@ -92,7 +98,8 @@ v0.7 does not install or monitor an issue-policy workflow:
 - Issue list/detail/next selection and explicit lifecycle operations.
 - Server-side retrieval and filtering of enrolled GitHub issues.
 - Fixed built-in label semantics with lazy creation during explicit mutations.
-- Safe v0.6 adopter decommissioning.
+- Safe adopter decommissioning from the released v0.5.0, v0.5.1, and v0.6.0
+  repository surfaces.
 - Deletion of branch, PR, review, check, delivery, body-policy, and legacy
   compatibility implementation.
 - A short bundled skill and concise active documentation.
@@ -123,7 +130,7 @@ v0.7 does not install or monitor an issue-policy workflow:
 - [Task core and CLI](docs/plans/baton-v0.7/02-task-core-cli.md) defines the Go
   module seam, GitHub adapter, commands, planners, tests, and runtime deletion.
 - [Adopter decommission and migration](docs/plans/baton-v0.7/03-adopter-migration.md)
-  defines safe removal of v0.6 repository coupling.
+  defines safe removal of v0.5 and v0.6 repository coupling.
 - [Skill, documentation, and release](docs/plans/baton-v0.7/04-skill-docs-release.md)
   defines the human/agent workflow, documentation collapse, distribution,
   validation, and Release Please handoff.
@@ -139,9 +146,9 @@ v0.7 does not install or monitor an issue-policy workflow:
 - [x] **M3 — Delete orchestration and old contracts.** Remove the runtime
   branch/PR/delivery/body-policy paths and legacy projections after
   preserving the exact v0.6 evidence required by migration fixtures.
-- [ ] **M4 — Decommission v0.6 adopters safely.** Complete the deterministic
-  audit, reviewed removal plan, and non-destructive validation in
-  `03-adopter-migration.md`.
+- [ ] **M4 — Decommission v0.5 and v0.6 adopters safely.** Complete the
+  version-aware audit, reviewed removal and explicit-enrollment plan, and
+  non-destructive validation in `03-adopter-migration.md`.
 - [ ] **M5 — Align skill, docs, and release.** Complete the skill rewrite,
   documentation collapse, distribution validation, and Release Please handoff
   in `04-skill-docs-release.md`.
@@ -185,12 +192,14 @@ v0.7 does not install or monitor an issue-policy workflow:
 
 ## Next implementation slice
 
-M4 is next: execute the adopter decommission and migration workflow defined in
-`docs/plans/baton-v0.7/03-adopter-migration.md`, including read-only inventory,
-explicit approval for external mutations, and post-change verification. Stop
-before M5's bundled-skill, active-documentation, distribution, and release
-work; do not adapt or validate a downstream orchestrator as Baton product
-scope.
+M4 is next: first freeze exact v0.5.0 and v0.5.1 managed-file evidence and
+representative inventories beside the existing v0.6 evidence, then execute the
+version-aware decommission and migration workflow in
+`docs/plans/baton-v0.7/03-adopter-migration.md`. Include read-only inventory,
+explicit review of v0.5 issues before enrollment, approval for every external
+mutation, and post-change verification. Stop before M5's bundled-skill,
+active-documentation, distribution, and release work; do not adapt or validate
+a downstream orchestrator as Baton product scope.
 
 ## Open questions
 
@@ -236,3 +245,9 @@ Task module may change without adding public concepts.
   failures retain state-confirmation errors, no-op mutations avoid a redundant
   read, production requests have finite deadlines, and all text writers
   propagate failures. M4 remains next; M5 docs and skill work remain pending.
+- **2026-07-16 — Migration scope correction:** Expanded M4 from v0.6-only
+  decommissioning to direct migration from v0.5.0, v0.5.1, or v0.6.0. The
+  released v0.5 line installed repository policy but did not assign
+  `baton:managed` by default, so the plan now requires version-specific file
+  evidence and explicit reviewed enrollment of v0.5-era issues lacking that
+  label. Next: freeze the two v0.5 evidence profiles before writing the guide.
