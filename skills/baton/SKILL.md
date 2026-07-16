@@ -1,6 +1,6 @@
 ---
 name: baton
-description: Use the Baton CLI to manage explicitly enrolled GitHub issue Tasks: create and enroll todos, inspect or select Tasks, classify mode/priority/blockers, mark advisory activity, and explicitly close work. Use when asked for Baton todos, task triage, the next Task, or implementation of an enrolled issue.
+description: "Use the Baton CLI to manage explicitly enrolled GitHub issue Tasks: create and enroll todos, inspect or select Tasks, classify mode/priority/blockers, mark advisory activity, and explicitly close work. Use when asked for Baton todos, task triage, the next Task, or implementation of an enrolled issue."
 ---
 
 # Baton

@@ -114,6 +114,43 @@ func TestBundledSkillHasOnlyCurrentReferences(t *testing.T) {
 	}
 }
 
+func TestBundledSkillMetadataIsInstallerSafe(t *testing.T) {
+	root := repositoryRoot(t)
+	content, err := os.ReadFile(filepath.Join(root, "skills/baton/SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(string(content), "\n")
+	if len(lines) < 4 || lines[0] != "---" {
+		t.Fatal("bundled skill lacks frontmatter")
+	}
+	var name string
+	var description string
+	frontmatterClosed := false
+	for _, line := range lines[1:] {
+		if line == "---" {
+			frontmatterClosed = true
+			break
+		}
+		if strings.HasPrefix(line, "name:") {
+			name = strings.TrimSpace(strings.TrimPrefix(line, "name:"))
+		}
+		if strings.HasPrefix(line, "description:") {
+			description = strings.TrimSpace(strings.TrimPrefix(line, "description:"))
+		}
+	}
+	if !frontmatterClosed {
+		t.Fatal("bundled skill has unterminated frontmatter")
+	}
+	if name != "baton" {
+		t.Fatalf("bundled skill name = %q, want baton", name)
+	}
+	var parsedDescription string
+	if err := json.Unmarshal([]byte(description), &parsedDescription); err != nil || parsedDescription == "" {
+		t.Fatalf("bundled skill description must be a non-empty quoted scalar: %q", description)
+	}
+}
+
 func TestMigrationEvidenceIsSelfConsistent(t *testing.T) {
 	root := repositoryRoot(t)
 	profiles := []struct {
