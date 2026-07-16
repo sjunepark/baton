@@ -1,52 +1,34 @@
 {
   "strictness": 2,
-  "commentTypes": ["logic", "syntax", "style", "info"],
+  "commentTypes": ["logic", "syntax", "info"],
   "triggerOnUpdates": true,
   "statusCheck": true,
   "updateExistingSummaryComment": true,
   "fixWithAI": false,
-  "instructions": "Baton is a safety-sensitive Go CLI plus bundled Codex skill for reusable GitHub issue and PR agent workflows. Deterministic policy, git, GitHub, queue, install, branch, and work-item transition logic belongs in the CLI; execution completion and checkout isolation belong to the caller; agent judgment belongs in the skill. Reviews should prioritize correctness, explicit error handling, dry-run or pure planning paths for mutations, and preservation of target repository policy as the source of truth.",
+  "instructions": "Review Baton as an issue-only Task CLI. Prioritize exact Task contracts, safe explicit mutations, typed GitHub boundaries, and stale orchestration-surface regressions.",
   "rules": [
     {
-      "id": "primary-checkout-safety",
-      "rule": "Flag automation paths that can mutate a user's primary checkout. Repository mutation should happen only inside caller-provided isolated execution context unless the code is explicitly read-only.",
-      "scope": ["internal/**", "cmd/**", ".github/workflows/**", "skills/**"],
+      "id": "task-boundary",
+      "rule": "Flag config, setup, policy workflows/comments, repository-file mutation, branch/PR/CI/review/merge, delivery, candidate, recommendation, or run behavior in active Baton code and skill guidance.",
+      "scope": ["internal/**", "cmd/**", "skills/**"],
       "severity": "high"
     },
     {
-      "id": "mutations-have-dry-run-or-planner",
-      "rule": "Every command that mutates GitHub or git state should expose a dry-run path or pure planner that can be tested without side effects.",
-      "scope": ["internal/**", "cmd/**", ".github/workflows/**", "skills/**"],
+      "id": "mutation-contract",
+      "rule": "Every GitHub mutation must have pure dry-run/apply parity, prefix-safe ordering, explicit intent, idempotent no-op behavior, and confirmed partial-failure state.",
+      "scope": ["internal/task/**", "internal/cli/**"],
       "severity": "high"
     },
     {
-      "id": "caller-owned-execution-context",
-      "rule": "Flag attempts to add worktree leasing, pruning, deletion, reset, or cleanup lifecycle back into Baton. Checkout lifecycle belongs to the invoking environment or user.",
-      "scope": ["internal/git/**", "internal/queue/**", "cmd/**", ".github/workflows/**", "skills/**"],
+      "id": "typed-github-boundary",
+      "rule": "Task facts must use typed bounded GitHub requests; reject scraping human command output or leaking raw transport errors.",
+      "scope": ["internal/gh/**", "internal/task/**", "internal/cli/**"],
       "severity": "high"
     },
     {
-      "id": "pr-merge-consent",
-      "rule": "Flag PR merge behavior unless the code or skill guidance requires an explicit user merge request and verifies the target repository policy allows the merge.",
-      "scope": ["internal/gh/**", "internal/queue/**", "cmd/**", ".github/workflows/**", "skills/**"],
-      "severity": "high"
-    },
-    {
-      "id": "trusted-actions-code",
-      "rule": "GitHub Actions policy workflows must run trusted Baton code, not code modified by an untrusted PR.",
-      "scope": [".github/workflows/**", "internal/install/**", "skills/**"],
-      "severity": "high"
-    },
-    {
-      "id": "json-first-command-contracts",
-      "rule": "Command behavior should be driven by structured result objects and JSON-first contracts. Human text output can wrap those same results, but must not become the source of truth.",
-      "scope": ["internal/**", "cmd/**"],
-      "severity": "medium"
-    },
-    {
-      "id": "table-driven-policy-tests",
-      "rule": "Policy parsing and decision logic should have focused table-driven tests that cover GitHub event fixtures, edge cases, and denied unsafe states.",
-      "scope": ["internal/policy/**", "internal/config/**", "internal/gh/**", "internal/git/**", "internal/queue/**"],
+      "id": "single-output-contract",
+      "rule": "JSON and human text must derive from the canonical Task result; flag alternate formats, field projections, or compatibility envelopes.",
+      "scope": ["internal/cli/**", "docs/**"],
       "severity": "medium"
     }
   ]

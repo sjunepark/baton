@@ -18,36 +18,23 @@ reviews:
       - "dependabot[bot]"
       - "renovate[bot]"
   path_instructions:
-    - path: "**/*.go"
+    - path: "internal/**/*.go"
       instructions: |
-        Review Baton as a safety-sensitive Go CLI. Prioritize correctness,
-        explicit error modeling, table-driven coverage for policy decisions,
-        and dry-run or pure-planner paths for git and GitHub mutations.
-        Flag broad catch-all behavior, hidden side effects, shelling out where
-        the typed GitHub client should own behavior, and mutations that could
-        touch a user's primary checkout instead of a Baton-managed worktree
-        lease. For worktree deletion, reset, pruning, or cleanup, require proof
-        that the candidate is managed, idle, clean, and safe before the
-        lifecycle operation.
-        Also flag PR merge behavior unless it requires an explicit user merge
-        request and verifies the target repository policy allows the merge.
-    - path: ".github/workflows/**"
-      instructions: |
-        Treat GitHub Actions policy workflows as security-sensitive. They must
-        execute trusted Baton code and must not run PR-modified repository code
-        in pull_request_target contexts. Also flag workflow run steps that call
-        gh pr merge without explicit user authorization, mutate the primary
-        checkout directly with git checkout or git reset, or perform worktree
-        deletion, pruning, or cleanup without proving the candidate is managed,
-        idle, clean, and safe.
+        Review the issue-only Task contract. Require explicit errors, typed
+        bounded GitHub access, deterministic classification/selection, and
+        prefix-safe dry-run/apply parity that preserves bodies and project
+        labels. Flag config, repository-file mutation, orchestration, or
+        compatibility behavior.
     - path: "skills/**"
       instructions: |
-        Review skill guidance for deterministic handoffs between Baton and
-        Codex. Keep CLI-owned policy and mutation logic out of agent judgment,
-        and flag instructions that could encourage unsafe primary-checkout
-        mutation, merging PRs without explicit user approval, or deleting
-        worktrees without proving they are managed, idle, clean, and safe.
-        Also flag skill guidance that could produce GitHub Actions workflows
-        running PR-modified repository code in trusted contexts.
+        Keep the skill limited to Task inspection, explicit enrollment and
+        classification, advisory activity, and explicit close. Project
+        implementation follows target-project instructions; flag any Baton
+        checkout, branch, PR, CI, review, merge, release, scheduler, or
+        delivery workflow.
+    - path: "testdata/migration/**"
+      instructions: |
+        Treat fixtures as inert exact-release evidence. They must never
+        authorize deletion, issue enrollment, or runtime compatibility.
 chat:
   auto_reply: true

@@ -1,33 +1,13 @@
-# Baton Review Rules
+# Baton review rules
 
-## Safety Boundary
-
-Baton automates issue and PR workflows across repositories. Treat any code that
-can affect git state, GitHub state, branch policy, labels, execution context,
-or agent handoffs as safety-sensitive.
-
-- Do not allow automation work to mutate a user's primary checkout.
-- Do not allow PR merges unless a user explicitly requested the merge and the
-  target repository policy allows it.
-- Do not add worktree leasing, pruning, deletion, reset, or cleanup lifecycle
-  back into Baton; checkout lifecycle belongs to the caller.
-- GitHub Actions policy commands must run trusted Baton code, not PR-modified
-  repository code.
-
-## Implementation Shape
-
-- Keep deterministic decisions in Go code and agent judgment in the bundled
-  skill.
-- Prefer typed GitHub GraphQL or REST client behavior over parsing `gh` output.
-- Keep commands JSON-first; human output should wrap the same internal result
-  objects.
-- Model invalid states directly and return explicit errors with useful context.
-- Avoid speculative compatibility layers, broad catch-all error handling, and
-  hidden side effects.
-
-## Test Expectations
-
-- Add table-driven tests for policy parsing and decisions.
-- Add tests around GitHub event fixtures and unsafe-state rejection.
-- Keep live GitHub integration tests behind explicit environment gates.
-- Cover dry-run and pure planner behavior for every GitHub or git mutation path.
+- Treat `baton:managed` as the complete enrollment fact; bodies and comments
+  must not affect Task classification.
+- Require pure preview/apply parity, prefix-safe writes, idempotence, and
+  confirmed partial-failure state for mutations.
+- Preserve issue bodies and non-Baton labels.
+- Validate CLI syntax before repository, authentication, and network work.
+- Keep Task facts behind typed, bounded GitHub requests.
+- Flag any active config/setup, policy workflow/comment, branch/PR/CI/review/
+  merge, delivery, candidate/recommendation/run, or legacy output behavior.
+- Treat migration fixtures and historical docs as inert evidence, not runtime
+  contracts or deletion authority.

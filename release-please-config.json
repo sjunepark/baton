@@ -10,39 +10,7 @@
       "extra-files": [
         {
           "type": "generic",
-          "path": "internal/install/install.go"
-        },
-        {
-          "type": "generic",
-          "path": "internal/config/config.go"
-        },
-        {
-          "type": "generic",
-          "path": "internal/install/templates/.github/baton.yml"
-        },
-        {
-          "type": "generic",
           "path": "README.md"
-        },
-        {
-          "type": "generic",
-          "path": "docs/CLI_SPEC.md"
-        },
-        {
-          "type": "generic",
-          "path": "docs/CONFIG_SPEC.md"
-        },
-        {
-          "type": "generic",
-          "path": "docs/IMPLEMENTATION_PLAN.md"
-        },
-        {
-          "type": "generic",
-          "path": "docs/index.html"
-        },
-        {
-          "type": "generic",
-          "path": "skills/baton/references/automation-setup.md"
         }
       ]
     }

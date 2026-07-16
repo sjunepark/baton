@@ -17,22 +17,22 @@ used as v0.7 requirements.
 
 ## Current state
 
-- M1 through M3 are complete. The public CLI is the setup-free Task surface,
+- M1 through M4 are complete. The public CLI is the setup-free Task surface,
   backed by the canonical Task module and narrow typed GitHub issue adapter.
-- Only `cmd/baton`, auth, CLI, GitHub transport, repository resolution, and
-  Task packages remain. The orchestration, policy, config, installer, doctor,
-  workflow, branch, PR, delivery, and compatibility runtime is deleted.
-- Old contract fixtures and named downstream integration artifacts are
-  deleted. Exact v0.6 managed-file evidence remains isolated under
-  `testdata/migration/v0.6` for M4; exact v0.5.0 and v0.5.1 evidence is the
-  first remaining M4 slice.
-- YAML is no longer a dependency. Repository-wide tests, race detection, vet,
-  pinned Staticcheck, CLI boundary checks, and the implementation/diet review
-  pass.
-- Review follow-up makes mutation plans prefix-safe, preserves dry-run label
-  casing, bounds GitHub requests, and propagates output failures.
-- M4 now covers direct decommissioning from v0.5.0, v0.5.1, and v0.6.0; its
-  execution has not started. M5 skill/docs/release work has not started.
+- Exact v0.5.0, v0.5.1, and v0.6.0 decommission evidence is isolated under
+  `testdata/migration/`, with conservative inventories and a required-check-
+  first, non-destructive adopter guide.
+- All repository-local M5 work is complete. The bundled skill, active docs,
+  repository/reviewer instructions, and Release Please inputs now describe
+  only the issue Task product; duplicated manuals and retired install
+  templates are deleted.
+- YAML is no longer a dependency. Repository-wide tests and race detection,
+  vet, pinned Staticcheck, tidy/link/fixture/release-input checks, CLI boundary
+  checks, and the implementation/diet review pass.
+- Release Please-owned version, changelog, manifest, tag, and release outputs
+  remain untouched. The registered external personal skill still has v0.6
+  drift; distribution, push, Release Please invocation, publishing, and merge
+  are intentionally outside this completed repository-local slice.
 
 ## Confirmed product decisions
 
@@ -146,12 +146,13 @@ v0.7 does not install or monitor an issue-policy workflow:
 - [x] **M3 — Delete orchestration and old contracts.** Remove the runtime
   branch/PR/delivery/body-policy paths and legacy projections after
   preserving the exact v0.6 evidence required by migration fixtures.
-- [ ] **M4 — Decommission v0.5 and v0.6 adopters safely.** Complete the
+- [x] **M4 — Decommission v0.5 and v0.6 adopters safely.** Complete the
   version-aware audit, reviewed removal and explicit-enrollment plan, and
   non-destructive validation in `03-adopter-migration.md`.
-- [ ] **M5 — Align skill, docs, and release.** Complete the skill rewrite,
-  documentation collapse, distribution validation, and Release Please handoff
-  in `04-skill-docs-release.md`.
+- [ ] **M5 — Align skill, docs, and release.** Repository-local skill, docs,
+  distribution validation, and release inputs are complete. External skill
+  distribution, Release Please invocation, and generated release-PR review
+  remain authorization-gated in `04-skill-docs-release.md`.
 
 ## Cross-cutting invariants
 
@@ -192,14 +193,11 @@ v0.7 does not install or monitor an issue-policy workflow:
 
 ## Next implementation slice
 
-M4 is next: first freeze exact v0.5.0 and v0.5.1 managed-file evidence and
-representative inventories beside the existing v0.6 evidence, then execute the
-version-aware decommission and migration workflow in
-`docs/plans/baton-v0.7/03-adopter-migration.md`. Include read-only inventory,
-explicit review of v0.5 issues before enrollment, approval for every external
-mutation, and post-change verification. Stop before M5's bundled-skill,
-active-documentation, distribution, and release work; do not adapt or validate
-a downstream orchestrator as Baton product scope.
+Repository-local M4 and M5 preparation is complete. The next slice begins only
+with explicit authorization: commit/push the reviewed changes, refresh the
+registered external skill through its owning distribution flow, invoke Release
+Please, and review the generated v0.7.0 release PR. Do not publish, tag, or
+merge without the separate authorization required by release policy.
 
 ## Open questions
 
@@ -251,3 +249,11 @@ Task module may change without adding public concepts.
   `baton:managed` by default, so the plan now requires version-specific file
   evidence and explicit reviewed enrollment of v0.5-era issues lacking that
   label. Next: freeze the two v0.5 evidence profiles before writing the guide.
+- **2026-07-16 — M4 and repository-local M5:** Added exact-tag-verified v0.5.0
+  and v0.5.1 evidence, conservative cross-version inventories, and a
+  required-check-first v0.7 adopter guide. Replaced the skill, docs,
+  instructions, reviewer rules, and Release Please inputs with the Task-only
+  surface; deleted retired manuals/templates; and added fixture, link, stale-
+  surface, CLI, and release-target checks. Full tests/race/vet/Staticcheck/tidy
+  and the implementation/diet review pass. External distribution and release
+  actions remain intentionally unperformed.
