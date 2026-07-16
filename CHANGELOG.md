@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.7.0](https://github.com/sjunepark/baton/compare/v0.6.0...v0.7.0) (2026-07-16)
+
+
+### ⚠ BREAKING CHANGES
+
+* delete Baton orchestration runtime
+* replace orchestration CLI with Task commands
+
+### Features
+
+* add typed GitHub Task store ([ce378c9](https://github.com/sjunepark/baton/commit/ce378c9918ba889ff3498c2d1a6c9fe68753384f))
+* establish standalone Task core ([593a364](https://github.com/sjunepark/baton/commit/593a3646fd8502823415db5b00d71f3ded53b278))
+* replace orchestration CLI with Task commands ([d967e86](https://github.com/sjunepark/baton/commit/d967e869434a00e7f4deeabad9e66b4c21e6f347))
+
+
+### Bug Fixes
+
+* bound GitHub requests and output writes ([cccbefe](https://github.com/sjunepark/baton/commit/cccbefea485318e065908d7a3db948c5bcad625a))
+* enforce mutation safety across facets ([e2704b7](https://github.com/sjunepark/baton/commit/e2704b70f9aee25174fe477f005d52a05ab80569))
+* harden production transport setup ([d084139](https://github.com/sjunepark/baton/commit/d0841393db7ca572aa7763af92806adc697aa293))
+* make Task mutations prefix-safe ([10a686d](https://github.com/sjunepark/baton/commit/10a686d404f286a4377af6055bdf4d2aded561ee))
+* preserve unconfirmed mutation errors ([96fd421](https://github.com/sjunepark/baton/commit/96fd4212c34230d35899d40579c50ce9436e910d))
+
+
+### Code Refactoring
+
+* delete Baton orchestration runtime ([d41d4a3](https://github.com/sjunepark/baton/commit/d41d4a32e4e803f7a0f77eacff2885bfc878221b))
+
 ## [0.6.0](https://github.com/sjunepark/baton/compare/v0.5.1...v0.6.0) (2026-07-15)
 
 
