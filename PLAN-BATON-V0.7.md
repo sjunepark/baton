@@ -193,9 +193,9 @@ v0.7 does not install or monitor an issue-policy workflow:
 
 ## Next implementation slice
 
-No implementation or handoff work remains. The next action requires separate
-authorization to merge Release Please PR #28 for v0.7.1. That merge is expected
-to create the v0.7.1 tag and GitHub release; verify those outputs afterward.
+No implementation or release handoff work remains for v0.7.1. Release Please
+PR #28 was merged after review, and the v0.7.1 tag and GitHub release were
+published and verified. No next slice is authorized.
 
 ## Open questions
 
