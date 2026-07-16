@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.7.1](https://github.com/sjunepark/baton/compare/v0.7.0...v0.7.1) (2026-07-16)
+
+
+### Bug Fixes
+
+* align bundled skill with Task-only CLI ([ff0b09c](https://github.com/sjunepark/baton/commit/ff0b09cca2ae3364ca38d25a7775c6d8e9491b5d))
+* align v0.7 surfaces with the Task-only CLI ([7364760](https://github.com/sjunepark/baton/commit/7364760d25e266900fc8c50e6025d111f93a1822))
+* complete Task-only skill distribution ([86db573](https://github.com/sjunepark/baton/commit/86db573acdd54094e081e95d7ce7b53eb3cb8862))
+* harden v0.7 review and adopter guidance ([625c973](https://github.com/sjunepark/baton/commit/625c9738421ea3f6adf38144eac3b6b6b6cc1a58))
+
 ## [0.7.0](https://github.com/sjunepark/baton/compare/v0.6.0...v0.7.0) (2026-07-16)
 
 
