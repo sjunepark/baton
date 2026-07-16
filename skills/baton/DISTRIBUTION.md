@@ -15,5 +15,15 @@ diff -ru skills/baton "$distributed"
 ```
 
 A nonzero result is drift and must be resolved through the owning skill
-installer or distribution flow. This check is read-only; repository release
-preparation does not mutate an installed copy outside the repository.
+installer or distribution flow. For the global personal registration managed
+by the `skills` CLI, refresh only Baton from the canonical repository:
+
+```sh
+npx skills add https://github.com/sjunepark/baton/tree/main/skills --list
+npx skills add https://github.com/sjunepark/baton/tree/main/skills \
+  --skill baton --copy -g -a codex -y
+```
+
+Then rerun the comparison above. This command intentionally replaces the
+registered copy and updates its lock entry; the comparison itself remains
+read-only.
