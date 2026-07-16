@@ -22,17 +22,17 @@ used as v0.7 requirements.
 - Exact v0.5.0, v0.5.1, and v0.6.0 decommission evidence is isolated under
   `testdata/migration/`, with conservative inventories and a required-check-
   first, non-destructive adopter guide.
-- All repository-local M5 work is complete. The bundled skill, active docs,
-  repository/reviewer instructions, and Release Please inputs now describe
-  only the issue Task product; duplicated manuals and retired install
-  templates are deleted.
+- M5 is complete through the release handoff. The bundled and registered
+  personal skills, active docs, repository/reviewer instructions, and Release
+  Please inputs now describe only the issue Task product; duplicated manuals
+  and retired install templates are deleted.
 - YAML is no longer a dependency. Repository-wide tests and race detection,
   vet, pinned Staticcheck, tidy/link/fixture/release-input checks, CLI boundary
-  checks, and the implementation/diet review pass.
-- Release Please-owned version, changelog, manifest, tag, and release outputs
-  remain untouched. The registered external personal skill still has v0.6
-  drift; distribution, push, Release Please invocation, publishing, and merge
-  are intentionally outside this completed repository-local slice.
+  checks, and the implementation/diet review pass all pass.
+- Release Please published v0.7.0 through PR #26 before final M5 alignment
+  landed through PR #27, so the immutable v0.7.0 tag retains retired skill,
+  docs, and template surfaces. Corrective v0.7.1 PR #28 is reviewed and green;
+  only its separately authorized merge and resulting publication remain.
 
 ## Confirmed product decisions
 
@@ -149,10 +149,10 @@ v0.7 does not install or monitor an issue-policy workflow:
 - [x] **M4 — Decommission v0.5 and v0.6 adopters safely.** Complete the
   version-aware audit, reviewed removal and explicit-enrollment plan, and
   non-destructive validation in `03-adopter-migration.md`.
-- [ ] **M5 — Align skill, docs, and release.** Repository-local skill, docs,
-  distribution validation, and release inputs are complete. External skill
-  distribution, Release Please invocation, and generated release-PR review
-  remain authorization-gated in `04-skill-docs-release.md`.
+- [x] **M5 — Align skill, docs, and release.** Complete repository alignment,
+  refresh the registered personal skill through its owning distribution flow,
+  and review corrective v0.7.1 PR #28. Merging and publishing that release
+  remain separately authorization-gated in `04-skill-docs-release.md`.
 
 ## Cross-cutting invariants
 
@@ -193,11 +193,9 @@ v0.7 does not install or monitor an issue-policy workflow:
 
 ## Next implementation slice
 
-Repository-local M4 and M5 preparation is complete. The next slice begins only
-with explicit authorization: commit/push the reviewed changes, refresh the
-registered external skill through its owning distribution flow, invoke Release
-Please, and review the generated v0.7.0 release PR. Do not publish, tag, or
-merge without the separate authorization required by release policy.
+No implementation or handoff work remains. The next action requires separate
+authorization to merge Release Please PR #28 for v0.7.1. That merge is expected
+to create the v0.7.1 tag and GitHub release; verify those outputs afterward.
 
 ## Open questions
 
@@ -257,3 +255,8 @@ Task module may change without adding public concepts.
   surface, CLI, and release-target checks. Full tests/race/vet/Staticcheck/tidy
   and the implementation/diet review pass. External distribution and release
   actions remain intentionally unperformed.
+- **2026-07-16 — M5 release handoff:** Reconciled the already-published v0.7.0
+  with the later Task-only M5 merge, made the canonical skill installer-safe,
+  refreshed the registered personal skill with byte-for-byte parity, and
+  reviewed corrective v0.7.1 PR #28 plus its full prospective tag tree. The
+  only remaining action is the separately authorized release merge/publication.
