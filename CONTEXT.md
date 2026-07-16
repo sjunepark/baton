@@ -1,106 +1,24 @@
-# Baton
+# Baton language
 
-Baton observes GitHub repository policy state and recommends repository work to
-callers without owning their execution lifecycle.
+**Task**: A GitHub issue explicitly enrolled with `baton:managed`.
 
-## Language
+**Enrollment**: The reversible presence of `baton:managed`. No body shape,
+comment, template, or other label substitutes for it.
 
-**Repository Snapshot**:
-A versioned, immutable observation produced by one bounded acquisition of a
-repository's GitHub facts, queue facts, and one Recommendation.
-_Avoid_: Progress, Run snapshot, status bundle
+**Mode**: The permitted kind of work: `trivial`, `bounded`, or `investigate`.
+Exactly one mode label makes an open Task classifiable.
 
-**Recommendation**:
-Baton's judgment about what kind of response, if any, the observed repository
-state warrants. A Recommendation is advice, not execution state or authority.
-_Avoid_: Next job, scheduled work, execution
+**Priority**: `p0` through `p3`. An omitted priority is treated as `p2`;
+conflicting priority labels block selection.
 
-**Outcome**:
-The disposition of a Recommendation: actionable, human choice required,
-waiting, blocked, idle, or degraded.
-_Avoid_: Status, run state
+**Blocker**: `needs-info` or `needs:discussion`, or an invalid/conflicting
+classification that prevents a Task from being ready.
 
-**Action**:
-A typed kind of repository work that may be performed only when the Outcome and
-caller policy permit it.
-_Avoid_: Job, Run, command
+**Activity**: The advisory `baton:in-progress` label. It does not claim a Task,
+create a session, or guarantee exclusivity.
 
-**Candidate**:
-A repository-level synchronization, issue, pull request, or branch identity
-considered by a Recommendation, including revision facts where the identity can
-move.
-_Avoid_: Task, Job
+**Done**: The GitHub issue is closed. Baton closes only on explicit `close`
+intent and never infers Done from project implementation or delivery events.
 
-**Completeness**:
-Whether every fact required for the Repository Snapshot's Recommendation was
-acquired and remained stable.
-_Avoid_: Success, health
-
-**Repository Policy**:
-The validated, default-complete model that defines a repository's branches,
-issue and pull-request rules, labels, and managed files.
-_Avoid_: Config file, YAML policy, template settings
-
-**Reconciliation Plan**:
-A reviewable comparison between desired repository policy resources and their
-observed preconditions, bound to a stable plan identity.
-_Avoid_: Dry-run output, command list
-
-**Operation Report**:
-A durable account of each attempted, applied, refused, failed, or unattempted
-effect in a multi-operation mutation.
-_Avoid_: Success flag, error log
-
-**Work Item State**:
-The GitHub-authoritative lifecycle disposition of an issue: ready, active work
-PR, awaiting review on staging, blocked, or promoted/closed. It is derived from
-issue openness, workflow-state labels, and live pull requests.
-_Avoid_: Agent mode, caller execution state, progress
-
-**Agent Mode**:
-The repository-policy capability selected in the issue form, such as ready for
-implementation or investigation only. It does not say where implementation is
-in its GitHub lifecycle.
-_Avoid_: Work Item State, execution status
-
-**Managed Issue Ownership**:
-A trusted, versioned record bound to stable GitHub issue identity. A matching
-legacy form fingerprint is temporary migration evidence that requires record
-backfill; labels are an index only.
-_Avoid_: Managed label, form shape alone, current Agent Mode
-
-**Pull Request Flow**:
-The ownership-aware classification `work`, `promotion`, `misroutedWork`,
-`indeterminate`, or `unmanaged`, derived from repository identity and branch
-shape before policy enrichment.
-_Avoid_: Target branch ownership, agent PR
-
-**Delivery Ledger**:
-The repository-scoped authoritative record of staged work, promotion sealing,
-delivery commitment, and acknowledged base integration.
-_Avoid_: PR history, commit history, delivery database
-
-**Staged Work Record**:
-An immutable snapshot of one managed work PR's merge revision and durably
-managed issue relationships, bound to the delivery cursor at observation time.
-_Avoid_: Merged PR, awaiting-review label, history entry
-
-**Staging Coverage**:
-The durable watermark proving which exact staging revision has been reconciled
-with the delivery ledger's managed-work records.
-_Avoid_: Latest staging SHA, event success, scan completion
-
-**Promotion Plan**:
-The exact set of staged work and reviewed exclusions proposed for one managed
-promotion revision. Only a sealed plan has delivery authority.
-_Avoid_: Expected issues, ancestry range, release contents
-
-**Promotion Cursor**:
-The durable position through staged work consumed by completed promotions,
-independent of the base commit identity GitHub creates for a merge strategy.
-_Avoid_: Base SHA, staging SHA, last merge commit
-
-**Base Integration**:
-Evidence that one exact base revision is acknowledged by a completed promotion
-or incorporated into staging by a reviewed synchronization.
-_Avoid_: Branch equality, ancestry alone, latest base commit
+**Project label**: Any non-Baton label. Baton preserves it and reports it
+separately from fixed Task classification.

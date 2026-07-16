@@ -1,5 +1,10 @@
 # Explicit resource ownership
 
+> Historical: superseded by v0.7, where `baton:managed` is the complete and
+> explicit Task enrollment fact.
+
+Status: Superseded by v0.7.
+
 Baton uses one pure ownership decision before policy acquisition, enrichment,
 queue recommendation, history interpretation, or mutation.
 

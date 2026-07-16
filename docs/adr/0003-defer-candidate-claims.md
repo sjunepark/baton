@@ -1,8 +1,11 @@
 # Defer candidate claims until an automatic dispatcher exists
 
+> Historical: superseded by v0.7. Baton exposes no candidates, claims, runs,
+> or dispatcher behavior.
+
 ## Status
 
-Accepted for the current Baton/Coda design.
+Superseded by v0.7.
 
 ## Context
 

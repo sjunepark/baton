@@ -1,6 +1,9 @@
 # Store delivery state in one dedicated GitHub issue
 
-Status: accepted
+> Historical: superseded by v0.7. Baton no longer owns delivery state or a
+> delivery ledger.
+
+Status: Superseded by v0.7.
 
 Baton will store delivery authority in one locked, repository-scoped GitHub
 issue rather than on each work pull request or in Git ancestry. A reviewed

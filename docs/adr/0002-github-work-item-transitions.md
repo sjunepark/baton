@@ -1,5 +1,10 @@
 # Derive work-item state from GitHub and persist only awaiting review
 
+> Historical: superseded by the v0.7 issue-only Task contract. Project pull
+> requests and delivery events no longer transition Baton Tasks.
+
+Status: Superseded by v0.7.
+
 Baton will keep form-derived work kind and Agent Mode separate from Work Item
 State. For an open issue, live linked work PRs represent `active_work_pr`; the
 configured awaiting-review label represents `awaiting_review`; other policy
