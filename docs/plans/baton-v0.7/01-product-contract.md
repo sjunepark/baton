@@ -247,8 +247,10 @@ There is no installed intake profile in v0.7:
 - The core Task contract can be understood without any branch, PR, workflow,
   delivery, issue-form, Candidate, Recommendation, Run, dispatcher, or
   downstream-orchestrator concept.
-- Every later implementation and migration task can cite this contract instead
-  of recovering behavior from v0.6 code.
+- Every later Task implementation and state-transition decision can cite this
+  contract instead of recovering behavior from an old runtime. The separate
+  adopter-decommission plan may inspect exact release-tag installers only to
+  prove ownership of retired repository files.
 - No unresolved product choice prevents implementing the Task module and CLI.
 
 ## Progress log

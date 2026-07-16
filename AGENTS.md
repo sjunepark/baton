@@ -1,78 +1,70 @@
 # AGENTS.md
 
-## Current State
+## Product boundary
 
-- This repository contains the implemented Baton Go CLI, embedded install
-  templates, tests, and bundled Codex skill.
-- Keep documentation aligned with the implemented CLI and avoid speculative
-  product scope.
-- Treat the source behavior from Creo as historical reference material, not as
-  the current source of truth when Baton code and tests already cover behavior.
+Baton is a setup-free Go CLI for GitHub issues explicitly enrolled as Tasks.
+Keep deterministic Task facts and transitions in Go and semantic
+classification suggestions in the bundled skill. Project implementation and
+delivery behavior belongs to each target project's instructions and tools.
 
-## Implementation Defaults
+Do not add repository config, setup/readiness commands, managed templates,
+policy workflows or comments, branches, pull requests, CI/review/merge logic,
+delivery state, candidate/recommendation/run concepts, or legacy output
+projections to the active product.
 
-- Implement the CLI in Go unless a specific dependency requires another
-  language.
-- Keep deterministic logic in the CLI and agent judgment in the bundled skill.
-- Prefer GitHub GraphQL or REST APIs through a typed internal client over
-  scraping `gh` output. Shell out to `gh` only when it materially reduces auth
-  or platform complexity.
-- Treat repository mutation as unsafe unless the caller has provided an
-  isolated checkout for that work.
-- Do not add worktree leasing or cleanup back into Baton; the invoking
-  environment or user owns checkout lifecycle.
-- Keep commands JSON-first for automation; human text output can wrap the same
-  internal result objects.
+## Implementation
 
-## Safety Gates
+- Keep one canonical Task model and have commands call the Task service
+  directly.
+- Use the typed GitHub client for issue facts; do not scrape human `gh` output.
+- Keep commands JSON-first while deriving concise text from the same results.
+- Validate arguments before repository, authentication, or network work.
+- Model errors explicitly and preserve confirmed state on partial failures.
+- Every mutation must have the same pure plan for `--dry-run` and apply,
+  prefix-safe ordering, explicit intent, and idempotent no-op behavior.
+- Core Task commands must not write local files or mutate Git state.
 
-- Never mutate a user's primary checkout for automation work.
-- Never merge PRs unless the user explicitly asks and the target repo policy
-  allows it.
-- Never delete, reset, or prune caller-owned worktrees from Baton.
-- GitHub Actions policy commands must run trusted Baton code, not PR-modified
-  repository code.
-- Preserve target repository config as the source of policy truth. Defaults are
-  only bootstrap behavior.
+## Adopter decommission safety
 
-## Release Management
+The separate v0.7 adopter guide may describe reviewed removal of old v0.5 or
+v0.6 repository coupling. For that work only:
 
-- Release Please owns `CHANGELOG.md`, `.release-please-manifest.json`, release
-  PRs, `vX.Y.Z` tags, GitHub releases, and marked pinned install-target bumps.
-- Use Conventional Commits intentionally: `fix:` for bug fixes, `feat:` for
-  release-worthy additions, `docs:` for docs-only non-release changes, and
-  `feat!:` or `BREAKING CHANGE:` for breaking public behavior.
-- Public SemVer surface includes CLI flags, JSON output, exit codes, config
-  shape, install templates, generated workflows, and the module path.
-- Review every Release Please PR before merge; do not merge solely because it
-  is generated.
-- Manual tags or GitHub releases are an emergency fallback only after explicit
-  confirmation of the exact version.
+- inventory first and treat unknown settings or unmatched files as unresolved;
+- remove retired required checks before their producer workflows;
+- preview file changes in an explicitly selected non-primary checkout and use
+  normal project review;
+- preserve branches, issues, pull requests, comments, labels, ledgers,
+  environments, worktrees, local artifacts, and customized files;
+- never merge without an explicit request and target-project permission.
 
-## Source References
+Do not turn the decommission guide or fixtures into CLI, Task-package, or
+repository-script compatibility behavior.
 
-The initial implementation extracted behavior from `/Users/sejunpark/IT/creo`:
+## Release management
 
-- `.github/ISSUE_WORKFLOW.md`
-- `.github/agent-issue-policy.yml`
-- `.github/labels.yml`
-- `.github/ISSUE_TEMPLATE/agent-work.yml`
-- `.github/workflows/issue-policy.yml`
-- `.github/workflows/pr-policy.yml`
-- `scripts/github/apply-issue-policy.mjs`
-- `scripts/github/check-pr-policy.mjs`
-- `scripts/github/sync-labels.mjs`
-- `scripts/github/ensure-agent-branch.mjs`
-- `tests/scripts/github-*.test.ts`
+Release Please owns `CHANGELOG.md`, `.release-please-manifest.json`, release
+pull requests, version tags, GitHub releases, and marked version references.
+Use intentional Conventional Commits: `fix:` for fixes, `feat:` for additive
+public behavior, and `feat!:` or `BREAKING CHANGE:` for incompatible public
+behavior. Review generated release changes before merge. Do not push, invoke
+release automation, publish, tag, or merge without explicit authorization.
 
-Use those files as behavior references only when checking migration parity or
-investigating a behavior gap.
+## Validation
 
-## Validation Expectations
+After coherent changes run:
 
-- Add table-driven unit tests for policy parsing and decisions.
-- Add tests for GitHub event fixtures.
-- Add dry-run tests for branch plans.
-- Add integration tests only behind explicit env gates for live GitHub calls.
-- Every command that mutates GitHub or git state must have a dry-run path or a
-  pure planner that can be tested without side effects.
+```sh
+gofmt -w <changed-go-files>
+go vet ./...
+go test ./...
+go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
+go mod tidy -diff
+```
+
+Add table-driven tests for Task classification and planner decisions, request
+boundary tests for the GitHub adapter, and CLI tests for help, JSON/text,
+empty states, mutations, and invalid syntax. Live GitHub tests remain behind
+explicit environment gates.
+
+Keep the v0.7 plan and active docs current. After a reviewable implementation
+slice, run the repository-required code review and apply safe findings.

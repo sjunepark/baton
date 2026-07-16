@@ -1,36 +1,19 @@
 {
   "files": [
-    {
-      "path": "AGENTS.md",
-      "description": "Repository safety gates, implementation defaults, and validation expectations."
-    },
-    {
-      "path": "README.md",
-      "description": "Project overview, current status, and primary command examples."
-    },
-    {
-      "path": "ARCHITECTURE.md",
-      "description": "System shape, module responsibilities, and cross-cutting invariants."
-    },
-    {
-      "path": "docs/REQUIREMENTS.md",
-      "description": "Product and safety requirements for Baton."
-    },
-    {
-      "path": "docs/CLI_SPEC.md",
-      "description": "Command surface and JSON contract."
-    },
-    {
-      "path": "docs/CONFIG_SPEC.md",
-      "description": "Reusable policy configuration contract."
-    },
-    {
-      "path": "docs/EXECUTION_CONTEXT.md",
-      "description": "Automation isolation boundary and caller-owned checkout lifecycle."
-    },
-    {
-      "path": "docs/SKILL_SPEC.md",
-      "description": "Companion Codex skill responsibilities and boundaries."
-    }
+    "AGENTS.md",
+    "ARCHITECTURE.md",
+    "CONTEXT.md",
+    "README.md",
+    "docs/REQUIREMENTS.md",
+    "docs/CLI_SPEC.md",
+    "docs/OUTPUT_SPEC.md",
+    "docs/RELEASE.md",
+    "docs/SKILL_SPEC.md",
+    "docs/USER_FLOWS.md",
+    "docs/adopter-updates/**",
+    "internal/task/**",
+    "internal/cli/**",
+    "internal/gh/**",
+    "skills/baton/**"
   ]
 }

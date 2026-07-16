@@ -1,72 +1,18 @@
-# Release Process
+# Release management
 
-Release Please owns Baton releases:
+Release Please owns `CHANGELOG.md`, `.release-please-manifest.json`, version
+updates in marked files, `vX.Y.Z` tags, release pull requests, and GitHub
+releases. Do not edit or create those outputs manually during normal release
+preparation.
 
-- `CHANGELOG.md`
-- `.release-please-manifest.json`
-- release PRs and version updates
-- `vX.Y.Z` git tags
-- GitHub releases
-- pinned Baton install target references marked with `x-release-please`
-- generated setup baseline references marked with `x-release-please`
+Baton's public SemVer surface includes commands and flags, JSON/text results,
+exit codes, fixed labels and their meaning, repository resolution, the module
+path, and the bundled skill. Breaking changes use `feat!:` or a
+`BREAKING CHANGE:` footer. Under the configured pre-1.0 policy, the v0.7 Task
+reset is a minor-version release.
 
-Do not manually create tags or GitHub releases during the normal flow. An
-emergency manual fallback requires explicit confirmation of the exact version.
-
-## Automation
-
-`.github/workflows/release-please.yml` runs on pushes to `main`. It creates a
-GitHub App installation token and runs `googleapis/release-please-action@v5`
-with `release-please-config.json` and `.release-please-manifest.json`.
-
-Required repo or org settings:
-
-- variable: `RELEASE_PLEASE_APP_ID`
-- secret: `RELEASE_PLEASE_PRIVATE_KEY`
-
-Required GitHub App permissions:
-
-- Contents: read/write
-- Pull requests: read/write
-- Metadata: read-only
-- Issues: read/write for Release Please's default release PR labels
-
-## Versioning
-
-Baton is a single Go module. `go.mod` does not carry a project version; SemVer
-git tags remain the install source for:
-
-```sh
-go install github.com/sjunepark/baton/cmd/baton@vX.Y.Z
-```
-
-Pre-1.0 release policy:
-
-- `fix:` commits produce patch releases.
-- `feat:` commits produce patch releases.
-- breaking changes produce minor releases.
-
-Public SemVer surface includes CLI flags, JSON output, exit codes, config
-shape, install templates, generated workflows, and the module path.
-
-## Adopter Updates
-
-When a release affects consuming repositories, add a short file under
-`docs/adopter-updates/vX.Y.Z.md`. Keep it focused on repo action: runtime pin,
-config, templates, labels, and dry-run checks.
-
-Use `CHANGELOG.md` for broad release history. Use adopter update files for
-repositories that need to decide what to update or migrate after a Baton
-release.
-
-## Commit Messages
-
-- Use `fix:` for bug fixes.
-- Use `feat:` for user-facing additions, including docs/tutorial features that
-  should release.
-- Use `docs:` for docs-only changes that should not release.
-- Use `feat!:` or a `BREAKING CHANGE:` footer for breaking CLI, API, JSON,
-  config, workflow, or install behavior.
-
-Review every Release Please PR before merge. Do not merge solely because it is
-generated.
+Before any release automation, run the documented CI checks, validate the
+skill and adopter note, and verify every Release Please extra-file target
+exists and contains its marker. Review the generated release PR before merge.
+Pushing, invoking release automation, publishing, tagging, and merging require
+separate explicit authorization.
