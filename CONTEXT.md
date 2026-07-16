@@ -55,7 +55,7 @@ _Avoid_: Success flag, error log
 The GitHub-authoritative lifecycle disposition of an issue: ready, active work
 PR, awaiting review on staging, blocked, or promoted/closed. It is derived from
 issue openness, workflow-state labels, and live pull requests.
-_Avoid_: Agent mode, Coda Run state, progress
+_Avoid_: Agent mode, caller execution state, progress
 
 **Agent Mode**:
 The repository-policy capability selected in the issue form, such as ready for

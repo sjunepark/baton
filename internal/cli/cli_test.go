@@ -2,1213 +2,432 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
-	"fmt"
-	"io"
+	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"os/exec"
-	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/sjunepark/baton/internal/apperror"
-	"github.com/sjunepark/baton/internal/config"
-	"github.com/sjunepark/baton/internal/doctor"
 	"github.com/sjunepark/baton/internal/gh"
-	"github.com/sjunepark/baton/internal/operation"
-	"github.com/sjunepark/baton/internal/policy"
-	"github.com/sjunepark/baton/internal/queue"
-	"github.com/sjunepark/baton/internal/snapshot"
-	"github.com/sjunepark/baton/internal/workflow"
+	"github.com/sjunepark/baton/internal/repository"
+	"github.com/sjunepark/baton/internal/task"
 )
 
-func TestNumberedReadCommandsValidateExplicitConfig(t *testing.T) {
-	commands := [][]string{
-		{"pr", "1", "--config", "does-not-exist.yml", "--json"},
-		{"checks", "1", "--config", "does-not-exist.yml", "--json"},
-		{"review-threads", "1", "--config", "does-not-exist.yml", "--json"},
-	}
-
-	for _, args := range commands {
-		t.Run(args[0], func(t *testing.T) {
-			var stdout, stderr bytes.Buffer
-			code := Run(args, &stdout, &stderr, "test")
-			if code != exitConfig {
-				t.Fatalf("Run(%v) exit = %d, want %d; stderr=%s", args, code, exitConfig, stderr.String())
-			}
-			if stderr.String() != "" {
-				t.Fatalf("stderr = %q, want empty structured-mode stderr", stderr.String())
-			}
-			result := decodeErrorResult(t, stdout.String())
-			if result.Category != "config" || result.ExitCode != exitConfig {
-				t.Fatalf("error result = %+v, want config exit %d", result, exitConfig)
-			}
-			if !strings.Contains(result.Message, "does-not-exist.yml") {
-				t.Fatalf("message = %q, want missing config path", result.Message)
-			}
-		})
-	}
-}
-
-func TestWriteJSONIsCompact(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	code := writeJSON(&stdout, &stderr, map[string]any{"kind": "example", "items": []int{1, 2}})
-	if code != exitOK {
-		t.Fatalf("writeJSON exit = %d; stderr=%s", code, stderr.String())
-	}
-	if got := stdout.String(); got != `{"items":[1,2],"kind":"example"}`+"\n" {
-		t.Fatalf("json = %q, want compact object", got)
-	}
-}
-
-func TestPRTransitionRequiresExplicitExecutionMode(t *testing.T) {
-	for _, args := range [][]string{
-		{"pr-transition", "--event", "event.json", "--json"},
-		{"pr-transition", "--event", "event.json", "--dry-run", "--apply", "--json"},
-	} {
-		var stdout, stderr bytes.Buffer
-		code := Run(args, &stdout, &stderr, "test")
-		if code != exitUsage {
-			t.Fatalf("Run(%v) exit = %d, want %d", args, code, exitUsage)
+func TestNoArgumentsAndHelpPerformNoSetup(t *testing.T) {
+	t.Parallel()
+	for _, args := range [][]string{nil, {"--help"}, {"list", "--help"}} {
+		calls := 0
+		rt := runtime{
+			getenv: func(string) string { calls++; return "" },
+			resolve: func(context.Context, repository.TaskOptions) (string, error) {
+				calls++
+				return "", errors.New("unexpected")
+			},
+			newService: func(context.Context) (*task.Service, error) { calls++; return nil, errors.New("unexpected") },
 		}
-		if result := decodeErrorResult(t, stdout.String()); !strings.Contains(result.Message, "exactly one") {
-			t.Fatalf("error = %+v", result)
+		stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+		if code := runContext(context.Background(), args, stdout, stderr, "v0.7.0", rt); code != exitOK || calls != 0 || stderr.Len() != 0 || !strings.Contains(stdout.String(), "Usage:") {
+			t.Fatalf("args %v: code %d calls %d stdout %q stderr %q", args, code, calls, stdout, stderr)
 		}
 	}
 }
 
-func TestDeliveryCommandsRequireReviewedExecutionModes(t *testing.T) {
+func TestVersionHasOneSpellingAndNoSetup(t *testing.T) {
+	t.Parallel()
+	rt := runtime{getenv: func(string) string { t.Fatal("unexpected env"); return "" }}
+	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	if code := runContext(context.Background(), []string{"--version"}, stdout, stderr, "v0.7.0", rt); code != exitOK || stdout.String() != "v0.7.0\n" {
+		t.Fatalf("--version: code %d stdout %q stderr %q", code, stdout, stderr)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := runContext(context.Background(), []string{"version"}, stdout, stderr, "v0.7.0", rt); code != exitUsage || !strings.Contains(stderr.String(), "unknown command") {
+		t.Fatalf("version: code %d stdout %q stderr %q", code, stdout, stderr)
+	}
+}
+
+func TestInvalidInputFailsBeforeRepositoryOrAuth(t *testing.T) {
+	t.Parallel()
 	tests := [][]string{
-		{"delivery-record", "--json"},
-		{"delivery-record", "--dry-run", "--apply", "--json"},
-		{"delivery-bootstrap", "--json"},
-		{"delivery-bootstrap", "--apply", "--json"},
-		{"delivery-bootstrap", "--dry-run", "--initialize", "--json"},
-		{"delivery-bootstrap", "--dry-run", "--genesis-promotion", "4", "--genesis-staging-sha", strings.Repeat("a", 40), "--json"},
+		{"--repo", "--json", "list"},
+		{"--repo", "example/repo", "list", "--config", "x"},
+		{"--repo", "example/repo", "list", "--fields", "number"},
+		{"--repo", "example/repo", "list", "--format", "toon"},
+		{"--repo", "example/repo", "update", "1"},
+		{"--repo", "example/repo", "update", "1", "--add-blocker", "needs-info", "--remove-blocker", "NEEDS-INFO"},
+		{"--repo", "example/repo", "enroll", "0"},
+		{"--repo", "example/repo", "enroll", "1", "--mode", "automatic"},
 	}
 	for _, args := range tests {
-		var stdout, stderr bytes.Buffer
-		if code := Run(args, &stdout, &stderr, "test"); code != exitUsage {
-			t.Fatalf("Run(%v) exit = %d, want %d; stdout=%s stderr=%s", args, code, exitUsage, stdout.String(), stderr.String())
+		calls := 0
+		rt := runtime{
+			getenv: func(string) string { calls++; return "" },
+			resolve: func(context.Context, repository.TaskOptions) (string, error) {
+				calls++
+				return "", errors.New("unexpected")
+			},
+			newService: func(context.Context) (*task.Service, error) { calls++; return nil, errors.New("unexpected") },
+		}
+		stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+		if code := runContext(context.Background(), args, stdout, stderr, "dev", rt); code != exitUsage || calls != 0 || stderr.Len() == 0 {
+			t.Fatalf("args %v: code %d calls %d stdout %q stderr %q", args, code, calls, stdout, stderr)
 		}
 	}
 }
 
-func TestSubcommandHelpExitsZeroOnStdout(t *testing.T) {
-	commands := [][]string{
-		{"queue", "--help"},
-		{"next", "--help"},
-		{"help", "queue"},
+func TestInvalidExplicitRepositoryIsUsageBeforeAuth(t *testing.T) {
+	t.Parallel()
+	serviceCalls := 0
+	rt := runtime{
+		getenv:  func(string) string { return "" },
+		resolve: repository.ResolveTaskRepositoryContext,
+		newService: func(context.Context) (*task.Service, error) {
+			serviceCalls++
+			return nil, errors.New("unexpected")
+		},
 	}
-
-	for _, args := range commands {
-		t.Run(strings.Join(args, " "), func(t *testing.T) {
-			var stdout, stderr bytes.Buffer
-			code := Run(args, &stdout, &stderr, "test")
-			if code != exitOK {
-				t.Fatalf("Run(%v) exit = %d, want %d; stderr=%s", args, code, exitOK, stderr.String())
-			}
-			if stderr.String() != "" {
-				t.Fatalf("stderr = %q, want empty help stderr", stderr.String())
-			}
-			output := stdout.String()
-			for _, want := range []string{"Purpose:", "Usage:", "Examples:", "Related:"} {
-				if !strings.Contains(output, want) {
-					t.Fatalf("help output = %q, want %q", output, want)
-				}
-			}
-		})
+	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	code := runContext(context.Background(), []string{"--repo", "not-a-repository", "list"}, stdout, stderr, "dev", rt)
+	if code != exitUsage || serviceCalls != 0 || !strings.Contains(stderr.String(), "owner/name") {
+		t.Fatalf("code %d service calls %d stdout %q stderr %q", code, serviceCalls, stdout, stderr)
 	}
 }
 
-func TestNoArgsShowsHomeAndHelpStaysGlobal(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	code := Run(nil, &stdout, &stderr, "test")
-	if code != exitOK {
-		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitOK, stdout.String(), stderr.String())
+func TestEveryRetainedCommandHasHelpAndRemovedCommandsAreUnknown(t *testing.T) {
+	t.Parallel()
+	for _, command := range commandOrder {
+		stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+		if code := runContext(context.Background(), []string{command, "--help"}, stdout, stderr, "dev", runtime{}); code != exitOK || stderr.Len() != 0 || !strings.Contains(stdout.String(), commandHelp[command].usage) {
+			t.Fatalf("%s help: code %d stdout %q stderr %q", command, code, stdout, stderr)
+		}
 	}
-	if stderr.String() != "" {
-		t.Fatalf("stderr = %q, want empty", stderr.String())
+	for _, command := range []string{"home", "doctor", "queue", "snapshot", "pr", "checks", "version"} {
+		stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+		if code := runContext(context.Background(), []string{command}, stdout, stderr, "dev", runtime{}); code != exitUsage || !strings.Contains(stderr.String(), "unknown command") {
+			t.Fatalf("%s: code %d stdout %q stderr %q", command, code, stdout, stderr)
+		}
 	}
-	if !strings.Contains(stdout.String(), "description: Coordinate GitHub issue/PR agent workflows") {
-		t.Fatalf("no-args output = %q, want home view", stdout.String())
+}
+
+func TestJSONListShowAndNextContracts(t *testing.T) {
+	t.Parallel()
+	store := task.NewMemoryStore()
+	store.PutIssue("example/repo", task.Issue{Number: 2, Title: "Ready task", URL: "https://example.test/2", Body: "full body", State: task.IssueOpen, Labels: []string{task.LabelManaged, "agent:ready-trivial", "bug"}})
+	store.PutIssue("example/repo", task.Issue{Number: 3, Title: "Blocked task", URL: "https://example.test/3", State: task.IssueOpen, Labels: []string{task.LabelManaged}})
+	rt := testRuntime(store)
+
+	assertJSONGolden(t, rt, []string{"--repo", "example/repo", "--json", "list"}, `{"repository":"example/repo","tasks":[{"number":2,"title":"Ready task","url":"https://example.test/2","issueState":"open","state":"ready","mode":"trivial","priority":"p2","inProgress":false,"blockers":[],"projectLabels":["bug"],"reasons":[]},{"number":3,"title":"Blocked task","url":"https://example.test/3","issueState":"open","state":"blocked","mode":null,"priority":"p2","inProgress":false,"blockers":[],"projectLabels":[],"reasons":["missing_mode"]}]}`)
+	assertJSONGolden(t, rt, []string{"--repo", "example/repo", "--json", "show", "2"}, `{"repository":"example/repo","task":{"number":2,"title":"Ready task","url":"https://example.test/2","issueState":"open","state":"ready","mode":"trivial","priority":"p2","inProgress":false,"blockers":[],"projectLabels":["bug"],"reasons":[],"body":"full body","bodyTruncated":false}}`)
+	assertJSONGolden(t, rt, []string{"--repo", "example/repo", "--json", "next"}, `{"repository":"example/repo","task":{"number":2,"title":"Ready task","url":"https://example.test/2","issueState":"open","state":"ready","mode":"trivial","priority":"p2","inProgress":false,"blockers":[],"projectLabels":["bug"],"reasons":[]}}`)
+}
+
+func TestJSONDefinitiveEmptyStates(t *testing.T) {
+	t.Parallel()
+	rt := testRuntime(task.NewMemoryStore())
+	assertJSONGolden(t, rt, []string{"--repo", "example/repo", "--json", "list"}, `{"repository":"example/repo","tasks":[]}`)
+	assertJSONGolden(t, rt, []string{"--repo", "example/repo", "--json", "next"}, `{"repository":"example/repo","task":null}`)
+	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	if code := runContext(context.Background(), []string{"--repo", "example/repo", "list"}, stdout, stderr, "dev", rt); code != exitOK || stdout.String() != "No tasks.\n" || stderr.Len() != 0 {
+		t.Fatalf("text empty: code %d stdout %q stderr %q", code, stdout, stderr)
 	}
+}
+
+func TestJSONMutationAndIdempotentNoOpContracts(t *testing.T) {
+	t.Parallel()
+	store := task.NewMemoryStore()
+	store.PutIssue("example/repo", task.Issue{Number: 7, Title: "Enroll me", URL: "https://example.test/7", State: task.IssueOpen})
+	rt := testRuntime(store)
+	assertJSONGolden(t, rt, []string{"--repo", "example/repo", "--json", "enroll", "7", "--mode", "bounded", "--dry-run"}, `{"repository":"example/repo","changed":true,"dryRun":true,"changes":[{"action":"add_label","label":"agent:ready-bounded"},{"action":"add_label","label":"baton:managed"}],"task":{"number":7,"title":"Enroll me","url":"https://example.test/7","issueState":"open","state":"ready","mode":"bounded","priority":"p2","inProgress":false,"blockers":[],"projectLabels":[],"reasons":[]}}`)
+	assertJSONGolden(t, rt, []string{"--repo", "example/repo", "--json", "enroll", "7", "--mode", "bounded"}, `{"repository":"example/repo","changed":true,"dryRun":false,"changes":[{"action":"add_label","label":"agent:ready-bounded"},{"action":"add_label","label":"baton:managed"}],"task":{"number":7,"title":"Enroll me","url":"https://example.test/7","issueState":"open","state":"ready","mode":"bounded","priority":"p2","inProgress":false,"blockers":[],"projectLabels":[],"reasons":[]}}`)
+	assertJSONGolden(t, rt, []string{"--repo", "example/repo", "--json", "enroll", "7", "--mode", "bounded"}, `{"repository":"example/repo","changed":false,"dryRun":false,"changes":[],"task":{"number":7,"title":"Enroll me","url":"https://example.test/7","issueState":"open","state":"ready","mode":"bounded","priority":"p2","inProgress":false,"blockers":[],"projectLabels":[],"reasons":[]}}`)
+}
+
+func TestEveryMutationCommandExecutesItsFixedFlags(t *testing.T) {
+	t.Parallel()
+	store := task.NewMemoryStore()
+	store.PutIssue("example/repo", task.Issue{Number: 8, Title: "Lifecycle", State: task.IssueOpen, Labels: []string{task.LabelManaged, "agent:ready-trivial"}})
+	rt := testRuntime(store)
+	commands := [][]string{
+		{"--repo", "example/repo", "--json", "update", "8", "--mode", "investigate", "--priority", "p0", "--add-blocker", "needs-info"},
+		{"--repo", "example/repo", "--json", "update", "8", "--remove-blocker", "needs-info", "--priority", "none"},
+		{"--repo", "example/repo", "--json", "start", "8"},
+		{"--repo", "example/repo", "--json", "stop", "8"},
+		{"--repo", "example/repo", "--json", "close", "8", "--dry-run"},
+		{"--repo", "example/repo", "--json", "close", "8"},
+		{"--repo", "example/repo", "--json", "unenroll", "8"},
+	}
+	for _, args := range commands {
+		stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+		if code := runContext(context.Background(), args, stdout, stderr, "dev", rt); code != exitOK || stderr.Len() != 0 {
+			t.Fatalf("args %v: code %d stdout %q stderr %q", args, code, stdout, stderr)
+		}
+	}
+	issue, err := store.GetIssue(context.Background(), "example/repo", 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if issue.State != task.IssueClosed || reflect.DeepEqual(issue.Labels, []string{}) {
+		t.Fatalf("final issue = %#v", issue)
+	}
+	for _, label := range issue.Labels {
+		if label == task.LabelManaged || label == task.LabelInProgress {
+			t.Fatalf("unenroll left Baton ownership/activity label: %v", issue.Labels)
+		}
+	}
+}
+
+func TestJSONUsageAndOperationalErrorsUseThreeExitContract(t *testing.T) {
+	t.Parallel()
+	rt := testRuntime(task.NewMemoryStore())
+	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	code := runContext(context.Background(), []string{"--json", "--repo", "example/repo", "list", "--fields", "number"}, stdout, stderr, "dev", rt)
+	if code != exitUsage || stdout.Len() != 0 {
+		t.Fatalf("usage: code %d stdout %q stderr %q", code, stdout, stderr)
+	}
+	assertJSONValue(t, stderr.String(), map[string]any{"error": map[string]any{
+		"code": "invalid_usage", "message": "unknown flag --fields", "hint": "Run `baton list --help` for valid syntax.",
+	}})
 
 	stdout.Reset()
 	stderr.Reset()
-	code = Run([]string{"--help"}, &stdout, &stderr, "test")
-	if code != exitOK {
-		t.Fatalf("Run --help exit = %d, want %d", code, exitOK)
+	code = runContext(context.Background(), []string{"--json", "--repo", "example/repo", "show", "99"}, stdout, stderr, "dev", rt)
+	if code != exitOperational || stdout.Len() != 0 {
+		t.Fatalf("operational: code %d stdout %q stderr %q", code, stdout, stderr)
 	}
-	if !strings.Contains(stdout.String(), "Usage:") || strings.Contains(stdout.String(), "leases.active:") {
-		t.Fatalf("--help output = %q, want global help", stdout.String())
-	}
+	assertJSONValue(t, stderr.String(), map[string]any{"error": map[string]any{
+		"code": "operation_failed", "message": "command failed", "hint": "Retry the command.",
+	}})
 }
 
-func TestVersionCommandAndFlag(t *testing.T) {
-	for _, args := range [][]string{
-		{"version"},
-		{"--version"},
-	} {
-		t.Run(strings.Join(args, " "), func(t *testing.T) {
-			var stdout, stderr bytes.Buffer
-			code := Run(args, &stdout, &stderr, "v1.2.3")
-			if code != exitOK {
-				t.Fatalf("Run(%v) exit = %d, want %d; stderr=%s", args, code, exitOK, stderr.String())
-			}
-			if stderr.String() != "" {
-				t.Fatalf("stderr = %q, want empty", stderr.String())
-			}
-			if got := stdout.String(); got != "v1.2.3\n" {
-				t.Fatalf("stdout = %q, want version", got)
-			}
-		})
-	}
+func TestJSONTaskAndPartialMutationErrorContracts(t *testing.T) {
+	t.Parallel()
+	store := task.NewMemoryStore()
+	store.PutIssue("example/repo", task.Issue{Number: 4, Title: "Plain issue", URL: "https://example.test/4", State: task.IssueOpen})
+	rt := testRuntime(store)
+	assertErrorJSONGolden(t, rt, []string{"--json", "--repo", "example/repo", "show", "4"}, exitOperational, `{"error":{"code":"not_managed","message":"issue #4 is not managed by Baton","hint":"Run baton enroll 4 to enroll it."}}`)
+
+	store.FailAction = "add_label"
+	store.FailLabel = "agent:ready-bounded"
+	assertErrorJSONGolden(t, rt, []string{"--json", "--repo", "example/repo", "enroll", "4", "--mode", "bounded"}, exitOperational, `{"error":{"code":"mutation_failed","message":"Task mutation for issue #4 failed","hint":"Inspect the confirmed changes and current task, then retry the command.","changes":[{"action":"create_label","label":"agent:ready-bounded"}]}}`)
+
+	closedStore := task.NewMemoryStore()
+	closedStore.PutIssue("example/repo", task.Issue{Number: 5, Title: "Closed", State: task.IssueClosed, Labels: []string{task.LabelManaged, "agent:ready-trivial"}})
+	assertErrorJSONGolden(t, testRuntime(closedStore), []string{"--json", "--repo", "example/repo", "start", "5"}, exitOperational, `{"error":{"code":"invalid_transition","message":"closed task #5 cannot be started","hint":"Choose an open task."}}`)
 }
 
-func TestUnknownSubcommandHelpReturnsUsage(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	code := Run([]string{"help", "missing"}, &stdout, &stderr, "test")
-	if code != exitUsage {
-		t.Fatalf("Run exit = %d, want %d", code, exitUsage)
-	}
-	if stdout.String() != "" {
-		t.Fatalf("stdout = %q, want empty", stdout.String())
-	}
-	if !strings.Contains(stderr.String(), `unknown command "missing"`) {
-		t.Fatalf("stderr = %q, want unknown command", stderr.String())
-	}
-}
-
-func TestHomeFormatTOON(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	code := Run([]string{"home", "--format", "toon"}, &stdout, &stderr, "test")
-	if code != exitOK {
-		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitOK, stdout.String(), stderr.String())
-	}
-	if stderr.String() != "" {
-		t.Fatalf("stderr = %q, want empty", stderr.String())
-	}
-	output := stdout.String()
-	for _, want := range []string{"kind: home", "schemaVersion: 1", "next:", "help[3]:"} {
-		if !strings.Contains(output, want) {
-			t.Fatalf("home toon = %q, want %q", output, want)
-		}
-	}
-	if !strings.Contains(output, "Run `baton init --dry-run --json`.") {
-		t.Fatalf("home toon = %q, want valid init dry-run suggestion", output)
-	}
-	if strings.Contains(output, "baton init --dry-run --format toon") {
-		t.Fatalf("home toon = %q, want no invalid init --format suggestion", output)
-	}
-	if strings.Contains(output, "lease") {
-		t.Fatalf("home toon = %q, want no lease fields", output)
-	}
-}
-
-func TestHomeBinUsesCurrentExecutablePath(t *testing.T) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatalf("UserHomeDir: %v", err)
-	}
-
-	result := workflow.NewHomeWorkflow().Run(workflow.HomeInput{ExecutablePath: filepath.Join(home, "go", "bin", "baton"), HomeDir: home})
-	if result.Bin != filepath.Join("~", "go", "bin", "baton") {
-		t.Fatalf("home bin = %q, want home-relative executable path", result.Bin)
-	}
-}
-
-func TestDoctorFormatTOON(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	code := Run([]string{"doctor", "--format", "toon"}, &stdout, &stderr, "test")
-	if code != exitOK && code != exitLocalGit {
-		t.Fatalf("Run exit = %d, want ok or local git; stdout=%s stderr=%s", code, stdout.String(), stderr.String())
-	}
-	if stderr.String() != "" {
-		t.Fatalf("stderr = %q, want empty", stderr.String())
-	}
-	output := stdout.String()
-	for _, want := range []string{"kind: doctor", "readyState:", "counts.ok:", "checks["} {
-		if !strings.Contains(output, want) {
-			t.Fatalf("doctor toon = %q, want %q", output, want)
+func TestGlobalRepositoryAndJSONFlagsMustPrecedeCommand(t *testing.T) {
+	t.Parallel()
+	for _, args := range [][]string{{"list", "--repo", "example/repo"}, {"list", "--json"}} {
+		stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+		if code := runContext(context.Background(), args, stdout, stderr, "dev", testRuntime(task.NewMemoryStore())); code != exitUsage {
+			t.Fatalf("args %v: code %d stdout %q stderr %q", args, code, stdout, stderr)
 		}
 	}
 }
 
-func TestDoctorV2GoldenContracts(t *testing.T) {
-	ready := doctor.Result{
-		SchemaVersion: 2, Kind: "doctor", ReadyState: "ready", Counts: doctor.Counts{OK: 2},
-		Checks: []doctor.Check{
-			{Name: "github-auth", Status: "ok", Message: "authenticated repository read succeeded"},
-			{Name: "workflows-enabled", Status: "ok", Message: "all required workflows are active"},
-		},
-		Help: []string{"Run `baton queue --json` or `baton next --json` after doctor is ready."},
-	}
-	var stdout, stderr bytes.Buffer
-	if code := newRenderer(&stdout, &stderr, true).JSON(ready); code != exitOK || stderr.Len() != 0 {
-		t.Fatalf("JSON code = %d, stderr = %q", code, stderr.String())
-	}
-	assertGoldenFile(t, filepath.Join("..", "..", "testdata", "contracts", "doctor-v2-ready.json"), stdout.String())
-
-	blocked := doctor.Result{
-		SchemaVersion: 2, Kind: "doctor", ReadyState: "blocked", Counts: doctor.Counts{Fail: 1},
-		Checks: []doctor.Check{{Name: "actions-policy", Status: "fail", Message: "GitHub Actions is disabled", Remediation: "Enable GitHub Actions."}},
-		Help:   []string{"Enable GitHub Actions."},
-	}
-	stdout.Reset()
-	writeDoctorTOON(&stdout, blocked)
-	assertGoldenFile(t, filepath.Join("..", "..", "testdata", "contracts", "doctor-v2-blocked.toon"), stdout.String())
-}
-
-func assertGoldenFile(t *testing.T, path, got string) {
-	t.Helper()
-	want, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != string(want) {
-		t.Fatalf("output mismatch for %s\ngot:  %q\nwant: %q", path, got, want)
-	}
-}
-
-func TestFormatConflictReturnsStructuredError(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	code := Run([]string{"doctor", "--json", "--format", "toon"}, &stdout, &stderr, "test")
-	if code != exitUsage {
-		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitUsage, stdout.String(), stderr.String())
-	}
-	if stderr.String() != "" {
-		t.Fatalf("stderr = %q, want empty", stderr.String())
-	}
-	result := decodeErrorResult(t, stdout.String())
-	if result.Category != "usage" || !strings.Contains(result.Message, "--json cannot be combined") {
-		t.Fatalf("error result = %#v", result)
-	}
-}
-
-func TestNumberedCommandMissingNumberHonorsTOONFormat(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	code := Run([]string{"checks", "--format", "toon"}, &stdout, &stderr, "test")
-	if code != exitUsage {
-		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitUsage, stdout.String(), stderr.String())
-	}
-	if stderr.String() != "" {
-		t.Fatalf("stderr = %q, want empty", stderr.String())
-	}
-	if !strings.Contains(stdout.String(), "kind: error\n") || !strings.Contains(stdout.String(), "category: usage\n") {
-		t.Fatalf("stdout = %q, want TOON error", stdout.String())
-	}
-}
-
-func TestTOONRenderersStable(t *testing.T) {
-	var stdout bytes.Buffer
-	snapshot := queue.Snapshot{
-		SchemaVersion: 1,
-		Kind:          "queueSnapshot",
-		Repo:          "example/repo",
-		Counts:        queue.SnapshotCounts{TotalIssues: 1, EligibleIssues: 1, EligibleByAction: map[string]int{"issue-implementation": 1}, OpenPullRequests: 0},
-		Issues: []queue.IssueState{{
-			Issue:         queue.Issue{Number: 7, Title: "Fix flaky test"},
-			Eligible:      true,
-			Action:        "issue-implementation",
-			PriorityLabel: "priority:p2",
-			Reasons:       []string{"eligible"},
-		}},
-		Help: []string{"Run `baton next --format toon`."},
-	}
-	writeQueueTOON(&stdout, snapshot)
-	wantQueue, err := os.ReadFile(filepath.Join("..", "..", "testdata", "contracts", "queue-v2-label-intake.toon"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stdout.String() != string(wantQueue) {
-		t.Fatalf("queue toon = %q\nwant %q", stdout.String(), wantQueue)
-	}
-
-	stdout.Reset()
-	writePRsTOON(&stdout, workflow.BuildPullRequestsResult("example/repo", []queue.PullState{{PullRequest: queue.PullRequest{Number: 8, Title: "Update docs", HeadRef: "agent-work/8", BaseRef: "agent", CheckState: "success"}}}))
-	if !strings.Contains(stdout.String(), "kind: pullRequests\n") || !strings.Contains(stdout.String(), "pullRequests[1]:\n  - number=8 headRef=agent-work/8 baseRef=agent checkState=success title=Update docs\n") {
-		t.Fatalf("prs toon = %q", stdout.String())
-	}
-
-	stdout.Reset()
-	writeQueueTOONFields(&stdout, snapshot, []string{"number", "title", "action", "priorityLabel", "reasons"})
-	if !strings.Contains(stdout.String(), "issues[1]:\n  - number=7 title=Fix flaky test action=issue-implementation priorityLabel=priority:p2 reasons=eligible\n") {
-		t.Fatalf("queue fields toon = %q", stdout.String())
-	}
-
-	stdout.Reset()
-	writePRsTOONFields(&stdout, workflow.BuildPullRequestsResult("example/repo", []queue.PullState{{PullRequest: queue.PullRequest{Number: 8, Title: "Update docs", HeadRef: "agent-work/8", CheckState: "success"}}}), []string{"number", "title", "headRef", "checkState"})
-	if !strings.Contains(stdout.String(), "pullRequests[1]:\n  - number=8 title=Update docs headRef=agent-work/8 checkState=success\n") {
-		t.Fatalf("prs fields toon = %q", stdout.String())
-	}
-
-	stdout.Reset()
-	writeNextTOON(&stdout, queue.NextCandidates{
-		SchemaVersion:     2,
-		Kind:              "nextCandidates",
-		Repo:              "example/repo",
-		SelectedAction:    "issue-implementation",
-		Reason:            "eligible-issue",
-		SelectionReason:   "implementation-work-precedes-investigation",
-		SelectionRequired: true,
-		Candidates: []queue.NextCandidate{
-			{Type: "issue", Number: 7, Title: "Fix flaky test", PriorityLabel: "priority:p2"},
-			{Type: "issue", Number: 9, Title: "Update docs"},
-		},
-		DeferredEligibleItems: []queue.NextCandidate{
-			{Type: "issue", Number: 11, Title: "Investigate flaky env"},
-		},
-		Instructions: []string{"Choose exactly one candidate."},
-	})
-	if !strings.Contains(stdout.String(), "kind: nextCandidates\n") ||
-		!strings.Contains(stdout.String(), "selectedAction: issue-implementation\n") ||
-		!strings.Contains(stdout.String(), "selectionReason: implementation-work-precedes-investigation\n") ||
-		!strings.Contains(stdout.String(), "selectionRequired: true\n") ||
-		!strings.Contains(stdout.String(), "candidates[2]:\n  - type=issue number=7 title=Fix flaky test priorityLabel=priority:p2\n  - type=issue number=9 title=Update docs\n") ||
-		!strings.Contains(stdout.String(), "deferredEligibleItems[1]:\n  - type=issue number=11 title=Investigate flaky env\n") ||
-		!strings.Contains(stdout.String(), "instructions[1]:\n  - Choose exactly one candidate.\n") {
-		t.Fatalf("next toon = %q", stdout.String())
-	}
-
-	stdout.Reset()
-	writeChecksTOON(&stdout, gh.CheckRollup{SchemaVersion: 1, Kind: "checkRollup", Repo: "example/repo", PRNumber: 4, State: "failure", Count: 1, Summary: gh.CheckSummary{Failed: 1}, Checks: []gh.CheckState{{Name: "unit", Status: "completed", Conclusion: "failure"}}})
-	if !strings.Contains(stdout.String(), "summary.failed: 1\n") || !strings.Contains(stdout.String(), "checks[1]:\n  - name=unit status=completed conclusion=failure\n") {
-		t.Fatalf("checks toon = %q", stdout.String())
-	}
-
-	stdout.Reset()
-	writeChecksTOONFields(&stdout, gh.CheckRollup{SchemaVersion: 1, Kind: "checkRollup", Repo: "example/repo", PRNumber: 4, State: "failure", Count: 1, Checks: []gh.CheckState{{Name: "unit", Status: "completed", Conclusion: "failure", URL: "https://example/check"}}}, []string{"name", "state", "url"})
-	if !strings.Contains(stdout.String(), "checks[1]:\n  - name=unit state=failure url=https://example/check\n") {
-		t.Fatalf("checks fields toon = %q", stdout.String())
-	}
-
-	stdout.Reset()
-	writeReviewThreadsTOON(&stdout, gh.ReviewThreadResult{SchemaVersion: 1, Kind: "reviewThreads", Repo: "example/repo", PRNumber: 4, Count: 1, Summary: gh.ThreadSummary{Total: 1, Unresolved: 1}, Threads: []gh.ReviewThread{{Path: "main.go", Line: 12, Comments: []gh.ReviewComment{{Body: "fix"}}}}})
-	if !strings.Contains(stdout.String(), "summary.unresolved: 1\n") || !strings.Contains(stdout.String(), "threads[1]:\n  - path=main.go line=12 resolved=false outdated=false comments=1\n") {
-		t.Fatalf("review threads toon = %q", stdout.String())
-	}
-
-	stdout.Reset()
-	writeDoctorTOON(&stdout, doctor.Result{SchemaVersion: 2, Kind: "doctor", ReadyState: "blocked", Counts: doctor.Counts{Fail: 1}, Checks: []doctor.Check{{Name: "github-auth", Status: "fail", Message: "repository read failed", Remediation: "grant metadata read"}}})
-	if !strings.Contains(stdout.String(), "kind: doctor\nschemaVersion: 2\n") || !strings.Contains(stdout.String(), "checks[1]:\n  - name=github-auth status=fail message=repository read failed remediation=grant metadata read\n") {
-		t.Fatalf("doctor toon = %q", stdout.String())
-	}
-}
-
-func TestParseFieldsRejectsUnknownField(t *testing.T) {
-	_, err := parseFields("number,nope", queueFieldSet())
-	if err == nil || !strings.Contains(err.Error(), `unknown field "nope"`) {
-		t.Fatalf("err = %v, want unknown field", err)
-	}
-}
-
-func TestRemovedCommandsReturnUsage(t *testing.T) {
-	for _, command := range []string{"lease", "leases", "release", "prune", "complete"} {
-		t.Run(command, func(t *testing.T) {
-			var stdout, stderr bytes.Buffer
-			code := Run([]string{command}, &stdout, &stderr, "test")
-			if code != exitUsage {
-				t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitUsage, stdout.String(), stderr.String())
-			}
-			if stdout.String() != "" {
-				t.Fatalf("stdout = %q, want empty", stdout.String())
-			}
-			if !strings.Contains(stderr.String(), `unknown command "`+command+`"`) {
-				t.Fatalf("stderr = %q, want unknown command", stderr.String())
-			}
-		})
-	}
-}
-
-func TestGlobalHelpUsesCommandHelpCatalog(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	if code := Run([]string{"--help"}, &stdout, &stderr, "test"); code != exitOK {
-		t.Fatalf("exit = %d stderr=%s", code, stderr.String())
-	}
-	output := stdout.String()
-	for _, name := range commandOrder {
-		help, ok := commandHelps[name]
-		if !ok || !strings.Contains(output, help.Usage) {
-			t.Fatalf("command %q missing from help catalog/output", name)
-		}
-	}
-	if strings.Contains(output, "baton complete") {
-		t.Fatalf("removed command remains in help:\n%s", output)
-	}
-	if len(commandOrder) != len(commandHelps) {
-		t.Fatalf("command order has %d entries, help catalog has %d", len(commandOrder), len(commandHelps))
-	}
-}
-
-func TestCommandHelpCatalogCoversSafetyRelevantFlags(t *testing.T) {
-	required := map[string][]string{
-		"init":               {"profile", "go-install", "install-command"},
-		"issue-policy":       {"labels", "repo", "config"},
-		"pr-policy":          {"repo", "config"},
-		"pr-transition":      {"dry-run", "apply", "repo", "config"},
-		"delivery-record":    {"dry-run", "apply", "repo", "config"},
-		"delivery-bootstrap": {"dry-run", "apply", "plan-id", "repo", "config"},
-		"sync-labels":        {"dry-run", "apply", "repo", "config", "labels-file"},
-		"snapshot":           {"repo", "config", "format", "json"},
-		"ensure-branch":      {"apply", "config", "remote-base", "remote-target", "local-target", "local-upstream"},
-	}
-	for command, flags := range required {
-		documented := strings.Join(commandHelps[command].Flags, "\n")
-		for _, flag := range flags {
-			if !strings.Contains(documented, "--"+flag+":") {
-				t.Errorf("%s help omits --%s", command, flag)
-			}
-		}
-	}
-}
-
-func TestEnsureBranchUsesStagingTerminologyForExistingHistory(t *testing.T) {
-	args := []string{
-		"ensure-branch", "--remote", "origin", "--base", "main", "--target", "dev",
-		"--remote-base", "1111111111111111111111111111111111111111",
-		"--remote-target", "2222222222222222222222222222222222222222",
-		"--local-target", "2222222222222222222222222222222222222222",
-		"--local-upstream", "origin/dev",
-	}
-	var stdout, stderr bytes.Buffer
-	if code := Run(args, &stdout, &stderr, "test"); code != exitOK {
-		t.Fatalf("exit = %d; stdout=%s stderr=%s", code, stdout.String(), stderr.String())
-	}
-	if !strings.Contains(stdout.String(), "Staging branch plan:") || strings.Contains(stdout.String(), "warning:") {
-		t.Fatalf("stdout = %q, want neutral staging-branch status", stdout.String())
-	}
-	if stderr.String() != "" {
-		t.Fatalf("stderr = %q, want empty", stderr.String())
-	}
-}
-
-func TestReviewThreadsRejectsNegativeBodyLimit(t *testing.T) {
-	configPath := writeDefaultConfig(t, t.TempDir())
-	var stdout, stderr bytes.Buffer
-	code := Run([]string{"review-threads", "12", "--config", configPath, "--body-limit", "-1", "--json"}, &stdout, &stderr, "test")
-	if code != exitUsage {
-		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitUsage, stdout.String(), stderr.String())
-	}
-	result := decodeErrorResult(t, stdout.String())
-	if result.Category != "usage" || !strings.Contains(result.Message, "body-limit") {
-		t.Fatalf("error result = %#v", result)
-	}
-}
-
-func TestMigrateConfigDryRunTruncatesContent(t *testing.T) {
-	dir := t.TempDir()
-	configPath := writeDefaultConfig(t, dir)
-	targetPath := filepath.Join(dir, "out.yml")
-
-	var stdout, stderr bytes.Buffer
-	code := Run([]string{"migrate-config", "--from", configPath, "--to", targetPath, "--dry-run", "--body-limit", "8", "--json"}, &stdout, &stderr, "test")
-	if code != exitOK {
-		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitOK, stdout.String(), stderr.String())
-	}
-	var result workflow.ConfigMigrationResult
-	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
-		t.Fatalf("decode config migration: %v\n%s", err, stdout.String())
-	}
-	if !result.ContentTruncated || result.ContentChars <= len(result.Content) || result.Content != result.ContentPreview {
-		t.Fatalf("result = %#v", result)
-	}
-	if result.FullCommand != "baton migrate-config --dry-run --full --json" {
-		t.Fatalf("fullCommand = %q", result.FullCommand)
-	}
-}
-
-func TestMigrateConfigDryRunFullContent(t *testing.T) {
-	dir := t.TempDir()
-	configPath := writeDefaultConfig(t, dir)
-	targetPath := filepath.Join(dir, "out.yml")
-
-	var stdout, stderr bytes.Buffer
-	code := Run([]string{"migrate-config", "--from", configPath, "--to", targetPath, "--dry-run", "--body-limit", "8", "--full", "--json"}, &stdout, &stderr, "test")
-	if code != exitOK {
-		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitOK, stdout.String(), stderr.String())
-	}
-	var result workflow.ConfigMigrationResult
-	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
-		t.Fatalf("decode config migration: %v\n%s", err, stdout.String())
-	}
-	if result.ContentTruncated || result.ContentPreview != "" || result.FullCommand != "" {
-		t.Fatalf("result = %#v", result)
-	}
-	if result.ContentChars != len([]rune(result.Content)) {
-		t.Fatalf("contentChars = %d, content length = %d", result.ContentChars, len([]rune(result.Content)))
-	}
-}
-
-func TestPRPolicyJSONReturnsPolicyExitOnErrors(t *testing.T) {
-	dir := t.TempDir()
-	fixture := filepath.Join(dir, "pr.json")
-	content := `{
-  "pullRequest": {
-    "number": 10,
-    "title": "Update issue policy",
-    "body": "Refs #123",
-    "baseRef": "main",
-    "headRef": "agent-work/123-issue-policy",
-    "baseRepositoryFullName": "example-org/example-repo",
-    "headRepositoryFullName": "example-org/example-repo"
-  },
-  "referencedIssues": [
-    { "number": 123, "labels": ["agent:ready-trivial"] }
-  ],
-  "commitMessages": ["Document issue policy"]
-}`
-	if err := os.WriteFile(fixture, []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	configPath := writeDefaultConfig(t, dir)
-
-	var stdout, stderr bytes.Buffer
-	code := Run([]string{"pr-policy", "--fixture", fixture, "--config", configPath, "--json"}, &stdout, &stderr, "test")
-	if code != exitPolicy {
-		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitPolicy, stdout.String(), stderr.String())
-	}
-	if !strings.Contains(stdout.String(), "agent-work/") {
-		t.Fatalf("stdout = %q, want branch-prefix policy error", stdout.String())
-	}
-}
-
-func TestPRPolicyWorkJSONContractUsesDurableOwnershipWithoutLabels(t *testing.T) {
-	dir := t.TempDir()
-	fixture := filepath.Join(dir, "pr.json")
-	content := `{
-  "pullRequest": {
-    "number": 10,
-    "title": "Update issue policy",
-    "body": "Refs #123",
-    "baseRef": "agent",
-    "headRef": "agent-work/123-issue-policy",
-    "baseRepositoryFullName": "example-org/example-repo",
-    "headRepositoryFullName": "example-org/example-repo"
-  },
-  "referencedIssues": [{
-    "number": 123,
-    "ownership": {"schemaVersion":1,"kind":"managedIssueOwnership","managed":true,"source":"recordV1","diagnostics":[],"errors":[]}
-  }],
-  "commitMessages": ["Document issue policy"]
-}`
-	if err := os.WriteFile(fixture, []byte(content), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	var stdout, stderr bytes.Buffer
-	code := Run([]string{"pr-policy", "--fixture", fixture, "--config", writeDefaultConfig(t, dir), "--json"}, &stdout, &stderr, "test")
-	if code != exitOK || stderr.Len() != 0 {
-		t.Fatalf("Run exit = %d; stdout=%s stderr=%s", code, stdout.String(), stderr.String())
-	}
-	want, err := os.ReadFile(filepath.Join("..", "..", "testdata", "contracts", "pr-policy-v4-work.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.TrimSpace(stdout.String()) != strings.TrimSpace(string(want)) {
-		t.Fatalf("decision = %s\nwant = %s", stdout.String(), want)
-	}
-}
-
-func TestPRPolicyPromotionFixturesExposeEvidence(t *testing.T) {
-	dir := t.TempDir()
-	configPath := writeDefaultConfig(t, dir)
+func TestCLIRepositorySelectionUsesExplicitAmbientThenLocal(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
-		name     string
-		body     string
-		facts    string
-		wantCode int
+		name          string
+		args          []string
+		ambient       string
+		remote        string
+		wantRepo      string
+		wantRemoteUse int
 	}{
-		{name: "manual-only", body: "Manual promotion", facts: `{"expectedIssues":[],"complete":true,"source":"sealedDeliveryPlan","planDigest":"sha256:plan","cursorDigest":"sha256:cursor","coverageDigest":"sha256:coverage","baseIntegration":{"state":"integrated","observedBaseSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","observedStagingSha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","reason":"recorded"}}`, wantCode: exitOK},
-		{name: "issue-backed", body: "Closes #7", facts: `{"expectedIssues":[7],"complete":true,"source":"sealedDeliveryPlan","planDigest":"sha256:plan","cursorDigest":"sha256:cursor","coverageDigest":"sha256:coverage","baseIntegration":{"state":"integrated","observedBaseSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","observedStagingSha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","reason":"recorded"}}`, wantCode: exitOK},
-		{name: "unrelated", body: "Closes #8", facts: `{"expectedIssues":[7],"complete":true,"source":"sealedDeliveryPlan","planDigest":"sha256:plan","cursorDigest":"sha256:cursor","coverageDigest":"sha256:coverage","baseIntegration":{"state":"integrated","observedBaseSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","observedStagingSha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","reason":"recorded"}}`, wantCode: exitPolicy},
-		{name: "degraded", body: "Closes #7", facts: `{"expectedIssues":[7],"complete":false}`, wantCode: exitPolicy},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			fixture := filepath.Join(dir, tt.name+".json")
-			content := fmt.Sprintf(`{
-  "pullRequest": {
-    "number": 10,
-    "title": "Promote agent to main",
-    "body": %q,
-    "baseRef": "main",
-    "headRef": "agent",
-    "baseRepositoryFullName": "example-org/example-repo",
-    "headRepositoryFullName": "example-org/example-repo"
-  },
-  "promotionFacts": %s,
-  "commitMessages": ["Promote reviewed changes"]
-}`, tt.body, tt.facts)
-			if err := os.WriteFile(fixture, []byte(content), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			var stdout, stderr bytes.Buffer
-			code := Run([]string{"pr-policy", "--fixture", fixture, "--config", configPath, "--json"}, &stdout, &stderr, "test")
-			if code != tt.wantCode {
-				t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, tt.wantCode, stdout.String(), stderr.String())
-			}
-			var decision policy.PRPolicyDecision
-			if err := json.Unmarshal(stdout.Bytes(), &decision); err != nil {
-				t.Fatal(err)
-			}
-			if decision.PromotionFacts == nil || !strings.Contains(stdout.String(), "expectedIssues") || !strings.Contains(stdout.String(), "complete") {
-				t.Fatalf("decision = %+v; stdout=%s", decision, stdout.String())
-			}
-		})
-	}
-}
-
-func TestPRPolicyHumanOutputExplainsPromotionEvidence(t *testing.T) {
-	dir := t.TempDir()
-	fixture := filepath.Join(dir, "promotion.json")
-	content := `{
-  "pullRequest": {"number":10,"title":"Promote","body":"","baseRef":"main","headRef":"agent","baseRepositoryFullName":"example-org/example-repo","headRepositoryFullName":"example-org/example-repo"},
-  "promotionFacts": {"expectedIssues":[],"complete":true,"source":"sealedDeliveryPlan","planDigest":"sha256:plan","cursorDigest":"sha256:cursor","coverageDigest":"sha256:coverage","baseIntegration":{"state":"integrated","observedBaseSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","observedStagingSha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","reason":"recorded"}},
-  "commitMessages": ["Promote manual changes"]
-}`
-	if err := os.WriteFile(fixture, []byte(content), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	var stdout, stderr bytes.Buffer
-	code := Run([]string{"pr-policy", "--fixture", fixture, "--config", writeDefaultConfig(t, dir)}, &stdout, &stderr, "test")
-	if code != exitOK || !strings.Contains(stdout.String(), "Promotion evidence: complete=true expectedIssues=[]") {
-		t.Fatalf("Run exit = %d; stdout=%s stderr=%s", code, stdout.String(), stderr.String())
-	}
-}
-
-func TestPolicyCommandFailsWhenRepoConfigMissing(t *testing.T) {
-	dir := t.TempDir()
-	t.Chdir(dir)
-	bodyPath := filepath.Join(dir, "issue.md")
-	if err := os.WriteFile(bodyPath, []byte("### Summary\n\nDo the thing."), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	var stdout, stderr bytes.Buffer
-	code := Run([]string{"issue-policy", "--body-file", bodyPath, "--json"}, &stdout, &stderr, "test")
-	if code != exitConfig {
-		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitConfig, stdout.String(), stderr.String())
-	}
-	if stderr.String() != "" {
-		t.Fatalf("stderr = %q, want empty structured-mode stderr", stderr.String())
-	}
-	result := decodeErrorResult(t, stdout.String())
-	if result.Category != "config" || result.ExitCode != exitConfig {
-		t.Fatalf("error result = %+v, want config exit %d", result, exitConfig)
-	}
-	if !strings.Contains(result.Message, config.ErrConfigNotFound.Error()) {
-		t.Fatalf("message = %q, want missing config error", result.Message)
-	}
-	if !strings.Contains(result.Hint, "<path>") {
-		t.Fatalf("hint = %q, want readable placeholder", result.Hint)
-	}
-}
-
-func TestNextMissingStagingBranchReturnsSetupError(t *testing.T) {
-	t.Setenv("GITHUB_REPOSITORY", "")
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/repos/example-org/example-repo/issues":
-			w.Write([]byte(`[]`))
-		case r.Method == http.MethodGet && r.URL.Path == "/repos/example-org/example-repo/pulls":
-			w.Write([]byte(`[]`))
-		case r.Method == http.MethodGet && r.URL.Path == "/repos/example-org/example-repo/branches/agent":
-			http.NotFound(w, r)
-		default:
-			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
-		}
-	}))
-	defer server.Close()
-
-	t.Setenv("GH_TOKEN", "token")
-	t.Setenv("GITHUB_API_URL", server.URL)
-	dir := t.TempDir()
-	t.Chdir(dir)
-	configPath := writeDefaultConfig(t, dir)
-
-	var stdout, stderr bytes.Buffer
-	code := Run([]string{"next", "--repo", "example-org/example-repo", "--config", configPath, "--json"}, &stdout, &stderr, "test")
-	if code != exitConfig {
-		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitConfig, stdout.String(), stderr.String())
-	}
-	if stderr.String() != "" {
-		t.Fatalf("stderr = %q, want empty structured-mode stderr", stderr.String())
-	}
-	result := decodeErrorResult(t, stdout.String())
-	if result.Category != "config" || result.ExitCode != exitConfig {
-		t.Fatalf("error result = %+v, want config error", result)
-	}
-	if !strings.Contains(result.Message, `staging branch "agent" was not found`) {
-		t.Fatalf("message = %q, want missing staging branch", result.Message)
-	}
-	if !strings.Contains(result.Hint, "baton ensure-branch --json") {
-		t.Fatalf("hint = %q, want ensure-branch guidance", result.Hint)
-	}
-}
-
-func TestSnapshotCommandBlocksRecommendationsWithoutDeliveryLocator(t *testing.T) {
-	t.Setenv("GITHUB_REPOSITORY", "")
-	server := newSnapshotTestServer(t, ruleAPIAvailable)
-	defer server.Close()
-	t.Setenv("GH_TOKEN", "token")
-	t.Setenv("GITHUB_API_URL", server.URL)
-	dir := t.TempDir()
-	t.Chdir(dir)
-	configPath := writeDefaultConfig(t, dir)
-
-	var stdout, stderr bytes.Buffer
-	code := Run([]string{"snapshot", "--repo", "example-org/example-repo", "--config", configPath, "--json"}, &stdout, &stderr, "test")
-	if code != exitOK || stderr.Len() != 0 {
-		t.Fatalf("exit=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
-	}
-	var result struct {
-		SchemaVersion int    `json:"schemaVersion"`
-		Kind          string `json:"kind"`
-		Repository    string `json:"repository"`
-		Completeness  string `json:"completeness"`
-		Queue         struct {
-			Kind string `json:"kind"`
-		} `json:"queue"`
-		Recommendation struct {
-			Outcome string `json:"outcome"`
-		} `json:"recommendation"`
-	}
-	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
-		t.Fatal(err)
-	}
-	if result.SchemaVersion != 2 || result.Kind != "repositorySnapshot" || result.Repository != "example-org/example-repo" || result.Completeness != "degraded" || result.Queue.Kind != "queueSnapshot" || result.Recommendation.Outcome != "degraded" {
-		t.Fatalf("snapshot = %+v", result)
-	}
-}
-
-func TestSnapshotCommandReturnsDegradedFactsAsData(t *testing.T) {
-	t.Setenv("GITHUB_REPOSITORY", "")
-	server := newSnapshotTestServer(t, ruleAPITransientFailure)
-	defer server.Close()
-	t.Setenv("GH_TOKEN", "token")
-	t.Setenv("GITHUB_API_URL", server.URL)
-	dir := t.TempDir()
-	t.Chdir(dir)
-	configPath := writeDefaultConfig(t, dir)
-
-	var stdout, stderr bytes.Buffer
-	code := Run([]string{"snapshot", "--repo", "example-org/example-repo", "--config", configPath, "--json"}, &stdout, &stderr, "test")
-	if code != exitOK || stderr.Len() != 0 {
-		t.Fatalf("exit=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
-	}
-	var result struct {
-		Completeness   string `json:"completeness"`
-		Warnings       []any  `json:"warnings"`
-		Recommendation struct {
-			Outcome string  `json:"outcome"`
-			Action  *string `json:"action"`
-		} `json:"recommendation"`
-	}
-	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
-		t.Fatal(err)
-	}
-	if result.Completeness != "degraded" || len(result.Warnings) == 0 || result.Recommendation.Outcome != "degraded" || result.Recommendation.Action != nil {
-		t.Fatalf("snapshot = %+v", result)
-	}
-}
-
-func TestRecommendationCommandsFailClosedWithoutDeliveryLocatorWhenBranchRulesArePlanGated(t *testing.T) {
-	tests := []struct {
-		command string
-		kind    string
-	}{
-		{command: "queue", kind: "queueSnapshot"},
-		{command: "next", kind: "nextCandidates"},
-		{command: "snapshot", kind: "repositorySnapshot"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.command, func(t *testing.T) {
-			t.Setenv("GITHUB_REPOSITORY", "")
-			server := newSnapshotTestServer(t, ruleAPIPlanUnavailable)
-			defer server.Close()
-			t.Setenv("GH_TOKEN", "token")
-			t.Setenv("GITHUB_API_URL", server.URL)
-			dir := t.TempDir()
-			t.Chdir(dir)
-			configPath := writeDefaultConfig(t, dir)
-
-			var stdout, stderr bytes.Buffer
-			code := Run([]string{tt.command, "--repo", "example-org/example-repo", "--config", configPath, "--json"}, &stdout, &stderr, "test")
-			if stderr.Len() != 0 {
-				t.Fatalf("stderr=%s", stderr.String())
-			}
-			if tt.command == "snapshot" {
-				if code != exitOK {
-					t.Fatalf("exit=%d stdout=%s", code, stdout.String())
-				}
-				var result struct {
-					Kind         string `json:"kind"`
-					Completeness string `json:"completeness"`
-				}
-				if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
-					t.Fatal(err)
-				}
-				if result.Kind != tt.kind || result.Completeness != "degraded" {
-					t.Fatalf("result = %+v, want degraded %s output", result, tt.kind)
-				}
-				return
-			}
-			if code != exitGitHub {
-				t.Fatalf("exit=%d stdout=%s, want fail-closed GitHub error", code, stdout.String())
-			}
-			result := decodeErrorResult(t, stdout.String())
-			if result.Category != "github" || result.Details["warningScopes"] != "deliveryLedger" {
-				t.Fatalf("error result = %+v", result)
-			}
-		})
-	}
-}
-
-type ruleAPIMode int
-
-const githubPlanUnavailableMessage = "Upgrade to GitHub Pro or make this repository public to enable this feature."
-
-const (
-	ruleAPIAvailable ruleAPIMode = iota
-	ruleAPITransientFailure
-	ruleAPIPlanUnavailable
-)
-
-func newSnapshotTestServer(t *testing.T, ruleMode ruleAPIMode) *httptest.Server {
-	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/repos/example-org/example-repo/issues":
-			w.Write([]byte(`[]`))
-		case r.URL.Path == "/repos/example-org/example-repo/pulls":
-			w.Write([]byte(`[]`))
-		case r.URL.Path == "/repos/example-org/example-repo/branches/agent":
-			fmt.Fprintf(w, `{"name":"agent","protected":%t,"commit":{"sha":"agent-sha"}}`, ruleMode == ruleAPIPlanUnavailable)
-		case r.URL.Path == "/repos/example-org/example-repo/branches/main":
-			fmt.Fprintf(w, `{"name":"main","protected":%t,"commit":{"sha":"main-sha"}}`, ruleMode == ruleAPIPlanUnavailable)
-		case strings.Contains(r.URL.Path, "/check-runs"):
-			w.Write([]byte(`{"total_count":0,"check_runs":[]}`))
-		case strings.Contains(r.URL.Path, "/statuses"):
-			w.Write([]byte(`[]`))
-		case strings.Contains(r.URL.Path, "/branches/") && strings.HasSuffix(r.URL.Path, "/protection") && ruleMode == ruleAPIPlanUnavailable:
-			w.WriteHeader(http.StatusForbidden)
-			json.NewEncoder(w).Encode(map[string]string{
-				"message":           githubPlanUnavailableMessage,
-				"documentation_url": "https://docs.github.com/rest/branches/branch-protection#get-branch-protection",
-			})
-		case strings.Contains(r.URL.Path, "/rules/branches/") && ruleMode == ruleAPITransientFailure:
-			w.WriteHeader(http.StatusServiceUnavailable)
-			w.Write([]byte(`{"message":"temporarily unavailable"}`))
-		case strings.Contains(r.URL.Path, "/rules/branches/") && ruleMode == ruleAPIPlanUnavailable:
-			w.WriteHeader(http.StatusForbidden)
-			json.NewEncoder(w).Encode(map[string]string{
-				"message":           githubPlanUnavailableMessage,
-				"documentation_url": "https://docs.github.com/rest/repos/rules#get-rules-for-a-branch",
-			})
-		case strings.Contains(r.URL.Path, "/rules/branches/"):
-			w.Write([]byte(`[]`))
-		default:
-			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
-		}
-	}))
-}
-
-func TestNextRepositoryMismatchReturnsStructuredConfigErrorBeforeGitHubAccess(t *testing.T) {
-	t.Setenv("GITHUB_REPOSITORY", "")
-	dir := t.TempDir()
-	runTestGit(t, dir, "init")
-	runTestGit(t, dir, "remote", "add", "origin", "https://github.com/example/local.git")
-	configPath := filepath.Join(dir, ".github", "baton.yml")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeDefaultConfig(t, filepath.Dir(configPath))
-	t.Chdir(dir)
-	t.Setenv("GH_TOKEN", "")
-	t.Setenv("GITHUB_TOKEN", "")
-
-	var stdout, stderr bytes.Buffer
-	code := Run([]string{"next", "--repo", "example/other", "--json"}, &stdout, &stderr, "test")
-	if code != exitConfig {
-		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitConfig, stdout.String(), stderr.String())
-	}
-	if stderr.String() != "" {
-		t.Fatalf("stderr = %q, want empty", stderr.String())
-	}
-	result := decodeErrorResult(t, stdout.String())
-	if result.SchemaVersion != 1 || result.Category != "config" || result.ExitCode != exitConfig {
-		t.Fatalf("error result = %+v", result)
-	}
-	if !strings.Contains(result.Message, "repository mismatch") || !strings.Contains(result.Message, "example/local") {
-		t.Fatalf("message = %q", result.Message)
-	}
-}
-
-func TestNextRepositoryInspectionFailureReturnsStructuredLocalGitError(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, ".git"), []byte("invalid gitfile\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Chdir(dir)
-
-	var stdout, stderr bytes.Buffer
-	code := Run([]string{"next", "--repo", "example/project", "--json"}, &stdout, &stderr, "test")
-	if code != exitLocalGit {
-		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitLocalGit, stdout.String(), stderr.String())
-	}
-	result := decodeErrorResult(t, stdout.String())
-	if result.Category != "localGit" || result.ExitCode != exitLocalGit {
-		t.Fatalf("error result = %+v", result)
-	}
-}
-
-func TestIssuePolicyApplyJSONFailureReturnsSingleErrorObject(t *testing.T) {
-	dir := t.TempDir()
-	bodyPath := filepath.Join(dir, "issue.md")
-	if err := os.WriteFile(bodyPath, []byte("### Summary\n\nDo the thing."), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	configPath := writeDefaultConfig(t, dir)
-
-	var stdout, stderr bytes.Buffer
-	code := Run([]string{"issue-policy", "--body-file", bodyPath, "--config", configPath, "--apply", "--json"}, &stdout, &stderr, "test")
-	if code != exitUsage {
-		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitUsage, stdout.String(), stderr.String())
-	}
-	if stderr.String() != "" {
-		t.Fatalf("stderr = %q, want empty structured-mode stderr", stderr.String())
-	}
-	result := decodeErrorResult(t, stdout.String())
-	if result.Kind != "error" || result.Category != "usage" {
-		t.Fatalf("error result = %+v, want usage error", result)
-	}
-	if !strings.Contains(result.Message, "--event") {
-		t.Fatalf("message = %q, want --event requirement", result.Message)
-	}
-}
-
-func TestJSONUsageErrorReturnsStructuredError(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	code := Run([]string{"init", "--dry-run", "--apply", "--json"}, &stdout, &stderr, "test")
-	if code != exitUsage {
-		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitUsage, stdout.String(), stderr.String())
-	}
-	if stderr.String() != "" {
-		t.Fatalf("stderr = %q, want empty structured-mode stderr", stderr.String())
-	}
-	result := decodeErrorResult(t, stdout.String())
-	if result.Kind != "error" || result.Category != "usage" || result.ExitCode != exitUsage {
-		t.Fatalf("error result = %+v, want usage error", result)
-	}
-	if result.Hint == "" {
-		t.Fatalf("hint is empty in %+v", result)
-	}
-}
-
-func TestInitYesCannotOverwriteInvalidExistingConfig(t *testing.T) {
-	dir := t.TempDir()
-	t.Chdir(dir)
-	configPath := filepath.Join(dir, ".github", "baton.yml")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	invalid := []byte(`version: 1
-repository:
-  base_branch: stable
-  staging_branch: integration
-unrelated_default_trap: true
-`)
-	if err := os.WriteFile(configPath, invalid, 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	var stdout, stderr bytes.Buffer
-	code := Run([]string{"init", "--apply", "--yes", "--json"}, &stdout, &stderr, "test")
-	if code != exitConfig {
-		t.Fatalf("Run exit = %d, want %d; stdout=%s stderr=%s", code, exitConfig, stdout.String(), stderr.String())
-	}
-	if stderr.Len() != 0 {
-		t.Fatalf("stderr = %q, want empty structured-mode stderr", stderr.String())
-	}
-	result := decodeErrorResult(t, stdout.String())
-	if result.Category != "config" || !strings.Contains(result.Message, "unrelated_default_trap") {
-		t.Fatalf("error result = %+v", result)
-	}
-	got, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(got, invalid) {
-		t.Fatalf("invalid config was overwritten:\ngot:\n%s\nwant:\n%s", got, invalid)
-	}
-	workflowPath := filepath.Join(dir, ".github", "workflows", "pr-policy.yml")
-	if _, err := os.Stat(workflowPath); !os.IsNotExist(err) {
-		t.Fatalf("invalid config rendered unrelated default workflow: %v", err)
-	}
-}
-
-func TestApplicationErrorRendererPreservesAllStableCategories(t *testing.T) {
-	tests := []struct {
-		category apperror.Category
-		code     int
-	}{
-		{apperror.Policy, exitPolicy}, {apperror.Usage, exitUsage}, {apperror.Config, exitConfig},
-		{apperror.Auth, exitAuth}, {apperror.GitHub, exitGitHub}, {apperror.LocalGit, exitLocalGit},
+		{name: "explicit", args: []string{"--repo", "explicit/repo", "list"}, ambient: "ambient/repo", remote: "git@github.com:local/repo.git", wantRepo: "explicit/repo"},
+		{name: "ambient", args: []string{"list"}, ambient: "ambient/repo", remote: "git@github.com:local/repo.git", wantRepo: "ambient/repo"},
+		{name: "local", args: []string{"list"}, remote: "git@github.com:local/repo.git", wantRepo: "local/repo", wantRemoteUse: 1},
 	}
 	for _, test := range tests {
-		t.Run(string(test.category), func(t *testing.T) {
-			var stdout, stderr bytes.Buffer
-			code := newRenderer(&stdout, &stderr, true).ApplicationError(apperror.New(test.category, "safe message", "safe hint"))
-			result := decodeErrorResult(t, stdout.String())
-			if code != test.code || result.Category != string(test.category) || result.ExitCode != test.code || result.Message != "safe message" {
-				t.Fatalf("code=%d result=%+v", code, result)
-			}
-			if result.Retryable {
-				t.Fatalf("unqualified error must not be retryable: %+v", result)
-			}
-			if stderr.Len() != 0 {
-				t.Fatalf("stderr = %q", stderr.String())
-			}
-		})
-	}
-}
-
-func TestApplicationErrorRendererProjectsOnlyTransientFailuresAsRetryable(t *testing.T) {
-	for _, test := range []struct {
-		name   string
-		mutate func(*apperror.Error)
-	}{
-		{name: "typed retryable", mutate: func(err *apperror.Error) { err.Retryable = true }},
-		{name: "rate limited", mutate: func(err *apperror.Error) { err.HTTPStatus = http.StatusTooManyRequests }},
-		{name: "server failure", mutate: func(err *apperror.Error) { err.HTTPStatus = http.StatusBadGateway }},
-		{name: "retry after", mutate: func(err *apperror.Error) { err.RetryAfter = time.Second }},
-	} {
 		t.Run(test.name, func(t *testing.T) {
-			applicationError := apperror.New(apperror.GitHub, "request failed", "")
-			test.mutate(applicationError)
-			var stdout, stderr bytes.Buffer
-			newRenderer(&stdout, &stderr, true).ApplicationError(applicationError)
-			if result := decodeErrorResult(t, stdout.String()); !result.Retryable {
-				t.Fatalf("result = %+v", result)
+			remoteReads := 0
+			resolved := ""
+			rt := runtime{
+				getenv: func(name string) string {
+					if name == "GITHUB_REPOSITORY" {
+						return test.ambient
+					}
+					return ""
+				},
+				resolve: func(ctx context.Context, options repository.TaskOptions) (string, error) {
+					options.ReadRemote = func(context.Context, string) (string, error) {
+						remoteReads++
+						return test.remote, nil
+					}
+					value, err := repository.ResolveTaskRepositoryContext(ctx, options)
+					resolved = value
+					return value, err
+				},
+				newService: func(context.Context) (*task.Service, error) { return task.NewService(task.NewMemoryStore()), nil },
+			}
+			stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			if code := runContext(context.Background(), test.args, stdout, stderr, "dev", rt); code != exitOK || resolved != test.wantRepo || remoteReads != test.wantRemoteUse {
+				t.Fatalf("code %d resolved %q remote reads %d stdout %q stderr %q", code, resolved, remoteReads, stdout, stderr)
 			}
 		})
 	}
 }
 
-func TestRepositorySnapshotTOONPreservesDecisionEvidence(t *testing.T) {
-	var stdout bytes.Buffer
-	action := snapshot.ActionIssueImplementation
-	writeRepositorySnapshotTOON(&stdout, snapshot.RepositorySnapshot{
-		SchemaVersion: 2, Kind: "repositorySnapshot", Repository: "example/repo", Completeness: snapshot.Degraded,
-		Acquisition: snapshot.AcquisitionWindow{StartedAt: time.Unix(1, 0).UTC(), CompletedAt: time.Unix(2, 0).UTC()},
-		Warnings:    []snapshot.Warning{{Code: "rate_limited", Scope: "issues", Message: "retry later", Retryable: true, HTTPStatus: 429, RequestID: "request-1"}},
-		Recommendation: snapshot.Recommendation{
-			Outcome: snapshot.OutcomeActionable, Action: &action, Reasons: []string{"eligible_issue"},
-			Candidates:         []snapshot.Candidate{{Identity: snapshot.CandidateIdentity{Repository: "example/repo", Kind: snapshot.CandidateIssue, Number: 7}, State: "eligible", Reasons: []string{"ready"}}},
-			DeferredCandidates: []snapshot.Candidate{{Identity: snapshot.CandidateIdentity{Repository: "example/repo", Kind: snapshot.CandidateIssue, Number: 8}, State: "deferred"}},
-			Instructions:       []string{"Choose exactly one candidate."},
-		},
-	})
-	output := stdout.String()
-	for _, expected := range []string{
-		"warnings[1]:", "code=rate_limited scope=issues retryable=true httpStatus=429 requestId=request-1 message=retry later",
-		"recommendation.reasons[1]:\n  - eligible_issue", "recommendation.candidates[1]:", "reasons=ready",
-		"recommendation.deferredCandidates[1]:", "number=8 state=deferred", "recommendation.instructions[1]:\n  - Choose exactly one candidate.",
-	} {
-		if !strings.Contains(output, expected) {
-			t.Fatalf("snapshot TOON missing %q:\n%s", expected, output)
+func TestTextPartialMutationErrorIncludesConfirmedState(t *testing.T) {
+	t.Parallel()
+	store := task.NewMemoryStore()
+	store.PutIssue("example/repo", task.Issue{Number: 10, Title: "Partial", State: task.IssueOpen})
+	store.FailAction = "add_label"
+	store.FailLabel = "agent:ready-bounded"
+	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	code := runContext(context.Background(), []string{"--repo", "example/repo", "enroll", "10", "--mode", "bounded"}, stdout, stderr, "dev", testRuntime(store))
+	if code != exitOperational || stdout.Len() != 0 || !strings.Contains(stderr.String(), "confirmed changes:") || strings.Contains(stderr.String(), "current task:") {
+		t.Fatalf("code %d stdout %q stderr %q", code, stdout, stderr)
+	}
+}
+
+func TestProductionHTTPClientHasFiniteDeadlines(t *testing.T) {
+	client := newProductionHTTPClient()
+	transport, ok := client.Transport.(*http.Transport)
+	if !ok || client.Timeout != githubRequestTimeout || transport.ResponseHeaderTimeout != githubResponseHeaderTimeout {
+		t.Fatalf("production HTTP client = %#v transport %#v", client, client.Transport)
+	}
+
+	original := http.DefaultTransport
+	http.DefaultTransport = testRoundTripper{}
+	t.Cleanup(func() { http.DefaultTransport = original })
+	client = newProductionHTTPClient()
+	transport, ok = client.Transport.(*http.Transport)
+	if !ok || client.Timeout != githubRequestTimeout || transport.ResponseHeaderTimeout != githubResponseHeaderTimeout {
+		t.Fatalf("fallback production HTTP client = %#v transport %#v", client, client.Transport)
+	}
+}
+
+func TestProductionHTTPClientPreservesCallerCancellation(t *testing.T) {
+	t.Parallel()
+	started := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		close(started)
+		<-request.Context().Done()
+	}))
+	defer server.Close()
+
+	client := gh.NewClient(server.URL, "", newProductionHTTPClient())
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := client.GetIssueContext(ctx, "example/repo", 1)
+		done <- err
+	}()
+	<-started
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("request error = %v, want context cancellation", err)
 		}
+	case <-time.After(time.Second):
+		t.Fatal("GitHub request ignored caller cancellation")
 	}
 }
 
-func TestApplicationErrorRendererIncludesOperationReportInSingleErrorObject(t *testing.T) {
-	report := operation.NewReport([]operation.Result{
-		{ID: "local", Resource: "record", Action: "write", Status: operation.StatusApplied},
-		{ID: "remote", Resource: "issue", Action: "comment", Status: operation.StatusFailed},
-	})
-	applicationError := apperror.New(apperror.GitHub, "comment failed", "retry")
-	applicationError.Report = &report
-
-	var stdout, stderr bytes.Buffer
-	code := newRenderer(&stdout, &stderr, true).ApplicationError(applicationError)
-	result := decodeErrorResult(t, stdout.String())
-	if code != exitGitHub || result.Report == nil || result.Report.Status != operation.ReportPartial || len(result.Report.Operations) != 2 {
-		t.Fatalf("code=%d result=%+v", code, result)
+func TestTextOutputFailuresReturnOperationalExit(t *testing.T) {
+	t.Parallel()
+	store := task.NewMemoryStore()
+	store.PutIssue("example/repo", task.Issue{Number: 1, Title: "Task", URL: "https://example.test/1", Body: "body", State: task.IssueOpen, Labels: []string{task.LabelManaged, "agent:ready-trivial"}})
+	rt := testRuntime(store)
+	tests := [][]string{
+		nil,
+		{"--version"},
+		{"list", "--help"},
+		{"--repo", "example/repo", "list"},
+		{"--repo", "example/repo", "show", "1"},
+		{"--repo", "example/repo", "next"},
+		{"--repo", "example/repo", "start", "1", "--dry-run"},
 	}
-	decoder := json.NewDecoder(strings.NewReader(stdout.String()))
-	var object map[string]any
-	if err := decoder.Decode(&object); err != nil {
-		t.Fatal(err)
-	}
-	if decoder.Decode(&object) != io.EOF {
-		t.Fatalf("structured failure emitted more than one JSON object: %q", stdout.String())
-	}
-	if stderr.Len() != 0 {
-		t.Fatalf("stderr = %q", stderr.String())
+	for _, args := range tests {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			stderr := &bytes.Buffer{}
+			code := runContext(context.Background(), args, errorWriter{}, stderr, "dev", rt)
+			if code != exitOperational || !strings.Contains(stderr.String(), "error: write output failed") {
+				t.Fatalf("args %v: code %d stderr %q", args, code, stderr)
+			}
+		})
 	}
 }
 
-func TestIssuePolicyOutputPreservesDecisionShapeAndAddsReport(t *testing.T) {
-	report := operation.NewReport([]operation.Result{{ID: "one", Resource: "issue", Action: "label", Status: operation.StatusApplied}})
-	output := issuePolicyOutput{
-		IssuePolicyDecision: policy.IssuePolicyDecision{SchemaVersion: 1, Kind: "issuePolicyDecision", IsFormIssue: true, LabelsToAdd: []string{}, LabelsToRemove: []string{}, MissingRequiredSections: []string{}},
-		Report:              &report,
+func TestJSONOutputFailureUsesOutputError(t *testing.T) {
+	t.Parallel()
+	stderr := &bytes.Buffer{}
+	code := runContext(
+		context.Background(),
+		[]string{"--json", "--repo", "example/repo", "list"},
+		errorWriter{},
+		stderr,
+		"dev",
+		testRuntime(task.NewMemoryStore()),
+	)
+	if code != exitOperational {
+		t.Fatalf("code = %d, stderr %q", code, stderr)
 	}
-	content, err := json.Marshal(output)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var decoded map[string]any
-	if err := json.Unmarshal(content, &decoded); err != nil {
-		t.Fatal(err)
-	}
-	if decoded["kind"] != "issuePolicyDecision" || decoded["report"] == nil || decoded["Decision"] != nil {
-		t.Fatalf("output = %s", content)
+	assertJSONValue(t, stderr.String(), map[string]any{"error": map[string]any{
+		"code": "output_error", "message": "write output failed", "hint": "Retry with a writable output stream.",
+	}})
+}
+
+type errorWriter struct{}
+
+func (errorWriter) Write([]byte) (int, error) { return 0, errors.New("injected write failure") }
+
+type testRoundTripper struct{}
+
+func (testRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, errors.New("unexpected request")
+}
+
+func testRuntime(store *task.MemoryStore) runtime {
+	service := task.NewService(store)
+	return runtime{
+		getenv: func(string) string { return "" },
+		resolve: func(_ context.Context, options repository.TaskOptions) (string, error) {
+			if options.Repository == "" {
+				return "", &repository.TaskResolveError{Code: "missing_repository", Message: "missing", Hint: "pass --repo"}
+			}
+			return options.Repository, nil
+		},
+		newService: func(context.Context) (*task.Service, error) { return service, nil },
 	}
 }
 
-func TestTOONApplicationErrorIncludesOperationReport(t *testing.T) {
-	report := operation.NewReport([]operation.Result{{ID: "remote", Resource: "issue", Action: "comment", Status: operation.StatusFailed}})
-	applicationError := apperror.New(apperror.GitHub, "comment failed", "retry")
-	applicationError.Report = &report
-
-	var stdout, stderr bytes.Buffer
-	code := newFormatRenderer(&stdout, &stderr, formatTOON).ApplicationError(applicationError)
-	if code != exitGitHub || !strings.Contains(stdout.String(), "report:\n") || !strings.Contains(stdout.String(), "status: failed") || !strings.Contains(stdout.String(), "- id: remote") {
-		t.Fatalf("code=%d stdout=%q", code, stdout.String())
-	}
-}
-
-func decodeErrorResult(t *testing.T, content string) errorResult {
+func assertJSONGolden(t *testing.T, rt runtime, args []string, want string) {
 	t.Helper()
-	var result errorResult
-	if err := json.Unmarshal([]byte(content), &result); err != nil {
-		t.Fatalf("decode error result from %q: %v", content, err)
+	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	if code := runContext(context.Background(), args, stdout, stderr, "dev", rt); code != exitOK || stderr.Len() != 0 {
+		t.Fatalf("args %v: code %d stdout %q stderr %q", args, code, stdout, stderr)
 	}
-	return result
+	if got := strings.TrimSpace(stdout.String()); got != want {
+		t.Fatalf("args %v JSON mismatch\n got: %s\nwant: %s", args, got, want)
+	}
 }
 
-func writeDefaultConfig(t *testing.T, dir string) string {
+func assertErrorJSONGolden(t *testing.T, rt runtime, args []string, wantCode int, want string) {
 	t.Helper()
-	content, err := config.MarshalYAML(config.DefaultConfig())
-	if err != nil {
-		t.Fatal(err)
+	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	if code := runContext(context.Background(), args, stdout, stderr, "dev", rt); code != wantCode || stdout.Len() != 0 {
+		t.Fatalf("args %v: code %d stdout %q stderr %q", args, code, stdout, stderr)
 	}
-	path := filepath.Join(dir, "baton.yml")
-	if err := os.WriteFile(path, content, 0o600); err != nil {
-		t.Fatal(err)
+	if got := strings.TrimSpace(stderr.String()); got != want {
+		t.Fatalf("args %v JSON mismatch\n got: %s\nwant: %s", args, got, want)
 	}
-	return path
 }
 
-func runTestGit(t *testing.T, root string, args ...string) {
+func assertJSONValue(t *testing.T, got string, want map[string]any) {
 	t.Helper()
-	commandArgs := append([]string{"-C", root}, args...)
-	output, err := exec.Command("git", commandArgs...).CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %v: %v: %s", commandArgs, err, output)
+	var value map[string]any
+	if err := json.Unmarshal([]byte(got), &value); err != nil {
+		t.Fatalf("decode JSON %q: %v", got, err)
+	}
+	if !reflect.DeepEqual(value, want) {
+		t.Fatalf("JSON = %#v, want %#v", value, want)
 	}
 }

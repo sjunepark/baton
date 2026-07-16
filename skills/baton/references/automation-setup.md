@@ -22,8 +22,8 @@ Do not use a scheduled implementation automation until a manual test run of the
 same prompt succeeds in a normal Codex thread.
 
 Baton Recommendations are not claims. Configure exactly one unattended
-dispatcher per repository. Running independent Coda and standalone dispatchers
-against the same queue is unsafe.
+dispatcher per repository. Running independent dispatchers against the same
+queue is unsafe.
 
 ## Prerequisites
 
@@ -99,8 +99,8 @@ autonomous agents should work from the GitHub issue/PR queue:
 - Push, comment, or open PRs only according to the chosen Baton candidate's
   action.
 - Run focused validation and report the summary and evidence to the caller.
-- Do not create a second completion ledger; Coda or the invoking automation
-  owns execution completion, while GitHub PR/issue state owns work-item state.
+- Do not create a second completion ledger; the invoking automation owns
+  execution completion, while GitHub PR/issue state owns work-item state.
 - Stop and report on auth failures, missing isolation, ambiguous requirements,
   human product/security/schema decisions, unrelated red branch health, or
   unsafe branch/dirty checkout state.

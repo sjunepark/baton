@@ -1,1 +1,0 @@
-{"schemaVersion":1,"kind":"error","category":"config","exitCode":3,"message":"baton config not found","hint":"Run `baton init --dry-run` or pass `--config <path>`.","retryable":false}

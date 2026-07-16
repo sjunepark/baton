@@ -89,8 +89,8 @@ a human intentionally wants to inspect investigation-only candidates.
 Use `--json` instead of `--format toon` when a script needs the stable
 automation contract.
 
-Report execution summaries and validation to the caller. Coda or the invoking
-automation owns Run completion; GitHub issue/PR state owns semantic work-item
+Report execution summaries and validation to the caller. The invoking
+automation owns execution completion; GitHub issue/PR state owns semantic work-item
 completion. Baton does not maintain a local completion ledger.
 
 ## Target Repository Workflows
