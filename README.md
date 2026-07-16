@@ -28,7 +28,7 @@ path:
 
 <!-- x-release-please-start-version -->
 ```sh
-go install github.com/sjunepark/baton/cmd/baton@v0.6.0
+go install github.com/sjunepark/baton/cmd/baton@v0.7.0
 ```
 <!-- x-release-please-end -->
 
@@ -56,7 +56,7 @@ Apply installation files after reviewing the plan:
 
 <!-- x-release-please-start-version -->
 ```sh
-baton init --apply --go-install github.com/sjunepark/baton/cmd/baton@v0.6.0
+baton init --apply --go-install github.com/sjunepark/baton/cmd/baton@v0.7.0
 ```
 <!-- x-release-please-end -->
 
@@ -64,7 +64,7 @@ For a pinned release or alternate trusted source, pass a full command:
 
 <!-- x-release-please-start-version -->
 ```sh
-baton init --apply --install-command 'go install github.com/sjunepark/baton/cmd/baton@v0.6.0'
+baton init --apply --install-command 'go install github.com/sjunepark/baton/cmd/baton@v0.7.0'
 ```
 <!-- x-release-please-end -->
 
