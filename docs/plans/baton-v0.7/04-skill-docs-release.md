@@ -9,16 +9,15 @@ workflow.
 
 ## Current state
 
-- All repository-local M5 work is complete: the bundled skill, active docs,
-  repository instructions, review configuration, Release Please inputs, and
-  local validation now describe the v0.7 Task product.
-- The read-only distribution check finds the registered personal skill still
-  carries v0.6 guidance. Updating that external copy belongs to the owning
-  distribution flow and is intentionally deferred with pushing, invoking
-  Release Please, publishing, and merging.
-- Release Please-owned version/changelog/manifest outputs remain untouched at
-  v0.6.0. Existing breaking commits and the configured pre-1.0 policy are the
-  local evidence that the eventual release PR should propose v0.7.0.
+- M5 is complete through release handoff: the repository and registered
+  personal skill both expose the v0.7 Task product, and the supported
+  distribution comparison reports byte-for-byte parity.
+- Release Please published v0.7.0 through PR #26 before final M5 alignment
+  landed through PR #27, leaving the immutable v0.7.0 tag with retired skill,
+  docs, and template surfaces.
+- Corrective v0.7.1 PR #28 is reviewed and green. Its generated version files
+  and full prospective tag tree are consistent; only the separately authorized
+  merge and resulting publication remain.
 
 ## Bundled skill
 
@@ -110,10 +109,11 @@ workflow.
 - [x] Add the focused v0.7 adopter update from the migration plan, covering
   direct migration from v0.5.0, v0.5.1, and v0.6.0 plus conservative handling
   of mixed, customized, older, and unknown installations.
-- [ ] Let Release Please update `CHANGELOG.md`, the manifest, tags, GitHub
-  release, release PR, and remaining marked version references.
-- [ ] Review the generated release PR's diff, version, migration note, skill,
-  command help, JSON contracts, and install examples before any merge.
+- [x] Reconcile Release Please's v0.7.0 changelog, manifest, README pin, tag,
+  GitHub release, and release PR with the later M5 merge.
+- [x] Review corrective v0.7.1 PR #28's generated diff and full prospective tag
+  tree, confirming its manifest, changelog, README pin, Task-only skill,
+  command/JSON specs, adopter guide, and absence of retired install surfaces.
 - [x] Do not manually tag, publish, or merge the release without explicit user
   authorization.
 
@@ -154,6 +154,8 @@ workflow.
   no Baton execution model.
 - Active Baton documentation makes no downstream-orchestrator compatibility or
   migration promise.
-- Release Please proposes the intended breaking v0.7.0 with an actionable,
-  non-destructive adopter migration from v0.5.0, v0.5.1, or v0.6.0.
-- No release or merge occurs without explicit user authorization.
+- Corrective Release Please PR #28 proposes v0.7.1 with the Task-only skill and
+  an actionable, non-destructive adopter migration from v0.5.0, v0.5.1, or
+  v0.6.0 in its prospective tag tree.
+- No release-PR merge or publication occurs without explicit user
+  authorization.

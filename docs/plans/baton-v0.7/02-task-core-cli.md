@@ -165,9 +165,9 @@ one real adapter and no testing value.
 - [x] Do not add setup/readiness commands, a template installer, issue-policy
   workflow, workflow pin, drift detector, validator command, or policy-comment
   maintainer.
-- [ ] Keep an optional copyable issue-template example in user guidance only.
-  It is not installed, parsed, fingerprinted, or tested as Task authority.
-  This is M5 documentation work; the M2/M3 runtime contains no template path.
+- [x] Keep optional project-owned issue-template guidance in user and skill
+  docs only. Baton ships, installs, parses, fingerprints, and tests no template
+  as Task authority.
 
 ### 6. Delete the old runtime path
 
@@ -205,9 +205,8 @@ one real adapter and no testing value.
 - [x] Remove Coda-specific requirements from active product docs, repository
   instructions, and bundled skill references. Core Task docs should not define
   checkout, process, Run, dispatcher, or execution ownership.
-- [ ] Preserve immutable release notes and clearly superseded ADRs only as
-  history; they must not be linked or tested as active contracts.
-  Superseding and relinking the remaining v0.6 documentation is M5 work.
+- [x] Preserve immutable release notes and clearly superseded ADRs only as
+  history; they are not linked or tested as active contracts.
 
 ## Code areas to inspect first
 
