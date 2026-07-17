@@ -101,7 +101,7 @@ func TestEveryRetainedCommandHasHelpAndRemovedCommandsAreUnknown(t *testing.T) {
 	t.Parallel()
 	for _, command := range commandOrder {
 		stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
-		if code := runContext(context.Background(), []string{command, "--help"}, stdout, stderr, "dev", runtime{}); code != exitOK || stderr.Len() != 0 || !strings.Contains(stdout.String(), commandHelp[command].usage) {
+		if code := runContext(context.Background(), []string{command, "--help"}, stdout, stderr, "dev", runtime{}); code != exitOK || stderr.Len() != 0 || !strings.Contains(stdout.String(), commandHelp[command].usage) || !strings.Contains(stdout.String(), "Behavior:") {
 			t.Fatalf("%s help: code %d stdout %q stderr %q", command, code, stdout, stderr)
 		}
 	}
@@ -110,6 +110,59 @@ func TestEveryRetainedCommandHasHelpAndRemovedCommandsAreUnknown(t *testing.T) {
 		if code := runContext(context.Background(), []string{command}, stdout, stderr, "dev", runtime{}); code != exitUsage || !strings.Contains(stderr.String(), "unknown command") {
 			t.Fatalf("%s: code %d stdout %q stderr %q", command, code, stdout, stderr)
 		}
+	}
+}
+
+func TestHelpOwnsTaskAndMutationSemantics(t *testing.T) {
+	t.Parallel()
+	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	if code := runContext(context.Background(), []string{"--help"}, stdout, stderr, "dev", runtime{}); code != exitOK || stderr.Len() != 0 {
+		t.Fatalf("root help: code %d stdout %q stderr %q", code, stdout, stderr)
+	}
+	for _, fragment := range []string{
+		"exactly when it has `baton:managed`",
+		"create needed fixed labels lazily",
+		"preserve issue bodies, comments, and project labels",
+		"No repository config or setup command is required.",
+		"canonical command behavior and syntax",
+	} {
+		if !strings.Contains(stdout.String(), fragment) {
+			t.Errorf("root help missing %q:\n%s", fragment, stdout)
+		}
+	}
+
+	want := map[string][]string{
+		"list":     {"Reads only issues carrying `baton:managed`.", "An empty result is definitive."},
+		"show":     {"Requires the issue to carry `baton:managed`.", "bounded body preview"},
+		"next":     {"effective priority, then issue number", "blocked and unenrolled issues are not substitutes"},
+		"enroll":   {"creating needed fixed labels lazily", "missing priority has effective priority p2", "Preserves the issue body, comments, and project labels."},
+		"update":   {"Requires an enrolled Task and at least one classification change.", "adds or removes blockers", "Clearing mode blocks an open Task", "clearing priority restores effective priority p2", "preserves issue content and project labels"},
+		"unenroll": {"Removes only `baton:managed` and advisory `baton:in-progress`.", "Preserves the issue, classification labels, blockers, and project labels."},
+		"start":    {"Requires an open enrolled Task.", "Adds `baton:in-progress`", "does not manage project implementation"},
+		"stop":     {"Requires an enrolled Task.", "preserving enrollment and issue state"},
+		"close":    {"closes an open GitHub issue", "succeed idempotently", "Other project events never imply closure"},
+	}
+	for _, command := range commandOrder {
+		command := command
+		t.Run(command, func(t *testing.T) {
+			t.Parallel()
+			stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			if code := runContext(context.Background(), []string{command, "--help"}, stdout, stderr, "dev", runtime{}); code != exitOK || stderr.Len() != 0 {
+				t.Fatalf("code %d stdout %q stderr %q", code, stdout, stderr)
+			}
+			for _, fragment := range want[command] {
+				if !strings.Contains(stdout.String(), fragment) {
+					t.Errorf("help missing %q:\n%s", fragment, stdout)
+				}
+			}
+			if commandHelp[command].mutation {
+				for _, fragment := range []string{"applies immediately", "same plan is returned without writes", "succeeds as a no-op"} {
+					if !strings.Contains(stdout.String(), fragment) {
+						t.Errorf("mutation help missing %q:\n%s", fragment, stdout)
+					}
+				}
+			}
+		})
 	}
 }
 

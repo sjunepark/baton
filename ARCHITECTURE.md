@@ -31,8 +31,8 @@ typed GitHub REST adapter ---- GitHub Issues API
   deterministic `next` ordering, mutation planning, and service orchestration.
 - `internal/task/github_store.go` implements the narrow `IssueStore` seam over
   the typed transport in `internal/gh/`.
-- `skills/baton/` supplies classification and workflow judgment without
-  duplicating deterministic CLI behavior.
+- Live CLI help owns command behavior and syntax. `skills/baton/` supplies
+  classification and workflow judgment without duplicating that contract.
 
 The system is small enough that one root architecture document is sufficient;
 there are no independent runtime subsystems that need nested maps.

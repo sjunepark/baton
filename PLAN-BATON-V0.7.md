@@ -22,17 +22,21 @@ used as v0.7 requirements.
 - Exact v0.5.0, v0.5.1, and v0.6.0 decommission evidence is isolated under
   `testdata/migration/`, with conservative inventories and a required-check-
   first, non-destructive adopter guide.
-- M5 is complete through the release handoff. The bundled and registered
-  personal skills, active docs, repository/reviewer instructions, and Release
-  Please inputs now describe only the issue Task product; duplicated manuals
-  and retired install templates are deleted.
+- M5 is complete through the release handoff. The active docs,
+  repository/reviewer instructions, and Release Please inputs describe only
+  the issue Task product; retired install templates are deleted.
+- Live CLI help is the canonical command reference. The bundled skill contains
+  only issue-writing, classification, authorization, and sequencing judgment;
+  maintainer-only distribution guidance lives under `docs/`.
+- The registered personal skill predates the CLI-first refinement and requires
+  the documented refresh before reuse or distribution.
 - YAML is no longer a dependency. Repository-wide tests and race detection,
   vet, pinned Staticcheck, tidy/link/fixture/release-input checks, CLI boundary
   checks, and the implementation/diet review pass all pass.
 - Release Please published v0.7.0 through PR #26 before final M5 alignment
   landed through PR #27, so the immutable v0.7.0 tag retains retired skill,
-  docs, and template surfaces. Corrective v0.7.1 PR #28 is reviewed and green;
-  only its separately authorized merge and resulting publication remain.
+  docs, and template surfaces. Corrective v0.7.1 PR #28 and its release were
+  published and verified.
 
 ## Confirmed product decisions
 
@@ -151,8 +155,7 @@ v0.7 does not install or monitor an issue-policy workflow:
   non-destructive validation in `03-adopter-migration.md`.
 - [x] **M5 — Align skill, docs, and release.** Complete repository alignment,
   refresh the registered personal skill through its owning distribution flow,
-  and review corrective v0.7.1 PR #28. Merging and publishing that release
-  remain separately authorization-gated in `04-skill-docs-release.md`.
+  review corrective v0.7.1 PR #28, and verify its published release.
 
 ## Cross-cutting invariants
 
@@ -195,7 +198,9 @@ v0.7 does not install or monitor an issue-policy workflow:
 
 No implementation or release handoff work remains for v0.7.1. Release Please
 PR #28 was merged after review, and the v0.7.1 tag and GitHub release were
-published and verified. No next slice is authorized.
+published and verified. Before the refined skill is reused or distributed,
+refresh the registered copy through `docs/SKILL_DISTRIBUTION.md`. No next
+implementation slice is authorized.
 
 ## Open questions
 

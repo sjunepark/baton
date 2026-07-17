@@ -7,7 +7,7 @@ baton --version
 
 Repository resolution uses `--repo`, then `GITHUB_REPOSITORY`, then a local
 GitHub remote. Credentials use `GITHUB_TOKEN`, `GH_TOKEN`, or `gh` auth.
-Run `baton COMMAND --help` for exact syntax.
+Run `baton COMMAND --help` for the canonical command behavior and exact syntax.
 
 ## Reads
 
@@ -27,10 +27,13 @@ Run `baton COMMAND --help` for exact syntax.
 - `stop ISSUE [--dry-run]`
 - `close ISSUE [--dry-run]`
 
-A mutation applies unless `--dry-run` is present. `enroll` may omit mode or
-priority, yielding a blocked Task until later `update`. `unenroll` removes
-only enrollment and advisory activity. `close` requires an enrolled Task,
-closes it when open, and succeeds as an idempotent no-op when already closed.
+A mutation applies unless `--dry-run` is present. An open enrolled Task without
+a mode is blocked; a missing priority has effective priority `p2`. `unenroll`
+removes only enrollment and advisory activity. Clearing mode through `update`
+blocks an open Task; clearing priority restores effective priority `p2`.
+`close` requires an enrolled Task, closes it when open, and succeeds
+idempotently when already closed while clearing stale advisory activity if
+present.
 
 ## Output and errors
 

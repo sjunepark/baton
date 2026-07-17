@@ -21,13 +21,13 @@ var activeMarkdown = []string{
 	"docs/OUTPUT_SPEC.md",
 	"docs/RELEASE.md",
 	"docs/REQUIREMENTS.md",
+	"docs/SKILL_DISTRIBUTION.md",
 	"docs/SKILL_SPEC.md",
 	"docs/USER_FLOWS.md",
 	"docs/adopter-updates/README.md",
 	"docs/adopter-updates/v0.7.0.md",
-	"skills/baton/DISTRIBUTION.md",
 	"skills/baton/SKILL.md",
-	"skills/baton/references/commands.md",
+	"skills/baton/references/classification.md",
 	"skills/baton/references/todo-creation.md",
 	"testdata/README.md",
 }
@@ -96,8 +96,8 @@ func TestActiveDocumentationOmitsRetiredCommandContracts(t *testing.T) {
 func TestBundledSkillHasOnlyCurrentReferences(t *testing.T) {
 	root := repositoryRoot(t)
 	want := map[string]bool{
-		"commands.md":      true,
-		"todo-creation.md": true,
+		"classification.md": true,
+		"todo-creation.md":  true,
 	}
 	entries, err := os.ReadDir(filepath.Join(root, "skills/baton/references"))
 	if err != nil {
@@ -111,6 +111,43 @@ func TestBundledSkillHasOnlyCurrentReferences(t *testing.T) {
 	}
 	for missing := range want {
 		t.Errorf("missing bundled skill reference %s", missing)
+	}
+}
+
+func TestBundledSkillContainsOnlyRuntimeGuidance(t *testing.T) {
+	root := repositoryRoot(t)
+	want := map[string]bool{"SKILL.md": true, "references": true}
+	entries, err := os.ReadDir(filepath.Join(root, "skills/baton"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if !want[entry.Name()] {
+			t.Errorf("unexpected bundled skill entry %s", entry.Name())
+		}
+		delete(want, entry.Name())
+	}
+	for missing := range want {
+		t.Errorf("missing bundled skill entry %s", missing)
+	}
+}
+
+func TestBundledSkillDefersCommandContractToLiveHelp(t *testing.T) {
+	root := repositoryRoot(t)
+	content, err := os.ReadFile(filepath.Join(root, "skills/baton/SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := string(content)
+	for _, required := range []string{"Before constructing a Baton command", "baton COMMAND --help", "single source of truth"} {
+		if !strings.Contains(value, required) {
+			t.Errorf("bundled skill missing CLI authority %q", required)
+		}
+	}
+	for _, duplicate := range []string{"references/commands.md", "DISTRIBUTION.md", "--repo owner/name", "[--dry-run]"} {
+		if strings.Contains(value, duplicate) {
+			t.Errorf("bundled skill retains duplicate or maintainer guidance %q", duplicate)
+		}
 	}
 }
 

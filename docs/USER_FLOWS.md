@@ -1,5 +1,8 @@
 # Baton v0.7 user flows
 
+Consult the relevant `baton COMMAND --help` before invoking a command; live
+help is authoritative for behavior and syntax.
+
 ## Enroll an existing issue
 
 Inspect the issue, choose the least-permissive mode and suitable priority,
