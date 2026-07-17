@@ -716,24 +716,106 @@ func titleVerb(value string) string {
 }
 
 type helpEntry struct {
-	purpose string
-	usage   string
+	purpose  string
+	usage    string
+	details  []string
+	mutation bool
 }
 
 var commandHelp = map[string]helpEntry{
-	"list":     {"List enrolled Tasks.", "baton [--repo owner/name] [--json] list [--state open|closed|all]"},
-	"show":     {"Show one enrolled Task.", "baton [--repo owner/name] [--json] show ISSUE [--full]"},
-	"next":     {"Return one deterministic ready Task.", "baton [--repo owner/name] [--json] next"},
-	"enroll":   {"Enroll an issue as a Task.", "baton [--repo owner/name] [--json] enroll ISSUE [--mode trivial|bounded|investigate] [--priority p0|p1|p2|p3] [--dry-run]"},
-	"update":   {"Update fixed Task classification.", "baton [--repo owner/name] [--json] update ISSUE [--mode trivial|bounded|investigate|none] [--priority p0|p1|p2|p3|none] [--add-blocker needs-info|needs:discussion]... [--remove-blocker needs-info|needs:discussion]... [--dry-run]"},
-	"unenroll": {"Reversibly unenroll a Task.", "baton [--repo owner/name] [--json] unenroll ISSUE [--dry-run]"},
-	"start":    {"Add advisory activity to a Task.", "baton [--repo owner/name] [--json] start ISSUE [--dry-run]"},
-	"stop":     {"Clear advisory activity from a Task.", "baton [--repo owner/name] [--json] stop ISSUE [--dry-run]"},
-	"close":    {"Explicitly close a Task.", "baton [--repo owner/name] [--json] close ISSUE [--dry-run]"},
+	"list": {
+		purpose: "List enrolled Tasks.",
+		usage:   "baton [--repo owner/name] [--json] list [--state open|closed|all]",
+		details: []string{
+			"Reads only issues carrying `baton:managed`.",
+			"Without --state, lists open Tasks. An empty result is definitive.",
+		},
+	},
+	"show": {
+		purpose: "Show one enrolled Task.",
+		usage:   "baton [--repo owner/name] [--json] show ISSUE [--full]",
+		details: []string{
+			"Requires the issue to carry `baton:managed`.",
+			"Shows a bounded body preview by default; --full returns the complete body.",
+		},
+	},
+	"next": {
+		purpose: "Return one deterministic ready Task.",
+		usage:   "baton [--repo owner/name] [--json] next",
+		details: []string{
+			"Selects ready open Tasks by effective priority, then issue number.",
+			"An empty result is definitive; blocked and unenrolled issues are not substitutes.",
+		},
+	},
+	"enroll": {
+		purpose: "Enroll an issue as a Task.",
+		usage:   "baton [--repo owner/name] [--json] enroll ISSUE [--mode trivial|bounded|investigate] [--priority p0|p1|p2|p3] [--dry-run]",
+		details: []string{
+			"Adds requested classification and `baton:managed`, creating needed fixed labels lazily.",
+			"A missing mode blocks an open Task; a missing priority has effective priority p2.",
+			"Preserves the issue body, comments, and project labels.",
+		},
+		mutation: true,
+	},
+	"update": {
+		purpose: "Update fixed Task classification.",
+		usage:   "baton [--repo owner/name] [--json] update ISSUE [--mode trivial|bounded|investigate|none] [--priority p0|p1|p2|p3|none] [--add-blocker needs-info|needs:discussion]... [--remove-blocker needs-info|needs:discussion]... [--dry-run]",
+		details: []string{
+			"Requires an enrolled Task and at least one classification change.",
+			"Replaces or clears mode and priority labels and adds or removes blockers.",
+			"Clearing mode blocks an open Task; clearing priority restores effective priority p2.",
+			"Creates needed fixed labels lazily and preserves issue content and project labels.",
+		},
+		mutation: true,
+	},
+	"unenroll": {
+		purpose: "Reversibly unenroll a Task.",
+		usage:   "baton [--repo owner/name] [--json] unenroll ISSUE [--dry-run]",
+		details: []string{
+			"Removes only `baton:managed` and advisory `baton:in-progress`.",
+			"Preserves the issue, classification labels, blockers, and project labels.",
+		},
+		mutation: true,
+	},
+	"start": {
+		purpose: "Add advisory activity to a Task.",
+		usage:   "baton [--repo owner/name] [--json] start ISSUE [--dry-run]",
+		details: []string{
+			"Requires an open enrolled Task.",
+			"Adds `baton:in-progress`, creating that fixed label when needed.",
+			"Leaves the GitHub issue open and does not manage project implementation.",
+		},
+		mutation: true,
+	},
+	"stop": {
+		purpose: "Clear advisory activity from a Task.",
+		usage:   "baton [--repo owner/name] [--json] stop ISSUE [--dry-run]",
+		details: []string{
+			"Requires an enrolled Task.",
+			"Removes `baton:in-progress` while preserving enrollment and issue state.",
+		},
+		mutation: true,
+	},
+	"close": {
+		purpose: "Explicitly close a Task.",
+		usage:   "baton [--repo owner/name] [--json] close ISSUE [--dry-run]",
+		details: []string{
+			"Requires enrollment, closes an open GitHub issue, and clears advisory activity.",
+			"Already-closed Tasks succeed idempotently and clear stale advisory activity when present.",
+			"Other project events never imply closure.",
+		},
+		mutation: true,
+	},
 }
 
 func printHelp(writer io.Writer) error {
 	if _, err := fmt.Fprintln(writer, "Baton manages explicitly enrolled GitHub issue Tasks."); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(writer, "An issue is a Task exactly when it has `baton:managed`; bodies and comments do not control Task state."); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(writer, "Mutations create needed fixed labels lazily and preserve issue bodies, comments, and project labels."); err != nil {
 		return err
 	}
 	if _, err := fmt.Fprintln(writer, "\nUsage:"); err != nil {
@@ -745,6 +827,24 @@ func printHelp(writer io.Writer) error {
 	if _, err := fmt.Fprintln(writer, "  baton --version"); err != nil {
 		return err
 	}
+	if _, err := fmt.Fprintln(writer, "\nRepository and credentials:"); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(writer, "  Resolve --repo, then GITHUB_REPOSITORY, then a local GitHub remote."); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(writer, "  Authenticate with GITHUB_TOKEN, GH_TOKEN, or existing gh authentication."); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(writer, "  No repository config or setup command is required."); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(writer, "\nOutput:"); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(writer, "  --json returns the canonical machine-readable result."); err != nil {
+		return err
+	}
 	if _, err := fmt.Fprintln(writer, "\nCommands:"); err != nil {
 		return err
 	}
@@ -753,11 +853,35 @@ func printHelp(writer io.Writer) error {
 			return err
 		}
 	}
+	if _, err := fmt.Fprintln(writer, "\nRun `baton COMMAND --help` for canonical command behavior and syntax."); err != nil {
+		return err
+	}
 	return nil
 }
 
 func printCommandHelp(writer io.Writer, command string) error {
 	entry := commandHelp[command]
-	_, err := fmt.Fprintf(writer, "baton %s\n\n%s\n\nUsage:\n  %s\n", command, entry.purpose, entry.usage)
-	return err
+	if _, err := fmt.Fprintf(writer, "baton %s\n\n%s\n\nUsage:\n  %s\n", command, entry.purpose, entry.usage); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(writer, "\nBehavior:"); err != nil {
+		return err
+	}
+	for _, detail := range entry.details {
+		if _, err := fmt.Fprintf(writer, "  %s\n", detail); err != nil {
+			return err
+		}
+	}
+	if entry.mutation {
+		if _, err := fmt.Fprintln(writer, "  Without --dry-run, the mutation applies immediately."); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintln(writer, "  With --dry-run, the same plan is returned without writes."); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintln(writer, "  A valid mutation whose desired state is already satisfied succeeds as a no-op."); err != nil {
+			return err
+		}
+	}
+	return nil
 }

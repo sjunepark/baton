@@ -9,15 +9,14 @@ workflow.
 
 ## Current state
 
-- M5 is complete through release handoff: the repository and registered
-  personal skill both expose the v0.7 Task product, and the supported
-  distribution comparison reports byte-for-byte parity.
+- M5 is complete through release handoff. The repository skill now delegates
+  command facts and syntax to live CLI help; the registered personal copy
+  predates that refinement and requires the documented refresh before reuse.
 - Release Please published v0.7.0 through PR #26 before final M5 alignment
   landed through PR #27, leaving the immutable v0.7.0 tag with retired skill,
   docs, and template surfaces.
-- Corrective v0.7.1 PR #28 is reviewed and green. Its generated version files
-  and full prospective tag tree are consistent; only the separately authorized
-  merge and resulting publication remain.
+- Corrective v0.7.1 PR #28, its tag, and its GitHub release were published and
+  verified after review.
 
 ## Bundled skill
 
@@ -42,11 +41,13 @@ workflow.
   `$baton run`, `$baton follow-up`, `$baton investigate`, and `$baton automate`
   instructions.
 - [x] Delete `skills/baton/references/automation-setup.md`,
-  `delivery-bootstrap.md`, and `json-contracts.md`. Rewrite
-  `todo-creation.md` without required headings/body preflight, and reduce
-  `commands.md` to links to current CLI help.
-- [x] Keep command syntax in concise CLI help/reference rather than duplicating
-  it across multiple skill files.
+  `delivery-bootstrap.md`, `json-contracts.md`, and the duplicate
+  `commands.md`. Keep issue creation and classification judgment in focused
+  references reached only by the relevant skill branches.
+- [x] Keep command behavior and syntax in live CLI help. Require the skill to
+  consult that source instead of duplicating flags, values, or usage examples.
+- [x] Keep maintainer-only distribution guidance in
+  `docs/SKILL_DISTRIBUTION.md`, outside the delivered runtime skill.
 - [x] Add a check or documented distribution step that detects drift between
   the repository skill and installed/distributed copies.
 
@@ -154,8 +155,8 @@ workflow.
   no Baton execution model.
 - Active Baton documentation makes no downstream-orchestrator compatibility or
   migration promise.
-- Corrective Release Please PR #28 proposes v0.7.1 with the Task-only skill and
-  an actionable, non-destructive adopter migration from v0.5.0, v0.5.1, or
-  v0.6.0 in its prospective tag tree.
-- No release-PR merge or publication occurs without explicit user
+- Corrective Release Please PR #28 delivered v0.7.1 with the Task-only skill
+  and an actionable, non-destructive adopter migration from v0.5.0, v0.5.1,
+  or v0.6.0.
+- Future release-PR merges and publication require explicit user
   authorization.

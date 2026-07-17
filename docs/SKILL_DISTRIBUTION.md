@@ -1,4 +1,4 @@
-# Bundled skill distribution
+# Baton skill distribution
 
 `skills/baton/` is the repository source. Before distributing a release,
 compare it with the registered copy rather than editing either copy by hand.
