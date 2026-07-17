@@ -1,22 +1,6 @@
-language: "en-US"
+inheritance: true
+
 reviews:
-  profile: "assertive"
-  request_changes_workflow: true
-  high_level_summary: true
-  review_status: true
-  review_details: true
-  path_filters:
-    - "!go.sum"
-  auto_review:
-    enabled: true
-    base_branches: []
-    drafts: true
-    ignore_title_keywords:
-      - "WIP"
-      - "[skip review]"
-    ignore_usernames:
-      - "dependabot[bot]"
-      - "renovate[bot]"
   path_instructions:
     - path: "cmd/**/*.go"
       instructions: |
@@ -41,5 +25,3 @@ reviews:
       instructions: |
         Treat fixtures as inert exact-release evidence. They must never
         authorize deletion, issue enrollment, or runtime compatibility.
-chat:
-  auto_reply: true
