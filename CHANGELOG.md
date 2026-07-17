@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.2](https://github.com/sjunepark/baton/compare/v0.7.1...v0.7.2) (2026-07-17)
+
+
+### Features
+
+* make CLI help canonical for Baton agents ([415dfbb](https://github.com/sjunepark/baton/commit/415dfbb4d29ae2dd8d18de0e8fb3a79cf352f996))
+* make CLI help canonical for Baton agents ([1aad535](https://github.com/sjunepark/baton/commit/1aad535bb4afc55e877f4b206d9bee0d8bc5f9c4))
+
 ## [0.7.1](https://github.com/sjunepark/baton/compare/v0.7.0...v0.7.1) (2026-07-16)
 
 
