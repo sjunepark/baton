@@ -1,16 +1,13 @@
 language: "en-US"
 inheritance: true
 reviews:
-  profile: "assertive"
   request_changes_workflow: true
-  high_level_summary: true
   review_status: true
   review_details: true
   path_filters:
     - "!go.sum"
   auto_review:
     enabled: true
-    base_branches: []
     drafts: true
     ignore_title_keywords:
       - "WIP"
