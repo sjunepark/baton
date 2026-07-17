@@ -1,4 +1,5 @@
 language: "en-US"
+inheritance: true
 reviews:
   profile: "assertive"
   request_changes_workflow: true
