@@ -10,7 +10,7 @@ merges, releases, or delivery.
 
 <!-- x-release-please-start-version -->
 ```sh
-go install github.com/sjunepark/baton/cmd/baton@v0.7.1
+go install github.com/sjunepark/baton/cmd/baton@v0.7.2
 ```
 <!-- x-release-please-end -->
 
